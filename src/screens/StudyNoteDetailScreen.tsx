@@ -526,25 +526,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                             const isChosen = chosenIndex === optIndex;
                             const isTheRightAnswer = optIndex === q.correctIndex;
 
-                            let optStyle = styles.optionBtn;
-                            let textStyle = styles.optionText;
-
-                            if (isAnswered) {
-                              if (isTheRightAnswer) {
-                                optStyle = styles.optionBtnCorrect;
-                                textStyle = styles.optionTextCorrect;
-                              } else if (isChosen && !isTheRightAnswer) {
-                                optStyle = styles.optionBtnWrong;
-                                textStyle = styles.optionTextWrong;
-                              }
-                            } else if (isChosen) {
-                              optStyle = styles.optionBtnSelected;
-                            }
-
                             return (
                               <TouchableOpacity
                                 key={optIndex}
-                                style={optStyle}
+                                style={[
+                                  styles.optionBtn,
+                                  isChosen && styles.optionBtnSelected,
+                                  isAnswered && isTheRightAnswer && styles.optionBtnCorrect,
+                                  isAnswered && isChosen && !isTheRightAnswer && styles.optionBtnWrong,
+                                ]}
                                 onPress={() => handleSelectQuizOption(qIndex, optIndex)}
                                 activeOpacity={0.7}
                               >
@@ -553,7 +543,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                                     {String.fromCharCode(65 + optIndex)}
                                   </Text>
                                 </View>
-                                <Text style={textStyle}>{opt}</Text>
+                                <Text
+                                  style={[
+                                    styles.optionText,
+                                    isAnswered && isTheRightAnswer && styles.optionTextCorrect,
+                                    isAnswered && isChosen && !isTheRightAnswer && styles.optionTextWrong,
+                                  ]}
+                                >
+                                  {opt}
+                                </Text>
                                 {isAnswered && isTheRightAnswer && (
                                   <Ionicons name="checkmark-circle" size={16} color="#34D399" style={{ marginLeft: 'auto' }} />
                                 )}
