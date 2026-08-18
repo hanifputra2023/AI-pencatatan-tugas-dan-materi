@@ -2137,6 +2137,20 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 12,
   },
+  badgeKpi: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#2B4066',
+  },
+  badgeKpiText: {
+    color: '#60A5FA',
+    fontSize: 10,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
   /* Google Gemini API Key Management Styles */
   apiKeyInputRow: {
     flexDirection: 'row',
