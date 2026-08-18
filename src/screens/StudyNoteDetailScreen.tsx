@@ -320,12 +320,8 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
   return (
     <SafeAreaView style={styles.container}>
 
-      {/* Top Header Navigation & Mode Switcher */}
+      {/* Top Header Mode Switcher */}
       <View style={styles.topHeader}>
-        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={20} color="#F3F4F6" />
-        </TouchableOpacity>
-
         {/* Segmented Mode Switcher */}
         <View style={styles.segmentedWrap}>
           <TouchableOpacity
