@@ -43,11 +43,18 @@ export type TabParamList = {
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
+import { useResponsive } from '../hooks/useResponsive';
+
 function MainTabs() {
+  const { isSmallPhone, isDesktop, isTablet } = useResponsive();
+
+  const iconSize = isSmallPhone ? 17 : (isDesktop || isTablet) ? 20 : 18;
+  const labelFontSize = isSmallPhone ? 9 : (isDesktop || isTablet) ? 11.5 : 10;
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color, size }) => {
+        tabBarIcon: ({ focused, color }) => {
           const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
             Home:     focused ? 'grid' : 'grid-outline',
             Chat:     focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline',
@@ -56,7 +63,7 @@ function MainTabs() {
             Calendar: focused ? 'calendar' : 'calendar-outline',
             Profile:  focused ? 'person' : 'person-outline',
           };
-          return <Ionicons name={icons[route.name]} size={19} color={color} />;
+          return <Ionicons name={icons[route.name]} size={iconSize} color={color} />;
         },
         tabBarActiveTintColor: '#FFFFFF',
         tabBarInactiveTintColor: '#5A6578',
@@ -64,23 +71,28 @@ function MainTabs() {
           backgroundColor: '#11141C',
           borderTopColor: '#1E2430',
           borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? 14 : 8,
-          paddingTop: 8,
-          height: Platform.OS === 'ios' ? 70 : 62,
+          paddingBottom: Platform.OS === 'ios' ? (isSmallPhone ? 10 : 14) : 8,
+          paddingTop: isSmallPhone ? 6 : 8,
+          height: Platform.OS === 'ios' ? (isSmallPhone ? 64 : 70) : (isSmallPhone ? 58 : 62),
+          ...(isDesktop ? { maxWidth: 960, width: '100%', alignSelf: 'center' } : {}),
         },
         tabBarLabelStyle: {
-          fontSize: 10.5,
+          fontSize: labelFontSize,
           fontWeight: '600',
-          marginTop: 2,
+          marginTop: isSmallPhone ? 1 : 2,
+          letterSpacing: isSmallPhone ? -0.3 : 0,
+        },
+        tabBarItemStyle: {
+          paddingHorizontal: isSmallPhone ? 1 : 4,
         },
         headerShown: false,
       })}
     >
       <Tab.Screen name="Home"     component={HomeScreen}       options={{ title: 'Beranda' }} />
-      <Tab.Screen name="Chat"     component={ChatScreen}       options={{ title: 'Teman Cerita' }} />
-      <Tab.Screen name="Study"    component={StudyNotesScreen} options={{ title: 'Kuliah & Tugas' }} />
+      <Tab.Screen name="Chat"     component={ChatScreen}       options={{ title: isSmallPhone ? 'Curhat' : 'Teman Cerita' }} />
+      <Tab.Screen name="Study"    component={StudyNotesScreen} options={{ title: isSmallPhone ? 'Kuliah' : 'Kuliah & Tugas' }} />
       <Tab.Screen name="Journal"  component={JournalScreen}    options={{ title: 'Jurnal' }} />
-      <Tab.Screen name="Calendar" component={CalendarScreen}   options={{ title: 'Statistik' }} />
+      <Tab.Screen name="Calendar" component={CalendarScreen}   options={{ title: isSmallPhone ? 'Stat' : 'Statistik' }} />
       <Tab.Screen name="Profile"  component={ProfileScreen}    options={{ title: 'Akun' }} />
 
       {/* Secondary & Detail Screens - Keeps Bottom Navigation Bar Persistent & Accessible */}
