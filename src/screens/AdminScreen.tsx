@@ -872,9 +872,9 @@ export default function AdminScreen() {
                   <Text style={styles.inputLabel}>Versi AI Model:</Text>
                   <View style={styles.paramChipsRow}>
                     {[
-                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Tercepat & Cerdas)' },
-                      { id: 'gemini-1.5-pro', label: 'Gemini 1.5 Pro (Penalaran Kompleks)' },
-                      { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash' },
+                      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Rekomendasi Google 2026)' },
+                      { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite (Super Cepat)' },
+                      { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Legacy)' },
                     ].map(m => (
                       <TouchableOpacity
                         key={m.id}

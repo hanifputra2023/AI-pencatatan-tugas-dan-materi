@@ -40,44 +40,51 @@ export const getGeminiApiKeysPool = (): string[] => {
   return pool.filter(k => k && k.trim() !== '');
 };
 
+// Candidate models in order of Google's latest availability & speed
+const ACTIVE_MODELS = [
+  'gemini-3.6-flash',         // Google's latest primary generation model (Recommended by Google)
+  'gemini-flash-lite-latest', // Fast, low queue, always reliable
+  'gemini-2.5-flash-lite',    // Lightweight fast tier
+  'gemini-2.5-flash',         // Intelligence tier
+  'gemini-1.5-flash',         // Standard stable legacy fallback
+  'gemma-4-31b-it',           // Open-weights Gemma model
+];
+
 export const testGeminiApiKey = async (key: string): Promise<{ success: boolean; message: string; latency?: number }> => {
   const testKey = key.trim();
   if (!testKey) {
     return { success: false, message: 'Kunci API kosong. Masukkan API Key Gemini kamu.' };
   }
   const startTime = Date.now();
-  try {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${testKey}`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ role: 'user', parts: [{ text: 'Ping test. Jawab "OK"' }] }],
-      }),
-    });
-    const latency = Date.now() - startTime;
-    if (res.ok) {
-      const data = await res.json();
-      const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'OK';
-      return { success: true, message: `Koneksi Berhasil! Respon (${latency}ms): "${reply.trim()}"`, latency };
-    } else {
-      const err = await res.json().catch(() => ({}));
-      const msg = err?.error?.message || `HTTP ${res.status}`;
-      return { success: false, message: `Koneksi Gagal (${msg})`, latency };
-    }
-  } catch (e: any) {
-    return { success: false, message: e.message || 'Gagal menghubungi server Gemini.' };
-  }
-};
+  let lastErr = '';
 
-// Candidate models in order of resilience and speed (verified endpoints)
-const ACTIVE_MODELS = [
-  'gemini-flash-lite-latest', // Fast, low queue, always reliable (200 OK)
-  'gemini-2.5-flash',         // High intelligence (200 OK)
-  'gemini-3.5-flash',         // Backup tier 1 (200 OK)
-  'gemini-3.6-flash',         // Backup tier 2 (200 OK)
-  'gemma-4-31b-it',           // Open-weights Gemma model (200 OK)
-];
+  for (const model of ACTIVE_MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${testKey}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          contents: [{ role: 'user', parts: [{ text: 'Ping test. Jawab "OK"' }] }],
+        }),
+      });
+      const latency = Date.now() - startTime;
+      if (res.ok) {
+        const data = await res.json();
+        const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'OK';
+        return { success: true, message: `Koneksi Berhasil! Model [${model}] merespon (${latency}ms): "${reply.trim()}"`, latency };
+      } else {
+        const err = await res.json().catch(() => ({}));
+        lastErr = err?.error?.message || `HTTP ${res.status}`;
+      }
+    } catch (e: any) {
+      lastErr = e.message || 'Gagal menghubungi server Gemini.';
+    }
+  }
+
+  const latency = Date.now() - startTime;
+  return { success: false, message: `Koneksi Gagal (${lastErr})`, latency };
+};
 
 const DEFAULT_SYSTEM_INSTRUCTION = `Kamu adalah "Ara", seorang sahabat dan teman curhat AI yang sangat hangat, empatik, pengertian, dan penuh perhatian.
 Bahasa yang kamu gunakan adalah Bahasa Indonesia yang luwes, santai, dan akrab layaknya sahabat dekat seumuran.
