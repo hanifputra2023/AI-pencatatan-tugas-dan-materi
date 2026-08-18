@@ -44,6 +44,7 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
 import { useResponsive } from '../hooks/useResponsive';
+import DesktopHeader from '../components/DesktopHeader';
 
 function MainTabs() {
   const { isSmallPhone, isDesktop, isTablet } = useResponsive();
@@ -52,42 +53,43 @@ function MainTabs() {
   const labelFontSize = isSmallPhone ? 9 : (isDesktop || isTablet) ? 11.5 : 10;
 
   return (
-    <Tab.Navigator
-      screenOptions={({ route }) => ({
-        tabBarIcon: ({ focused, color }) => {
-          const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
-            Home:     focused ? 'grid' : 'grid-outline',
-            Chat:     focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline',
-            Study:    focused ? 'school' : 'school-outline',
-            Journal:  focused ? 'book' : 'book-outline',
-            Calendar: focused ? 'calendar' : 'calendar-outline',
-            Profile:  focused ? 'person' : 'person-outline',
-          };
-          return <Ionicons name={icons[route.name]} size={iconSize} color={color} />;
-        },
-        tabBarActiveTintColor: '#FFFFFF',
-        tabBarInactiveTintColor: '#5A6578',
-        tabBarStyle: {
-          backgroundColor: '#11141C',
-          borderTopColor: '#1E2430',
-          borderTopWidth: 1,
-          paddingBottom: Platform.OS === 'ios' ? (isSmallPhone ? 10 : 14) : 8,
-          paddingTop: isSmallPhone ? 6 : 8,
-          height: Platform.OS === 'ios' ? (isSmallPhone ? 64 : 70) : (isSmallPhone ? 58 : 62),
-          ...(isDesktop ? { maxWidth: 960, width: '100%', alignSelf: 'center' } : {}),
-        },
-        tabBarLabelStyle: {
-          fontSize: labelFontSize,
-          fontWeight: '600',
-          marginTop: isSmallPhone ? 1 : 2,
-          letterSpacing: isSmallPhone ? -0.3 : 0,
-        },
-        tabBarItemStyle: {
-          paddingHorizontal: isSmallPhone ? 1 : 4,
-        },
-        headerShown: false,
-      })}
-    >
+    <View style={{ flex: 1, backgroundColor: '#0E1117' }}>
+      {isDesktop && <DesktopHeader />}
+      <Tab.Navigator
+        screenOptions={({ route }) => ({
+          tabBarIcon: ({ focused, color }) => {
+            const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
+              Home:     focused ? 'grid' : 'grid-outline',
+              Chat:     focused ? 'chatbubble-ellipses' : 'chatbubble-ellipses-outline',
+              Study:    focused ? 'school' : 'school-outline',
+              Journal:  focused ? 'book' : 'book-outline',
+              Calendar: focused ? 'calendar' : 'calendar-outline',
+              Profile:  focused ? 'person' : 'person-outline',
+            };
+            return <Ionicons name={icons[route.name]} size={iconSize} color={color} />;
+          },
+          tabBarActiveTintColor: '#FFFFFF',
+          tabBarInactiveTintColor: '#5A6578',
+          tabBarStyle: isDesktop ? { display: 'none' } : {
+            backgroundColor: '#11141C',
+            borderTopColor: '#1E2430',
+            borderTopWidth: 1,
+            paddingBottom: Platform.OS === 'ios' ? (isSmallPhone ? 10 : 14) : 8,
+            paddingTop: isSmallPhone ? 6 : 8,
+            height: Platform.OS === 'ios' ? (isSmallPhone ? 64 : 70) : (isSmallPhone ? 58 : 62),
+          },
+          tabBarLabelStyle: {
+            fontSize: labelFontSize,
+            fontWeight: '600',
+            marginTop: isSmallPhone ? 1 : 2,
+            letterSpacing: isSmallPhone ? -0.3 : 0,
+          },
+          tabBarItemStyle: {
+            paddingHorizontal: isSmallPhone ? 1 : 4,
+          },
+          headerShown: false,
+        })}
+      >
       <Tab.Screen name="Home"     component={HomeScreen}       options={{ title: 'Beranda' }} />
       <Tab.Screen name="Chat"     component={ChatScreen}       options={{ title: isSmallPhone ? 'Curhat' : 'Teman Cerita' }} />
       <Tab.Screen name="Study"    component={StudyNotesScreen} options={{ title: isSmallPhone ? 'Kuliah' : 'Kuliah & Tugas' }} />
@@ -124,6 +126,7 @@ function MainTabs() {
         }}
       />
     </Tab.Navigator>
+    </View>
   );
 }
 
