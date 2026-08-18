@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
 import { supabase } from '../lib/supabase';
-import { sendMessageToGemini } from '../lib/gemini';
+import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey } from '../lib/gemini';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 
@@ -69,6 +69,7 @@ export default function AdminScreen() {
     aiPersona, updateAiPersona,
     aiBotName, updateAiBotName,
     globalAnnouncement, updateGlobalAnnouncement,
+    geminiApiKey, updateGeminiApiKey,
     appSettings, updateSetting,
   } = useMoods();
 
@@ -83,6 +84,13 @@ export default function AdminScreen() {
   const [newLabel, setNewLabel] = useState('');
   const [newColor, setNewColor] = useState('#3B82F6');
   const [editingKey, setEditingKey] = useState<string | null>(null);
+
+  // Google Gemini API Key Management State
+  const [apiKeyInput, setApiKeyInput] = useState(geminiApiKey || '');
+  const [showApiKey, setShowApiKey] = useState(false);
+  const [testingApiKey, setTestingApiKey] = useState(false);
+  const [apiKeyTestResult, setApiKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [savingApiKey, setSavingApiKey] = useState(false);
 
   // AI Configuration State
   const [botNameInput, setBotNameInput] = useState(aiBotName || 'Ara');
@@ -292,6 +300,41 @@ export default function AdminScreen() {
   };
 
   // -------------------------------------------------------------
+  // Gemini API Key Handlers
+  // -------------------------------------------------------------
+  const handleSaveApiKey = async () => {
+    if (!apiKeyInput.trim()) {
+      showAlert('Peringatan', 'Kunci API tidak boleh kosong.');
+      return;
+    }
+    setSavingApiKey(true);
+    try {
+      setInMemoryApiKey(apiKeyInput.trim());
+      await updateGeminiApiKey(apiKeyInput.trim());
+      showAlert('Berhasil', 'Google Gemini API Key berhasil disimpan dan aktif secara instan di seluruh aplikasi!');
+    } catch (e) {
+      showAlert('Gagal', 'Gagal menyimpan API Key ke database.');
+    } finally {
+      setSavingApiKey(false);
+    }
+  };
+
+  const handleTestApiKeyConnection = async () => {
+    if (!apiKeyInput.trim()) {
+      showAlert('Peringatan', 'Masukkan API Key terlebih dahulu sebelum menguji koneksi.');
+      return;
+    }
+    setTestingApiKey(true);
+    setApiKeyTestResult(null);
+    try {
+      const res = await testGeminiApiKey(apiKeyInput.trim());
+      setApiKeyTestResult(res);
+    } catch (e: any) {
+      setApiKeyTestResult({ success: false, message: e.message || 'Koneksi gagal.' });
+    } finally {
+      setTestingApiKey(false);
+    }
+  };
   // Feature Flags Handlers
   // -------------------------------------------------------------
   const handleSaveFeatureFlags = async () => {
@@ -646,7 +689,92 @@ export default function AdminScreen() {
             {/* ========================================================================= */}
             {activeTab === 'ai' && (
               <View style={styles.tabContent}>
-                
+
+                {/* Google Gemini API Key Management Card */}
+                <View style={styles.card}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="key" size={18} color="#FBBF24" />
+                      <Text style={styles.cardTitle}>Kunci API Google Gemini (AI Engine)</Text>
+                    </View>
+                    <View style={styles.badgeKpi}>
+                      <Text style={styles.badgeKpiText}>MASTER API</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.cardSub}>
+                    Atur Google Gemini API Key untuk seluruh aplikasi. Dapatkan API Key gratis di Google AI Studio (aistudio.google.com).
+                  </Text>
+
+                  <Text style={styles.inputLabel}>Google Gemini API Key:</Text>
+                  <View style={styles.apiKeyInputRow}>
+                    <TextInput
+                      style={styles.apiKeyInput}
+                      value={apiKeyInput}
+                      onChangeText={t => {
+                        setApiKeyInput(t);
+                        setApiKeyTestResult(null);
+                      }}
+                      placeholder="Masukkan AIzaSy... atau Gemini API Key"
+                      placeholderTextColor="#4B5565"
+                      secureTextEntry={!showApiKey}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeBtn}
+                      onPress={() => setShowApiKey(!showApiKey)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name={showApiKey ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {apiKeyTestResult && (
+                    <View style={[styles.apiResultBox, apiKeyTestResult.success ? styles.apiResultSuccess : styles.apiResultError]}>
+                      <Ionicons
+                        name={apiKeyTestResult.success ? 'checkmark-circle' : 'alert-circle'}
+                        size={16}
+                        color={apiKeyTestResult.success ? '#34D399' : '#F87171'}
+                      />
+                      <Text style={[styles.apiResultText, apiKeyTestResult.success ? styles.apiResultTextSuccess : styles.apiResultTextError]}>
+                        {apiKeyTestResult.message}
+                      </Text>
+                    </View>
+                  )}
+
+                  <View style={styles.apiKeyActionRow}>
+                    <TouchableOpacity
+                      style={styles.testApiKeyBtn}
+                      onPress={handleTestApiKeyConnection}
+                      disabled={testingApiKey || !apiKeyInput.trim()}
+                    >
+                      {testingApiKey ? (
+                        <ActivityIndicator color="#60A5FA" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="flash" size={15} color="#60A5FA" />
+                          <Text style={styles.testApiKeyText}>Uji Koneksi API Key</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={styles.saveApiKeyBtn}
+                      onPress={handleSaveApiKey}
+                      disabled={savingApiKey}
+                    >
+                      {savingApiKey ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="save" size={15} color="#FFFFFF" />
+                          <Text style={styles.saveApiKeyText}>Simpan API Key</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
                 {/* Parameters Card */}
                 <View style={styles.card}>
                   <Text style={styles.cardTitle}>Parameter Model & Personalisasi AI</Text>
@@ -2008,5 +2136,96 @@ const styles = StyleSheet.create({
   emptyText: {
     color: '#6B7280',
     fontSize: 12,
+  },
+  /* Google Gemini API Key Management Styles */
+  apiKeyInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0E1117',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#202634',
+    paddingHorizontal: 12,
+    marginBottom: 10,
+  },
+  apiKeyInput: {
+    flex: 1,
+    color: '#F3F4F6',
+    fontSize: 13,
+    paddingVertical: 10,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  eyeBtn: {
+    padding: 6,
+  },
+  apiResultBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    marginBottom: 12,
+    borderWidth: 1,
+  },
+  apiResultSuccess: {
+    backgroundColor: '#0D281E',
+    borderColor: '#195B42',
+  },
+  apiResultError: {
+    backgroundColor: '#261214',
+    borderColor: '#592026',
+  },
+  apiResultText: {
+    fontSize: 12,
+    flex: 1,
+    lineHeight: 17,
+  },
+  apiResultTextSuccess: {
+    color: '#34D399',
+  },
+  apiResultTextError: {
+    color: '#F87171',
+  },
+  apiKeyActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    flexWrap: 'wrap',
+  },
+  testApiKeyBtn: {
+    flex: 1,
+    minWidth: 160,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#16233B',
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#253856',
+  },
+  testApiKeyText: {
+    color: '#60A5FA',
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  saveApiKeyBtn: {
+    flex: 1,
+    minWidth: 160,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#2563EB',
+    borderRadius: 10,
+    paddingVertical: 11,
+    paddingHorizontal: 14,
+  },
+  saveApiKeyText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '600',
   },
 });

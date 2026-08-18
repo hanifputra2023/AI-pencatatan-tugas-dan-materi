@@ -1,4 +1,5 @@
-import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { MoodOption, MOOD_OPTIONS as DEFAULT_MOOD_OPTIONS } from '../types';
 
@@ -15,6 +16,8 @@ interface MoodContextType {
   updateAiBotName: (name: string) => Promise<void>;
   globalAnnouncement: string;
   updateGlobalAnnouncement: (text: string) => Promise<void>;
+  geminiApiKey: string;
+  updateGeminiApiKey: (key: string) => Promise<void>;
   appSettings: Record<string, string>;
   updateSetting: (key: string, value: string) => Promise<void>;
 }
@@ -32,6 +35,8 @@ const MoodContext = createContext<MoodContextType>({
   updateAiBotName: async () => {},
   globalAnnouncement: '',
   updateGlobalAnnouncement: async () => {},
+  geminiApiKey: '',
+  updateGeminiApiKey: async () => {},
   appSettings: {},
   updateSetting: async () => {},
 });
@@ -41,11 +46,18 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const [aiPersona, setAiPersona] = useState<string>('');
   const [aiBotName, setAiBotName] = useState<string>('Ara');
   const [globalAnnouncement, setGlobalAnnouncement] = useState<string>('');
+  const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [appSettings, setAppSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const fetchMoodsAndSettings = useCallback(async () => {
     try {
+      // 1. Check local storage cache for instant offline responsiveness
+      const cachedApiKey = await AsyncStorage.getItem('@gemini_api_key');
+      if (cachedApiKey) {
+        setGeminiApiKey(cachedApiKey);
+      }
+
       const [moodsRes, settingsRes] = await Promise.all([
         supabase.from('app_moods').select('*').order('created_at', { ascending: true }),
         supabase.from('app_settings').select('*'),
@@ -71,6 +83,10 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
           map[item.key] = item.value;
           if (item.key === 'ai_persona') setAiPersona(item.value);
           if (item.key === 'ai_bot_name') setAiBotName(item.value);
+          if (item.key === 'gemini_api_key') {
+            setGeminiApiKey(item.value || '');
+            AsyncStorage.setItem('@gemini_api_key', item.value || '');
+          }
           if (item.key === 'global_announcement') {
             setGlobalAnnouncement(item.value || '');
             foundAnnouncement = true;
@@ -156,7 +172,7 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const resetToDefaults = async () => {
     setMoods(DEFAULT_MOOD_OPTIONS);
     try {
-      await supabase.from('app_moods').delete().neq('id', '00000000-0000-0000-0000-000000000000');
+      await supabase.from('app_moods').delete().neq('type_key', '');
       const inserts = DEFAULT_MOOD_OPTIONS.map(m => ({
         type_key: m.type,
         emoji: m.emoji,
@@ -174,6 +190,10 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
     if (key === 'ai_persona') setAiPersona(value);
     if (key === 'ai_bot_name') setAiBotName(value);
     if (key === 'global_announcement') setGlobalAnnouncement(value);
+    if (key === 'gemini_api_key') {
+      setGeminiApiKey(value);
+      await AsyncStorage.setItem('@gemini_api_key', value);
+    }
 
     try {
       await supabase.from('app_settings').upsert({
@@ -197,6 +217,10 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
     await updateSetting('global_announcement', text);
   };
 
+  const updateGeminiApiKey = async (key: string) => {
+    await updateSetting('gemini_api_key', key);
+  };
+
   return (
     <MoodContext.Provider
       value={{
@@ -212,6 +236,8 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         updateAiBotName,
         globalAnnouncement,
         updateGlobalAnnouncement,
+        geminiApiKey,
+        updateGeminiApiKey,
         appSettings,
         updateSetting,
       }}
