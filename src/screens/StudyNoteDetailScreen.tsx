@@ -114,6 +114,36 @@ ${content}`;
     );
   };
 
+// Helper to safely extract and parse JSON from AI response even if wrapped in conversational text or markdown
+function extractJsonFromText<T>(text: string): T {
+  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {}
+
+  // Find outermost [ ... ]
+  const startArr = text.indexOf('[');
+  const endArr = text.lastIndexOf(']');
+  if (startArr !== -1 && endArr !== -1 && endArr > startArr) {
+    const arrStr = text.substring(startArr, endArr + 1);
+    try {
+      return JSON.parse(arrStr);
+    } catch (e) {}
+  }
+
+  // Find outermost { ... }
+  const startObj = text.indexOf('{');
+  const endObj = text.lastIndexOf('}');
+  if (startObj !== -1 && endObj !== -1 && endObj > startObj) {
+    const objStr = text.substring(startObj, endObj + 1);
+    try {
+      return JSON.parse(objStr);
+    } catch (e) {}
+  }
+
+  throw new Error('Respon AI tidak berformat JSON yang valid. Silakan coba klik Buat Kuis sekali lagi.');
+}
+
   // AI Feature 2: Generate Comprehensive Interactive Quiz (3, 5, or 10 Questions)
   const handleGenerateQuiz = async () => {
     if (!content.trim()) {
@@ -122,17 +152,16 @@ ${content}`;
     }
     setGeneratingQuiz(true);
     try {
-      const prompt = `Kamu adalah dosen penguji akademik universitas.
-Buatkan ${quizCount} soal kuis pilihan ganda akademik (4 opsi A, B, C, D) yang bervariasi dari tingkat pemahaman hingga analisis kasus berdasarkan materi kuliah ini.
+      const prompt = `Buatkan ${quizCount} soal kuis pilihan ganda akademik (4 opsi A, B, C, D) yang mendalam berdasarkan materi kuliah ini.
 Berikan opsi pengecoh yang masuk akal dan penjelasan mendalam untuk tiap jawaban yang benar.
 
-Format output HARUS HANYA berupa JSON valid murni tanpa markdown lain dengan format:
+Format output HARUS HANYA berupa JSON valid array murni:
 [
   {
     "question": "Pertanyaan soal",
     "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
     "correctIndex": 0,
-    "explanation": "Penjelasan ilmiah kenapa opsi ini benar"
+    "explanation": "Penjelasan kenapa opsi ini benar"
   }
 ]
 
@@ -140,9 +169,11 @@ Mata Kuliah: ${subject || 'Kuliah'}
 Materi Catatan:
 ${content}`;
 
-      const aiReply = await sendMessageToGemini([], prompt);
-      const cleanJson = aiReply.replace(/```json/g, '').replace(/```/g, '').trim();
-      const parsedQuiz: QuizQuestion[] = JSON.parse(cleanJson);
+      const academicSystemPrompt = `Kamu adalah mesin generator kuis akademik universitas.
+Output jawabanmu WAJIB HANYA berupa JSON array murni tanpa kata sapaan/pengantar (JANGAN gunakan "Wah, kamu...", "Tentu!"), tanpa teks penutup, dan tanpa pembungkus percakapan.`;
+
+      const aiReply = await sendMessageToGemini([], prompt, null, academicSystemPrompt);
+      const parsedQuiz: QuizQuestion[] = extractJsonFromText<QuizQuestion[]>(aiReply);
       setQuizData(parsedQuiz);
       setSelectedAnswers({});
       showAlert('Kuis Siap 🧠', `${parsedQuiz.length} soal latihan akademik telah dibuat. Uji pemahamanmu sekarang!`);
