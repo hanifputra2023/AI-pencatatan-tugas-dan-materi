@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback } fr
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { MoodOption, MOOD_OPTIONS as DEFAULT_MOOD_OPTIONS } from '../types';
+import { setInMemoryApiKeys } from '../lib/gemini';
 
 interface MoodContextType {
   moods: MoodOption[];
@@ -18,6 +19,8 @@ interface MoodContextType {
   updateGlobalAnnouncement: (text: string) => Promise<void>;
   geminiApiKey: string;
   updateGeminiApiKey: (key: string) => Promise<void>;
+  geminiApiKeys: string[];
+  updateGeminiApiKeys: (keys: string[]) => Promise<void>;
   appSettings: Record<string, string>;
   updateSetting: (key: string, value: string) => Promise<void>;
 }
@@ -37,6 +40,8 @@ const MoodContext = createContext<MoodContextType>({
   updateGlobalAnnouncement: async () => {},
   geminiApiKey: '',
   updateGeminiApiKey: async () => {},
+  geminiApiKeys: [],
+  updateGeminiApiKeys: async () => {},
   appSettings: {},
   updateSetting: async () => {},
 });
@@ -47,15 +52,23 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const [aiBotName, setAiBotName] = useState<string>('Ara');
   const [globalAnnouncement, setGlobalAnnouncement] = useState<string>('');
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
+  const [geminiApiKeys, setGeminiApiKeys] = useState<string[]>([]);
   const [appSettings, setAppSettings] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
 
   const fetchMoodsAndSettings = useCallback(async () => {
     try {
       // 1. Check local storage cache for instant offline responsiveness
-      const cachedApiKey = await AsyncStorage.getItem('@gemini_api_key');
-      if (cachedApiKey) {
-        setGeminiApiKey(cachedApiKey);
+      const cachedKeys = await AsyncStorage.getItem('@gemini_api_keys');
+      if (cachedKeys) {
+        try {
+          const parsed = JSON.parse(cachedKeys);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            setGeminiApiKeys(parsed);
+            setGeminiApiKey(parsed[0]);
+            setInMemoryApiKeys(parsed);
+          }
+        } catch (e) {}
       }
 
       const [moodsRes, settingsRes] = await Promise.all([
@@ -79,19 +92,36 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
       if (settingsRes.data && settingsRes.data.length > 0) {
         const map: Record<string, string> = {};
         let foundAnnouncement = false;
+        let poolFromDb: string[] = [];
+
         settingsRes.data.forEach(item => {
           map[item.key] = item.value;
           if (item.key === 'ai_persona') setAiPersona(item.value);
           if (item.key === 'ai_bot_name') setAiBotName(item.value);
-          if (item.key === 'gemini_api_key') {
-            setGeminiApiKey(item.value || '');
-            AsyncStorage.setItem('@gemini_api_key', item.value || '');
+          if (item.key === 'gemini_api_keys') {
+            try {
+              const parsed = JSON.parse(item.value);
+              if (Array.isArray(parsed)) {
+                poolFromDb = parsed.filter((k: string) => k && k.trim() !== '');
+              }
+            } catch (e) {}
+          }
+          if (item.key === 'gemini_api_key' && poolFromDb.length === 0) {
+            if (item.value) poolFromDb = [item.value];
           }
           if (item.key === 'global_announcement') {
             setGlobalAnnouncement(item.value || '');
             foundAnnouncement = true;
           }
         });
+
+        if (poolFromDb.length > 0) {
+          setGeminiApiKeys(poolFromDb);
+          setGeminiApiKey(poolFromDb[0]);
+          setInMemoryApiKeys(poolFromDb);
+          await AsyncStorage.setItem('@gemini_api_keys', JSON.stringify(poolFromDb));
+        }
+
         if (!foundAnnouncement) {
           setGlobalAnnouncement('');
         }
@@ -219,6 +249,22 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
 
   const updateGeminiApiKey = async (key: string) => {
     await updateSetting('gemini_api_key', key);
+    const updatedPool = [key, ...geminiApiKeys.filter(k => k !== key)];
+    await updateGeminiApiKeys(updatedPool);
+  };
+
+  const updateGeminiApiKeys = async (keys: string[]) => {
+    const cleanKeys = keys.filter(k => k && k.trim() !== '');
+    setGeminiApiKeys(cleanKeys);
+    if (cleanKeys.length > 0) {
+      setGeminiApiKey(cleanKeys[0]);
+    }
+    setInMemoryApiKeys(cleanKeys);
+    await AsyncStorage.setItem('@gemini_api_keys', JSON.stringify(cleanKeys));
+    await updateSetting('gemini_api_keys', JSON.stringify(cleanKeys));
+    if (cleanKeys.length > 0) {
+      await updateSetting('gemini_api_key', cleanKeys[0]);
+    }
   };
 
   return (
@@ -238,6 +284,8 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         updateGlobalAnnouncement,
         geminiApiKey,
         updateGeminiApiKey,
+        geminiApiKeys,
+        updateGeminiApiKeys,
         appSettings,
         updateSetting,
       }}

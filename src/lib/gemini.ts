@@ -1,33 +1,45 @@
-// Gemini AI Client with Multi-Model Fallback & Dynamic Admin API Key Management
+// Gemini AI Client with Multi-Key Pool Load-Balancing, Multi-Model Fallback & Smart Failover
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ChatAttachment } from '../types';
 
-let inMemoryApiKey = '';
+let inMemoryApiKeys: string[] = [];
 
-// Load initial cached key asynchronously
-AsyncStorage.getItem('@gemini_api_key').then(val => {
-  if (val) inMemoryApiKey = val;
+// Load initial cached keys asynchronously from AsyncStorage
+AsyncStorage.getItem('@gemini_api_keys').then(val => {
+  if (val) {
+    try {
+      const parsed = JSON.parse(val);
+      if (Array.isArray(parsed)) inMemoryApiKeys = parsed;
+    } catch (e) {}
+  }
+  if (inMemoryApiKeys.length === 0) {
+    AsyncStorage.getItem('@gemini_api_key').then(single => {
+      if (single) inMemoryApiKeys = [single];
+    });
+  }
 });
 
-export const setInMemoryApiKey = (key: string) => {
-  inMemoryApiKey = key;
+export const setInMemoryApiKeys = (keys: string[]) => {
+  inMemoryApiKeys = keys.filter(k => k && k.trim() !== '');
 };
 
-export const getGeminiApiKey = (): string => {
-  if (inMemoryApiKey && inMemoryApiKey.trim() !== '') {
-    return inMemoryApiKey.trim();
-  }
+export const getGeminiApiKeysPool = (): string[] => {
+  const pool = [...inMemoryApiKeys];
   if (process.env.EXPO_PUBLIC_GEMINI_API_KEY && process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim() !== '') {
-    return process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim();
+    const envKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim();
+    if (!pool.includes(envKey)) {
+      pool.push(envKey);
+    }
   }
-  return '';
+  return pool.filter(k => k && k.trim() !== '');
 };
 
-export const testGeminiApiKey = async (key: string): Promise<{ success: boolean; message: string }> => {
+export const testGeminiApiKey = async (key: string): Promise<{ success: boolean; message: string; latency?: number }> => {
   const testKey = key.trim();
   if (!testKey) {
     return { success: false, message: 'Kunci API kosong. Masukkan API Key Gemini kamu.' };
   }
+  const startTime = Date.now();
   try {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${testKey}`;
     const res = await fetch(url, {
@@ -37,21 +49,22 @@ export const testGeminiApiKey = async (key: string): Promise<{ success: boolean;
         contents: [{ role: 'user', parts: [{ text: 'Ping test. Jawab "OK"' }] }],
       }),
     });
+    const latency = Date.now() - startTime;
     if (res.ok) {
       const data = await res.json();
       const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'OK';
-      return { success: true, message: `Koneksi Berhasil! Google Gemini merespon: "${reply.trim()}"` };
+      return { success: true, message: `Koneksi Berhasil! Respon (${latency}ms): "${reply.trim()}"`, latency };
     } else {
       const err = await res.json().catch(() => ({}));
       const msg = err?.error?.message || `HTTP ${res.status}`;
-      return { success: false, message: `Koneksi Gagal (${msg})` };
+      return { success: false, message: `Koneksi Gagal (${msg})`, latency };
     }
   } catch (e: any) {
     return { success: false, message: e.message || 'Gagal menghubungi server Gemini.' };
   }
 };
 
-// Candidate models in order of resilience and speed (verified 200 OK endpoints)
+// Candidate models in order of resilience and speed (verified endpoints)
 const ACTIVE_MODELS = [
   'gemini-flash-lite-latest', // Fast, low queue, always reliable (200 OK)
   'gemini-2.5-flash',         // High intelligence (200 OK)
@@ -75,16 +88,12 @@ export interface GeminiMessage {
   parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
 }
 
-async function callSingleModel(
+async function callSingleModelWithKey(
+  apiKey: string,
   modelName: string,
   contents: GeminiMessage[],
   systemPrompt: string
 ): Promise<string> {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) {
-    throw new Error('API Key Google Gemini belum diatur di Panel Administrator. Buka menu Admin > Fine-Tuning AI untuk memasukkan API Key.');
-  }
-
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
   const requestBody = {
@@ -123,12 +132,20 @@ async function callSingleModel(
   return replyText;
 }
 
+// =========================================================================
+// MULTI-KEY & MULTI-MODEL SMART FAILOVER ROUTING ENGINE
+// =========================================================================
 export async function sendMessageToGemini(
   history: GeminiMessage[],
   newMessage: string,
   attachment?: ChatAttachment | null,
   customSystemInstruction?: string
 ): Promise<string> {
+  const keysPool = getGeminiApiKeysPool();
+  if (keysPool.length === 0) {
+    throw new Error('Belum ada API Key Gemini yang aktif. Buka Panel Administrator > Fine-Tuning AI untuk menambahkan API Key.');
+  }
+
   const userParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
   if (attachment && attachment.base64 && attachment.type === 'image') {
@@ -157,29 +174,47 @@ export async function sendMessageToGemini(
 
   const systemPrompt = customSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
 
-  // Try each verified active model in sequence with automatic fallback
   let lastError: any = null;
-  for (const model of ACTIVE_MODELS) {
-    try {
-      const reply = await callSingleModel(model, contents, systemPrompt);
-      return reply;
-    } catch (err: any) {
-      console.warn(`[AI Fallback] Model ${model} mengalami kendala (Status ${err.status || err.message}). Otomatis beralih ke model cadangan...`);
-      lastError = err;
-      // Brief pause before querying the next model
-      await new Promise(res => setTimeout(res, 300));
+
+  // 1. Iterate through each API Key in the Multi-Key Pool
+  for (let keyIdx = 0; keyIdx < keysPool.length; keyIdx++) {
+    const currentKey = keysPool[keyIdx];
+    const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
+
+    // 2. Iterate through candidate models for this key
+    for (const model of ACTIVE_MODELS) {
+      try {
+        const reply = await callSingleModelWithKey(currentKey, model, contents, systemPrompt);
+        return reply;
+      } catch (err: any) {
+        lastError = err;
+        const isQuotaOrAuthError =
+          err.status === 429 ||
+          err.status === 403 ||
+          err.status === 400 ||
+          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('credentials') || err.message.includes('unregistered')));
+
+        if (isQuotaOrAuthError) {
+          console.warn(`[Multi-Key Failover] Kunci #${keyIdx + 1} (${keyPreview}) limit/error (${err.message}). Beralih ke kunci berikutnya...`);
+          // Break model loop to immediately switch to next API Key in pool!
+          break;
+        }
+
+        console.warn(`[Model Failover] Model ${model} pada Kunci #${keyIdx + 1} sibuk (${err.message}). Mencoba model cadangan...`);
+        await new Promise(res => setTimeout(res, 250));
+      }
     }
   }
 
   throw new Error(
     lastError?.message ||
-    'Semua model AI sedang dalam antrean padat. Coba beberapa saat lagi ya!'
+    'Seluruh API Key di pool sedang dalam batas kuota / antrean padat. Coba beberapa saat lagi!'
   );
 }
 
 export async function getAIWisdom(mood: string, botName?: string): Promise<string> {
-  const apiKey = getGeminiApiKey();
-  if (!apiKey) {
+  const keysPool = getGeminiApiKeysPool();
+  if (keysPool.length === 0) {
     return 'Setiap langkah kecil membawamu lebih dekat ke impianmu. Tetap semangat hari ini!';
   }
 

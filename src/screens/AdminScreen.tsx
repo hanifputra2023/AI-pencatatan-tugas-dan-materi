@@ -70,6 +70,7 @@ export default function AdminScreen() {
     aiBotName, updateAiBotName,
     globalAnnouncement, updateGlobalAnnouncement,
     geminiApiKey, updateGeminiApiKey,
+    geminiApiKeys, updateGeminiApiKeys,
     appSettings, updateSetting,
   } = useMoods();
 
@@ -85,12 +86,13 @@ export default function AdminScreen() {
   const [newColor, setNewColor] = useState('#3B82F6');
   const [editingKey, setEditingKey] = useState<string | null>(null);
 
-  // Google Gemini API Key Management State
-  const [apiKeyInput, setApiKeyInput] = useState(geminiApiKey || '');
-  const [showApiKey, setShowApiKey] = useState(false);
-  const [testingApiKey, setTestingApiKey] = useState(false);
-  const [apiKeyTestResult, setApiKeyTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [savingApiKey, setSavingApiKey] = useState(false);
+  // Multi-Key Pool & Fallback Routing State
+  const [keysPool, setKeysPool] = useState<string[]>(geminiApiKeys && geminiApiKeys.length > 0 ? geminiApiKeys : (geminiApiKey ? [geminiApiKey] : []));
+  const [newKeyInput, setNewKeyInput] = useState('');
+  const [showNewKey, setShowNewKey] = useState(false);
+  const [testingKeyIdx, setTestingKeyIdx] = useState<number | null>(null);
+  const [keyTestResults, setKeyTestResults] = useState<Record<number, { success: boolean; message: string; latency?: number }>>({});
+  const [savingKeysPool, setSavingKeysPool] = useState(false);
 
   // AI Configuration State
   const [botNameInput, setBotNameInput] = useState(aiBotName || 'Ara');
@@ -300,39 +302,63 @@ export default function AdminScreen() {
   };
 
   // -------------------------------------------------------------
-  // Gemini API Key Handlers
+  // Multi-Key Pool & Fallback Handlers
   // -------------------------------------------------------------
-  const handleSaveApiKey = async () => {
-    if (!apiKeyInput.trim()) {
-      showAlert('Peringatan', 'Kunci API tidak boleh kosong.');
+  const handleAddKeyToPool = () => {
+    const trimmed = newKeyInput.trim();
+    if (!trimmed) {
+      showAlert('Peringatan', 'Masukkan string API Key sebelum menambahkan.');
       return;
     }
-    setSavingApiKey(true);
+    if (keysPool.includes(trimmed)) {
+      showAlert('Sudah Terdaftar', 'API Key ini sudah ada di dalam pool.');
+      return;
+    }
+    const updated = [...keysPool, trimmed];
+    setKeysPool(updated);
+    setNewKeyInput('');
+  };
+
+  const handleRemoveKeyFromPool = (index: number) => {
+    confirmAction(
+      'Hapus Kunci API?',
+      `Kunci #${index + 1} akan dihapus dari pool routing.`,
+      () => {
+        const updated = keysPool.filter((_, i) => i !== index);
+        setKeysPool(updated);
+        const updatedResults = { ...keyTestResults };
+        delete updatedResults[index];
+        setKeyTestResults(updatedResults);
+      },
+      'Hapus'
+    );
+  };
+
+  const handleTestKeyInPool = async (key: string, index: number) => {
+    setTestingKeyIdx(index);
     try {
-      setInMemoryApiKey(apiKeyInput.trim());
-      await updateGeminiApiKey(apiKeyInput.trim());
-      showAlert('Berhasil', 'Google Gemini API Key berhasil disimpan dan aktif secara instan di seluruh aplikasi!');
-    } catch (e) {
-      showAlert('Gagal', 'Gagal menyimpan API Key ke database.');
+      const res = await testGeminiApiKey(key);
+      setKeyTestResults(prev => ({ ...prev, [index]: res }));
+    } catch (e: any) {
+      setKeyTestResults(prev => ({ ...prev, [index]: { success: false, message: e.message || 'Koneksi gagal' } }));
     } finally {
-      setSavingApiKey(false);
+      setTestingKeyIdx(null);
     }
   };
 
-  const handleTestApiKeyConnection = async () => {
-    if (!apiKeyInput.trim()) {
-      showAlert('Peringatan', 'Masukkan API Key terlebih dahulu sebelum menguji koneksi.');
+  const handleSaveAllKeysPool = async () => {
+    if (keysPool.length === 0) {
+      showAlert('Peringatan', 'Pool kunci tidak boleh kosong. Tambahkan minimal 1 API Key.');
       return;
     }
-    setTestingApiKey(true);
-    setApiKeyTestResult(null);
+    setSavingKeysPool(true);
     try {
-      const res = await testGeminiApiKey(apiKeyInput.trim());
-      setApiKeyTestResult(res);
-    } catch (e: any) {
-      setApiKeyTestResult({ success: false, message: e.message || 'Koneksi gagal.' });
+      await updateGeminiApiKeys(keysPool);
+      showAlert('Berhasil', `Total ${keysPool.length} Kunci API berhasil disimpan! Multi-Key Fallback Routing & Load Balancing aktif secara instan.`);
+    } catch (e) {
+      showAlert('Gagal', 'Gagal menyimpan pool kunci ke database.');
     } finally {
-      setTestingApiKey(false);
+      setSavingKeysPool(false);
     }
   };
   // Feature Flags Handlers
@@ -690,89 +716,139 @@ export default function AdminScreen() {
             {activeTab === 'ai' && (
               <View style={styles.tabContent}>
 
-                {/* Google Gemini API Key Management Card */}
+                {/* Multi-Key Pool & Fallback Routing Studio Card */}
                 <View style={styles.card}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Ionicons name="key" size={18} color="#FBBF24" />
-                      <Text style={styles.cardTitle}>Kunci API Google Gemini (AI Engine)</Text>
+                      <Ionicons name="layers" size={18} color="#FBBF24" />
+                      <Text style={styles.cardTitle}>Multi-Key Pool & Fallback Routing</Text>
                     </View>
                     <View style={styles.badgeKpi}>
-                      <Text style={styles.badgeKpiText}>MASTER API</Text>
+                      <Text style={styles.badgeKpiText}>FAILOVER ACTIVE</Text>
                     </View>
                   </View>
                   <Text style={styles.cardSub}>
-                    Atur Google Gemini API Key untuk seluruh aplikasi. Dapatkan API Key gratis di Google AI Studio (aistudio.google.com).
+                    Tambahkan beberapa API Key Gemini ke dalam Pool. Jika satu kunci terkena batas kuota (15 RPM / Rate Limit), sistem otomatis beralih ke kunci berikutnya tanpa membuat user error!
                   </Text>
 
-                  <Text style={styles.inputLabel}>Google Gemini API Key:</Text>
+                  {/* Add New Key Input Row */}
+                  <Text style={styles.inputLabel}>Tambah Kunci API Baru ke Pool:</Text>
                   <View style={styles.apiKeyInputRow}>
                     <TextInput
                       style={styles.apiKeyInput}
-                      value={apiKeyInput}
-                      onChangeText={t => {
-                        setApiKeyInput(t);
-                        setApiKeyTestResult(null);
-                      }}
-                      placeholder="Masukkan AIzaSy... atau Gemini API Key"
+                      value={newKeyInput}
+                      onChangeText={setNewKeyInput}
+                      placeholder="Tempel AIzaSy... (Gemini API Key)"
                       placeholderTextColor="#4B5565"
-                      secureTextEntry={!showApiKey}
+                      secureTextEntry={!showNewKey}
                       autoCapitalize="none"
                       autoCorrect={false}
                     />
                     <TouchableOpacity
                       style={styles.eyeBtn}
-                      onPress={() => setShowApiKey(!showApiKey)}
+                      onPress={() => setShowNewKey(!showNewKey)}
                       hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                     >
-                      <Ionicons name={showApiKey ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                      <Ionicons name={showNewKey ? 'eye-off' : 'eye'} size={18} color="#9CA3AF" />
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.addKeyToPoolBtn}
+                      onPress={handleAddKeyToPool}
+                      disabled={!newKeyInput.trim()}
+                    >
+                      <Ionicons name="add-circle" size={16} color="#FFFFFF" />
+                      <Text style={styles.addKeyToPoolText}>Tambah</Text>
                     </TouchableOpacity>
                   </View>
 
-                  {apiKeyTestResult && (
-                    <View style={[styles.apiResultBox, apiKeyTestResult.success ? styles.apiResultSuccess : styles.apiResultError]}>
-                      <Ionicons
-                        name={apiKeyTestResult.success ? 'checkmark-circle' : 'alert-circle'}
-                        size={16}
-                        color={apiKeyTestResult.success ? '#34D399' : '#F87171'}
-                      />
-                      <Text style={[styles.apiResultText, apiKeyTestResult.success ? styles.apiResultTextSuccess : styles.apiResultTextError]}>
-                        {apiKeyTestResult.message}
-                      </Text>
+                  {/* Registered Keys List in Pool */}
+                  <Text style={[styles.inputLabel, { marginTop: 12 }]}>
+                    Daftar Kunci Aktif di Routing Pool ({keysPool.length} Kunci Terdaftar):
+                  </Text>
+
+                  {keysPool.length === 0 ? (
+                    <View style={styles.emptyPoolBox}>
+                      <Ionicons name="alert-circle-outline" size={24} color="#6B7280" />
+                      <Text style={styles.emptyPoolText}>Belum ada API Key di pool. Tambahkan minimal 1 API Key di atas.</Text>
+                    </View>
+                  ) : (
+                    <View style={styles.keyPoolList}>
+                      {keysPool.map((k, idx) => {
+                        const isTesting = testingKeyIdx === idx;
+                        const result = keyTestResults[idx];
+                        const preview = k.substring(0, 10) + '••••••••' + k.substring(k.length - 4);
+                        return (
+                          <View key={`${k}-${idx}`} style={styles.keyItemCard}>
+                            <View style={styles.keyItemTop}>
+                              <View style={styles.keyIndexWrap}>
+                                <View style={[styles.keyIndexBadge, idx === 0 && styles.keyIndexBadgePrimary]}>
+                                  <Text style={[styles.keyIndexText, idx === 0 && styles.keyIndexTextPrimary]}>
+                                    {idx === 0 ? 'UTAMA #1' : `CADANGAN #${idx + 1}`}
+                                  </Text>
+                                </View>
+                                <Text style={styles.keyPreviewText}>{preview}</Text>
+                              </View>
+
+                              <View style={styles.keyItemActions}>
+                                <TouchableOpacity
+                                  style={styles.testSmallBtn}
+                                  onPress={() => handleTestKeyInPool(k, idx)}
+                                  disabled={isTesting}
+                                >
+                                  {isTesting ? (
+                                    <ActivityIndicator size="small" color="#60A5FA" />
+                                  ) : (
+                                    <>
+                                      <Ionicons name="flash" size={12} color="#60A5FA" />
+                                      <Text style={styles.testSmallText}>Uji</Text>
+                                    </>
+                                  )}
+                                </TouchableOpacity>
+
+                                <TouchableOpacity
+                                  style={styles.deleteSmallBtn}
+                                  onPress={() => handleRemoveKeyFromPool(idx)}
+                                >
+                                  <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                                </TouchableOpacity>
+                              </View>
+                            </View>
+
+                            {result && (
+                              <View style={[styles.keyItemResultBox, result.success ? styles.apiResultSuccess : styles.apiResultError]}>
+                                <Ionicons
+                                  name={result.success ? 'checkmark-circle' : 'alert-circle'}
+                                  size={13}
+                                  color={result.success ? '#34D399' : '#F87171'}
+                                />
+                                <Text style={[styles.keyItemResultText, result.success ? styles.apiResultTextSuccess : styles.apiResultTextError]}>
+                                  {result.message}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        );
+                      })}
                     </View>
                   )}
 
-                  <View style={styles.apiKeyActionRow}>
-                    <TouchableOpacity
-                      style={styles.testApiKeyBtn}
-                      onPress={handleTestApiKeyConnection}
-                      disabled={testingApiKey || !apiKeyInput.trim()}
-                    >
-                      {testingApiKey ? (
-                        <ActivityIndicator color="#60A5FA" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons name="flash" size={15} color="#60A5FA" />
-                          <Text style={styles.testApiKeyText}>Uji Koneksi API Key</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={styles.saveApiKeyBtn}
-                      onPress={handleSaveApiKey}
-                      disabled={savingApiKey}
-                    >
-                      {savingApiKey ? (
-                        <ActivityIndicator color="#FFFFFF" size="small" />
-                      ) : (
-                        <>
-                          <Ionicons name="save" size={15} color="#FFFFFF" />
-                          <Text style={styles.saveApiKeyText}>Simpan API Key</Text>
-                        </>
-                      )}
-                    </TouchableOpacity>
-                  </View>
+                  {/* Save All Pool Button */}
+                  <TouchableOpacity
+                    style={[styles.saveAllPoolBtn, (savingKeysPool || keysPool.length === 0) && { opacity: 0.6 }]}
+                    onPress={handleSaveAllKeysPool}
+                    disabled={savingKeysPool || keysPool.length === 0}
+                  >
+                    {savingKeysPool ? (
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="cloud-upload" size={16} color="#FFFFFF" />
+                        <Text style={styles.saveAllPoolText}>
+                          Simpan & Aktifkan {keysPool.length} Kunci ke Database Cloud
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 </View>
 
                 {/* Parameters Card */}
@@ -2201,45 +2277,146 @@ const styles = StyleSheet.create({
   apiResultTextError: {
     color: '#F87171',
   },
-  apiKeyActionRow: {
-    flexDirection: 'row',
-    gap: 10,
-    flexWrap: 'wrap',
-  },
-  testApiKeyBtn: {
-    flex: 1,
-    minWidth: 160,
+  /* Multi-Key Pool & Fallback Routing Studio Styles */
+  addKeyToPoolBtn: {
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 7,
+    marginLeft: 6,
+  },
+  addKeyToPoolText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  emptyPoolBox: {
+    alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#16233B',
+    paddingVertical: 20,
+    backgroundColor: '#0E1117',
     borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
+    borderWidth: 1,
+    borderColor: '#202634',
+    borderStyle: 'dashed',
+    marginBottom: 12,
+    gap: 6,
+  },
+  emptyPoolText: {
+    color: '#6B7280',
+    fontSize: 12,
+    textAlign: 'center',
+    maxWidth: 280,
+  },
+  keyPoolList: {
+    gap: 8,
+    marginBottom: 14,
+  },
+  keyItemCard: {
+    backgroundColor: '#0E1117',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#202634',
+    padding: 10,
+  },
+  keyItemTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  keyIndexWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  keyIndexBadge: {
+    backgroundColor: '#1E293B',
+    paddingHorizontal: 7,
+    paddingVertical: 2.5,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  keyIndexBadgePrimary: {
+    backgroundColor: '#162D24',
+    borderColor: '#225E45',
+  },
+  keyIndexText: {
+    color: '#94A3B8',
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  keyIndexTextPrimary: {
+    color: '#34D399',
+  },
+  keyPreviewText: {
+    color: '#F3F4F6',
+    fontSize: 12.5,
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    flex: 1,
+  },
+  keyItemActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  testSmallBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#16233B',
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#253856',
   },
-  testApiKeyText: {
+  testSmallText: {
     color: '#60A5FA',
-    fontSize: 12.5,
+    fontSize: 11,
     fontWeight: '600',
   },
-  saveApiKeyBtn: {
+  deleteSmallBtn: {
+    padding: 5,
+    backgroundColor: '#201214',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A1D24',
+  },
+  keyItemResultBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    marginTop: 8,
+    borderWidth: 1,
+  },
+  keyItemResultText: {
+    fontSize: 11,
     flex: 1,
-    minWidth: 160,
+    lineHeight: 15,
+  },
+  saveAllPoolBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 6,
+    gap: 8,
     backgroundColor: '#2563EB',
     borderRadius: 10,
-    paddingVertical: 11,
-    paddingHorizontal: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
   },
-  saveApiKeyText: {
+  saveAllPoolText: {
     color: '#FFFFFF',
-    fontSize: 12.5,
-    fontWeight: '600',
+    fontSize: 13,
+    fontWeight: '700',
   },
 });
