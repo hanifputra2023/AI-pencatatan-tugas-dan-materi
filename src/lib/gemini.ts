@@ -40,13 +40,13 @@ export const getGeminiApiKeysPool = (): string[] => {
   return pool.filter(k => k && k.trim() !== '');
 };
 
-// Candidate models in order of Google's latest availability & speed
+// Candidate models in order of instant speed & JSON reliability
 const ACTIVE_MODELS = [
-  'gemini-3.6-flash',         // Google's latest primary generation model (Recommended by Google)
-  'gemini-flash-lite-latest', // Fast, low queue, always reliable
-  'gemini-2.5-flash-lite',    // Lightweight fast tier
+  'gemini-flash-lite-latest', // Lightning fast, verified 200 OK
+  'gemini-2.5-flash-lite',    // Lightweight fast tier (200 OK)
   'gemini-2.5-flash',         // Intelligence tier
   'gemini-1.5-flash',         // Standard stable legacy fallback
+  'gemini-3.6-flash',         // Backup tier
   'gemma-4-31b-it',           // Open-weights Gemma model
 ];
 

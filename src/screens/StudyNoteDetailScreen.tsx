@@ -146,10 +146,57 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         isJsonMode: true,
         maxTokens: 4096,
       });
-      const parsedQuiz: QuizQuestion[] = extractJsonFromText<QuizQuestion[]>(aiReply);
-      setQuizData(parsedQuiz);
+
+      const rawParsed: any = extractJsonFromText(aiReply);
+      let rawArray: any[] = [];
+      if (Array.isArray(rawParsed)) {
+        rawArray = rawParsed;
+      } else if (rawParsed && Array.isArray(rawParsed.questions)) {
+        rawArray = rawParsed.questions;
+      } else if (rawParsed && Array.isArray(rawParsed.quiz)) {
+        rawArray = rawParsed.quiz;
+      } else if (rawParsed && typeof rawParsed === 'object') {
+        const found = Object.values(rawParsed).find(v => Array.isArray(v));
+        if (found) rawArray = found as any[];
+      }
+
+      if (rawArray.length === 0) {
+        throw new Error('AI tidak mengembalikan daftar pertanyaan kuis. Coba klik Buat Kuis sekali lagi.');
+      }
+
+      const cleanQuestions: QuizQuestion[] = rawArray.map((q: any, idx: number) => {
+        let correctIdx = 0;
+        if (typeof q.correctIndex === 'number') {
+          correctIdx = q.correctIndex;
+        } else if (typeof q.correctIndex === 'string') {
+          const c = q.correctIndex.toUpperCase().trim();
+          if (c === 'A' || c === '0') correctIdx = 0;
+          else if (c === 'B' || c === '1') correctIdx = 1;
+          else if (c === 'C' || c === '2') correctIdx = 2;
+          else if (c === 'D' || c === '3') correctIdx = 3;
+        } else if (typeof q.answer === 'string') {
+          const c = q.answer.toUpperCase().trim();
+          if (c === 'A' || c === '0') correctIdx = 0;
+          else if (c === 'B' || c === '1') correctIdx = 1;
+          else if (c === 'C' || c === '2') correctIdx = 2;
+          else if (c === 'D' || c === '3') correctIdx = 3;
+        }
+
+        const options = Array.isArray(q.options) && q.options.length >= 2
+          ? q.options.map((o: any) => String(o))
+          : ['Opsi A', 'Opsi B', 'Opsi C', 'Opsi D'];
+
+        return {
+          question: q.question || `Pertanyaan Soal #${idx + 1}`,
+          options,
+          correctIndex: Math.min(Math.max(0, correctIdx), options.length - 1),
+          explanation: q.explanation || 'Jawaban didasarkan pada materi catatan kuliah.',
+        };
+      });
+
+      setQuizData(cleanQuestions);
       setSelectedAnswers({});
-      showAlert('Kuis Siap 🧠', `${parsedQuiz.length} soal latihan akademik telah dibuat. Uji pemahamanmu sekarang!`);
+      showAlert('Kuis Siap 🧠', `${cleanQuestions.length} soal latihan akademik telah dibuat. Uji pemahamanmu sekarang!`);
     } catch (e: any) {
       showAlert('Gagal Membuat Kuis', e.message || 'Gagal men-generate kuis latihan.');
     } finally {
