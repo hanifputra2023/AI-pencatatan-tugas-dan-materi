@@ -104,11 +104,7 @@ export default function AppNavigator() {
               name="StudyNoteDetail"
               component={StudyNoteDetailScreen}
               options={{
-                headerShown: true,
-                title: 'Materi Catatan Kuliah',
-                headerStyle: { backgroundColor: '#11141C' },
-                headerTintColor: '#F3F4F6',
-                headerShadowVisible: false,
+                headerShown: false,
               }}
             />
             <Stack.Screen

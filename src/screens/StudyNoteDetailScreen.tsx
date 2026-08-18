@@ -97,7 +97,10 @@ ${content}`;
 
       const aiReply = await sendMessageToGemini([], prompt);
       setSummary(aiReply);
-      showAlert('Rangkuman Selesai ✨', 'Intisari materi telah dibuat dengan struktur siap ujian.');
+      if (noteId && user) {
+        await supabase.from('study_notes').update({ summary: aiReply, updated_at: new Date().toISOString() }).eq('id', noteId);
+      }
+      showAlert('Rangkuman Selesai ✨', 'Intisari materi telah dibuat dan otomatis tersimpan ke catatan.');
     } catch (e: any) {
       showAlert('Gagal Merangkum', e.message || 'Terjadi kesalahan pada AI.');
     } finally {
@@ -106,17 +109,14 @@ ${content}`;
   };
 
   // Feature 1.1: Append Summary into Note Content
-  const handleAppendSummaryToContent = () => {
+  const handleAppendSummaryToContent = async () => {
     if (!summary) return;
-    confirmAction(
-      'Sisipkan ke Catatan?',
-      'Rangkuman AI ini akan ditambahkan ke bagian bawah teks catatanmu.',
-      () => {
-        setContent(prev => `${prev.trim()}\n\n---\n### 📌 Rangkuman Intisari AI:\n${summary.trim()}`);
-        showAlert('Berhasil Disisipkan', 'Rangkuman telah digabungkan ke dalam catatan kuliahmu.');
-      },
-      'Sisipkan'
-    );
+    const newContent = `${content.trim()}\n\n---\n### 📌 Rangkuman Intisari AI:\n${summary.trim()}`;
+    setContent(newContent);
+    if (noteId && user) {
+      await supabase.from('study_notes').update({ content: newContent, updated_at: new Date().toISOString() }).eq('id', noteId);
+    }
+    showAlert('Berhasil Disisipkan 📋', 'Rangkuman telah digabungkan ke dalam catatan kuliah dan tersimpan.');
   };
 
   // AI Feature 2: Generate Comprehensive Interactive Quiz (3, 5, or 10 Questions)
@@ -201,7 +201,12 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
       setQuizData(cleanQuestions);
       setSelectedAnswers({});
-      showAlert('Kuis Siap 🧠', `${cleanQuestions.length} soal latihan akademik telah dibuat. Uji pemahamanmu sekarang!`);
+
+      if (noteId && user) {
+        await supabase.from('study_notes').update({ quiz_data: cleanQuestions, updated_at: new Date().toISOString() }).eq('id', noteId);
+      }
+
+      showAlert('Kuis Siap 🧠', `${cleanQuestions.length} soal kuis telah dibuat dan otomatis tersimpan ke catatan!`);
     } catch (e: any) {
       showAlert('Gagal Membuat Kuis', e.message || 'Gagal men-generate kuis latihan.');
     } finally {
@@ -214,9 +219,12 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     confirmAction(
       'Hapus Kuis Latihan?',
       'Semua daftar soal kuis ini akan dihapus dari catatan.',
-      () => {
+      async () => {
         setQuizData([]);
         setSelectedAnswers({});
+        if (noteId && user) {
+          await supabase.from('study_notes').update({ quiz_data: [], updated_at: new Date().toISOString() }).eq('id', noteId);
+        }
       },
       'Hapus Kuis'
     );
