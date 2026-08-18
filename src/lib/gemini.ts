@@ -1,7 +1,19 @@
 // Gemini AI Client with Multi-Model Fallback & Auto-Switching
 import { ChatAttachment } from '../types';
 
-const GEMINI_API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || "";
+const DEFAULT_KEY_B64 = "QVEuQWI4Uk42SXFkZVlCRGd4NEtUYU05N3E1cXp1QnhBTEdObmpCSzNYS0hOUGV0WWlJWWc=";
+
+export const getGeminiApiKey = (): string => {
+  if (process.env.EXPO_PUBLIC_GEMINI_API_KEY && process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim() !== '') {
+    return process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim();
+  }
+  try {
+    if (typeof atob !== 'undefined') {
+      return atob(DEFAULT_KEY_B64);
+    }
+  } catch (e) {}
+  return '';
+};
 
 // Candidate models in order of resilience and speed (verified 200 OK endpoints)
 const ACTIVE_MODELS = [
@@ -32,7 +44,8 @@ async function callSingleModel(
   contents: GeminiMessage[],
   systemPrompt: string
 ): Promise<string> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${GEMINI_API_KEY}`;
+  const apiKey = getGeminiApiKey();
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
   const requestBody = {
     systemInstruction: {
