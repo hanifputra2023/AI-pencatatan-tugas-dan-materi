@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "AI Curhat",
-    "slug": "ai-curhat-app",
+    "name": "StudyBot AI",
+    "slug": "studybot-ai-app",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,19 +9,19 @@
     "splash": {
       "image": "./assets/splash.png",
       "resizeMode": "contain",
-      "backgroundColor": "#0F0F1A"
+      "backgroundColor": "#090B0E"
     },
     "assetBundlePatterns": ["**/*"],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.aicurhat.app"
+      "bundleIdentifier": "com.studybot.app"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#0F0F1A"
+        "backgroundColor": "#090B0E"
       },
-      "package": "com.aicurhat.app"
+      "package": "com.studybot.app"
     },
     "web": {
       "favicon": "./assets/favicon.png"
