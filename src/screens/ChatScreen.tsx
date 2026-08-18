@@ -15,6 +15,7 @@ import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
 import { ChatMessage, ChatAttachment, ChatSession } from '../types';
 import { confirmAction, showAlert } from '../lib/alert';
+import { safeSaveChatMessages, safeSaveSessions, safeRemoveChatCache } from '../lib/safeStorage';
 
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
@@ -92,7 +93,7 @@ export default function ChatScreen() {
       if (!error && data && data.length > 0) {
         sessionList = data as ChatSession[];
         setSessions(sessionList);
-        await AsyncStorage.setItem('@chat_sessions_' + user.id, JSON.stringify(sessionList));
+        await safeSaveSessions(user.id, sessionList);
       }
 
       // 3. Set active session if not set yet
@@ -126,8 +127,10 @@ export default function ChatScreen() {
       // 1. Load from local cache immediately for instant response
       const cachedMsgs = await AsyncStorage.getItem(`@chat_msgs_${user.id}_${sessionId}`);
       if (cachedMsgs) {
-        setMessages(JSON.parse(cachedMsgs));
-        scrollToBottom(150);
+        try {
+          setMessages(JSON.parse(cachedMsgs));
+          scrollToBottom(150);
+        } catch (e) {}
       }
 
       // 2. Fetch from Supabase
@@ -141,7 +144,7 @@ export default function ChatScreen() {
 
       if (!error && data) {
         setMessages(data as ChatMessage[]);
-        await AsyncStorage.setItem(`@chat_msgs_${user.id}_${sessionId}`, JSON.stringify(data));
+        await safeSaveChatMessages(user.id, sessionId, data as ChatMessage[]);
         scrollToBottom(250);
       }
     } catch (e) {
@@ -229,7 +232,7 @@ export default function ChatScreen() {
 
     if (user) {
       const updatedList = [newSessionItem, ...sessions.filter(s => s.id !== newSessionId)];
-      await AsyncStorage.setItem('@chat_sessions_' + user.id, JSON.stringify(updatedList));
+      await safeSaveSessions(user.id, updatedList);
       try {
         await supabase.from('chat_sessions').insert({
           id: newSessionId,
@@ -256,8 +259,8 @@ export default function ChatScreen() {
         setSessions(updated);
 
         if (user) {
-          await AsyncStorage.setItem('@chat_sessions_' + user.id, JSON.stringify(updated));
-          await AsyncStorage.removeItem(`@chat_msgs_${user.id}_${sessionId}`);
+          await safeSaveSessions(user.id, updated);
+          await safeRemoveChatCache(user.id, sessionId);
           try {
             await supabase.from('chat_messages').delete().eq('session_id', sessionId);
             await supabase.from('chat_sessions').delete().eq('id', sessionId);
@@ -447,7 +450,7 @@ export default function ChatScreen() {
       setSessions(updatedSessions);
 
       if (user) {
-        await AsyncStorage.setItem('@chat_sessions_' + user.id, JSON.stringify(updatedSessions));
+        await safeSaveSessions(user.id, updatedSessions);
         try {
           await supabase.from('chat_sessions').upsert({
             id: activeSessionId,
@@ -489,7 +492,7 @@ export default function ChatScreen() {
           setMessages([...updatedMessages]);
 
           if (user) {
-            await AsyncStorage.setItem(`@chat_msgs_${user.id}_${activeSessionId}`, JSON.stringify(updatedMessages));
+            await safeSaveChatMessages(user.id, activeSessionId, updatedMessages);
             if (!targetId.startsWith('usr_')) {
               await supabase.from('chat_messages').update({ content: text }).eq('id', targetId);
             }
@@ -532,9 +535,9 @@ export default function ChatScreen() {
       const aiReply = await sendMessageToGemini(history, text, currentAttachment, aiPersona);
 
       const tempAiMsg: ChatMessage = {
-        id: 'ai_' + (Date.now() + 1),
-        user_id: user?.id || 'anonymous',
+        id: 'ai_' + Date.now(),
         session_id: activeSessionId,
+        user_id: user?.id || 'anonymous',
         role: 'assistant',
         content: aiReply,
         created_at: new Date().toISOString(),
@@ -546,7 +549,7 @@ export default function ChatScreen() {
 
       // Save to local cache
       if (user) {
-        await AsyncStorage.setItem(`@chat_msgs_${user.id}_${activeSessionId}`, JSON.stringify(newFullList));
+        await safeSaveChatMessages(user.id, activeSessionId, newFullList);
 
         // Save to remote Supabase database
         await supabase.from('chat_messages').insert([
@@ -590,7 +593,7 @@ export default function ChatScreen() {
         const updated = messages.filter(m => m.id !== msgId);
         setMessages(updated);
         if (user) {
-          await AsyncStorage.setItem(`@chat_msgs_${user.id}_${currentSessionId}`, JSON.stringify(updated));
+          await safeSaveChatMessages(user.id, currentSessionId, updated);
           if (!msgId.startsWith('usr_') && !msgId.startsWith('ai_')) {
             await supabase.from('chat_messages').delete().eq('id', msgId);
           }
@@ -607,7 +610,7 @@ export default function ChatScreen() {
       async () => {
         setMessages([]);
         if (user) {
-          await AsyncStorage.removeItem(`@chat_msgs_${user.id}_${currentSessionId}`);
+          await safeRemoveChatCache(user.id, currentSessionId);
           await supabase.from('chat_messages').delete().eq('session_id', currentSessionId);
         }
       },
