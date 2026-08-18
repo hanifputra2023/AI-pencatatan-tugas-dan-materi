@@ -383,41 +383,56 @@ export default function StudyNotesScreen() {
               columnWrapperStyle={isWide ? { gap: 12 } : undefined}
               contentContainerStyle={styles.notesList}
               showsVerticalScrollIndicator={false}
-              renderItem={({ item }) => (
-                <TouchableOpacity
-                  style={[styles.noteCard, isWide && styles.noteCardWide]}
-                  onPress={() => navigation.navigate('StudyNoteDetail', { noteId: item.id })}
-                  onLongPress={() => deleteNote(item.id)}
-                >
-                  <View style={styles.noteTopRow}>
-                    <View style={styles.subjectBadge}>
-                      <Text style={styles.subjectBadgeText}>{item.subject}</Text>
+              renderItem={({ item }) => {
+                const words = item.content?.trim() ? item.content.trim().split(/\s+/).length : 0;
+                const readMin = Math.max(1, Math.ceil(words / 160));
+                return (
+                  <TouchableOpacity
+                    style={[styles.noteCard, isWide && styles.noteCardWide]}
+                    onPress={() => navigation.navigate('StudyNoteDetail', { noteId: item.id })}
+                    onLongPress={() => deleteNote(item.id)}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.noteTopRow}>
+                      <View style={styles.subjectBadge}>
+                        <Text style={styles.subjectBadgeText}>{item.subject}</Text>
+                      </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={styles.noteReadTime}>⏱️ {readMin} mnt</Text>
+                        <Text style={styles.noteDate}>
+                          {new Date(item.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                        </Text>
+                      </View>
                     </View>
-                    <Text style={styles.noteDate}>
-                      {new Date(item.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                    </Text>
-                  </View>
 
-                  <Text style={styles.noteTitle} numberOfLines={1}>{item.title}</Text>
-                  <Text style={styles.noteSnippet} numberOfLines={3}>{item.content}</Text>
+                    <Text style={styles.noteTitle} numberOfLines={1}>{item.title}</Text>
+                    <Text style={styles.noteSnippet} numberOfLines={3}>{item.content}</Text>
 
-                  {/* AI Badges */}
-                  <View style={styles.noteAiFooter}>
-                    {item.summary ? (
-                      <View style={styles.aiBadge}>
-                        <Ionicons name="sparkles" size={11} color="#60A5FA" />
-                        <Text style={styles.aiBadgeText}>Rangkuman AI</Text>
+                    {/* AI Badges & Open Detail Action */}
+                    <View style={styles.noteAiFooter}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
+                        {item.summary ? (
+                          <View style={styles.aiBadge}>
+                            <Ionicons name="sparkles" size={11} color="#60A5FA" />
+                            <Text style={styles.aiBadgeText}>Rangkuman AI</Text>
+                          </View>
+                        ) : null}
+                        {item.quiz_data && item.quiz_data.length > 0 ? (
+                          <View style={styles.aiBadge}>
+                            <Ionicons name="school" size={11} color="#34D399" />
+                            <Text style={styles.aiBadgeText}>{item.quiz_data.length} Soal</Text>
+                          </View>
+                        ) : null}
                       </View>
-                    ) : null}
-                    {item.quiz_data && item.quiz_data.length > 0 ? (
-                      <View style={styles.aiBadge}>
-                        <Ionicons name="school" size={11} color="#34D399" />
-                        <Text style={styles.aiBadgeText}>{item.quiz_data.length} Soal Kuis</Text>
+
+                      <View style={styles.openDetailPill}>
+                        <Text style={styles.openDetailText}>Detail</Text>
+                        <Ionicons name="arrow-forward" size={11} color="#60A5FA" />
                       </View>
-                    ) : null}
-                  </View>
-                </TouchableOpacity>
-              )}
+                    </View>
+                  </TouchableOpacity>
+                );
+              }}
             />
           )}
 
@@ -893,6 +908,11 @@ const styles = StyleSheet.create({
     flexWrap: 'wrap',
     gap: 6,
   },
+  noteReadTime: {
+    color: '#6B7280',
+    fontSize: 10.5,
+    fontWeight: '500',
+  },
   aiBadge: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -908,6 +928,23 @@ const styles = StyleSheet.create({
     color: '#93C5FD',
     fontSize: 10,
     fontWeight: '500',
+  },
+  openDetailPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#16233B',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    marginLeft: 'auto',
+    borderWidth: 1,
+    borderColor: '#253856',
+  },
+  openDetailText: {
+    color: '#60A5FA',
+    fontSize: 10.5,
+    fontWeight: '700',
   },
   scrollArea: {
     paddingHorizontal: 18,

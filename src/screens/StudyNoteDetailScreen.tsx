@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, SafeAreaView, ActivityIndicator
+  StyleSheet, SafeAreaView, ActivityIndicator, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
@@ -21,7 +21,7 @@ const QUIZ_COUNT_OPTIONS = [3, 5, 10];
 
 export default function StudyNoteDetailScreen() {
   const { user } = useAuth();
-  const { subjects, addSubject } = useSubjects();
+  const { subjects } = useSubjects();
   const route = useRoute<StudyNoteRouteProp>();
   const navigation = useNavigation();
   const { isDesktop, isTablet } = useResponsive();
@@ -29,11 +29,15 @@ export default function StudyNoteDetailScreen() {
 
   const noteId = route.params?.noteId;
 
+  // View Mode: 'reader' (clean detail view) vs 'edit' (form input)
+  const [viewMode, setViewMode] = useState<'reader' | 'edit'>(noteId ? 'reader' : 'edit');
+
   const [title, setTitle] = useState('');
   const [subject, setSubject] = useState('');
   const [content, setContent] = useState('');
   const [summary, setSummary] = useState<string | null>(null);
   const [quizData, setQuizData] = useState<QuizQuestion[]>([]);
+  const [createdAt, setCreatedAt] = useState<string>('');
 
   // Subject Manager Modal
   const [showSubjectModal, setShowSubjectModal] = useState(false);
@@ -64,6 +68,7 @@ export default function StudyNoteDetailScreen() {
       setContent(n.content);
       setSummary(n.summary || null);
       setQuizData(n.quiz_data || []);
+      setCreatedAt(n.created_at);
     }
     setFetching(false);
   };
@@ -250,12 +255,48 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     }
     setLoading(false);
     showAlert('Tersimpan', 'Catatan kuliah berhasil disimpan.');
-    navigation.goBack();
+    if (noteId) {
+      setViewMode('reader');
+    } else {
+      navigation.goBack();
+    }
+  };
+
+  // Delete Note
+  const handleDeleteCurrentNote = () => {
+    if (!noteId) return;
+    confirmAction(
+      'Hapus Catatan?',
+      'Catatan materi kuliah ini akan dihapus permanen.',
+      async () => {
+        if (user) {
+          await supabase.from('study_notes').delete().eq('id', noteId);
+        }
+        showAlert('Terhapus', 'Catatan kuliah berhasil dihapus.');
+        navigation.goBack();
+      },
+      'Hapus'
+    );
+  };
+
+  // Copy Note Content
+  const handleCopyNote = () => {
+    const fullText = `${title}\n\nMata Kuliah: ${subject}\n\n${content}${summary ? `\n\n---\nRangkuman AI:\n${summary}` : ''}`;
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      navigator.clipboard.writeText(fullText);
+      showAlert('Tersalin 📋', 'Materi catatan kuliah berhasil disalin ke clipboard.');
+    } else {
+      showAlert('Info', 'Fitur salin aktif pada perangkatmu.');
+    }
   };
 
   const handleSelectQuizOption = (qIndex: number, optIndex: number) => {
     setSelectedAnswers(prev => ({ ...prev, [qIndex]: optIndex }));
   };
+
+  // Reading Stats
+  const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+  const readingTimeMin = Math.max(1, Math.ceil(wordCount / 160));
 
   // Quiz Score Calculation
   const answeredCount = Object.keys(selectedAnswers).length;
@@ -270,116 +311,129 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
   return (
     <SafeAreaView style={styles.container}>
+
+      {/* Top Header Navigation & Mode Switcher */}
+      <View style={styles.topHeader}>
+        <TouchableOpacity style={styles.backBtn} onPress={() => navigation.goBack()}>
+          <Ionicons name="arrow-back" size={20} color="#F3F4F6" />
+        </TouchableOpacity>
+
+        {/* Segmented Mode Switcher */}
+        <View style={styles.segmentedWrap}>
+          <TouchableOpacity
+            style={[styles.segmentBtn, viewMode === 'reader' && styles.segmentBtnActive]}
+            onPress={() => setViewMode('reader')}
+          >
+            <Ionicons name="book-outline" size={14} color={viewMode === 'reader' ? '#60A5FA' : '#9CA3AF'} />
+            <Text style={[styles.segmentText, viewMode === 'reader' && styles.segmentTextActive]}>
+              Detail Materi
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.segmentBtn, viewMode === 'edit' && styles.segmentBtnActive]}
+            onPress={() => setViewMode('edit')}
+          >
+            <Ionicons name="create-outline" size={14} color={viewMode === 'edit' ? '#60A5FA' : '#9CA3AF'} />
+            <Text style={[styles.segmentText, viewMode === 'edit' && styles.segmentTextActive]}>
+              Edit Catatan
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* Right Action */}
+        {viewMode === 'edit' ? (
+          <TouchableOpacity
+            style={[styles.headerSaveBtn, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
+            onPress={handleSave}
+            disabled={loading || !title.trim() || !content.trim()}
+          >
+            {loading ? (
+              <ActivityIndicator color="#FFFFFF" size="small" />
+            ) : (
+              <>
+                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+                <Text style={styles.headerSaveText}>Simpan</Text>
+              </>
+            )}
+          </TouchableOpacity>
+        ) : (
+          <TouchableOpacity style={styles.headerIconBtn} onPress={handleCopyNote}>
+            <Ionicons name="copy-outline" size={18} color="#9CA3AF" />
+          </TouchableOpacity>
+        )}
+      </View>
+
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
-        contentContainerStyle={{ paddingBottom: 50 }}
+        contentContainerStyle={{ paddingBottom: 60 }}
       >
-        {/* Title Input */}
-        <TextInput
-          style={styles.titleInput}
-          placeholder="Judul Materi / Topik Kuliah..."
-          placeholderTextColor="#4B5565"
-          value={title}
-          onChangeText={setTitle}
-        />
+        <View style={[styles.innerContent, isWide && styles.innerContentWide]}>
 
-        {/* Course / Subject Picker (1-Tap Selection from User's Registered Subjects) */}
-        <View style={styles.subjectHeaderRow}>
-          <Text style={styles.sectionLabel}>Pilih Mata Kuliah</Text>
-          <TouchableOpacity
-            style={styles.manageSubjBtn}
-            onPress={() => setShowSubjectModal(true)}
-          >
-            <Ionicons name="settings-outline" size={13} color="#60A5FA" />
-            <Text style={styles.manageSubjBtnText}>Kelola Matkul</Text>
-          </TouchableOpacity>
-        </View>
-
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
-          {subjects.map(s => {
-            const isSelected = subject.toLowerCase() === s.name.toLowerCase();
-            return (
-              <TouchableOpacity
-                key={s.id}
-                style={[styles.subjectChip, isSelected && styles.subjectChipActive]}
-                onPress={() => setSubject(s.name)}
-              >
-                <Text style={[styles.subjectChipText, isSelected && styles.subjectChipTextActive]}>
-                  {s.name}
-                </Text>
-              </TouchableOpacity>
-            );
-          })}
-          
-          <TouchableOpacity
-            style={styles.addNewSubjChip}
-            onPress={() => setShowSubjectModal(true)}
-          >
-            <Ionicons name="add" size={14} color="#60A5FA" />
-            <Text style={styles.addNewSubjText}>Tambah Matkul</Text>
-          </TouchableOpacity>
-        </ScrollView>
-
-        {/* Responsive Dual Column Layout (Editor Left, AI Studio Right) */}
-        <View style={[styles.editorLayout, isWide && styles.editorLayoutWide]}>
-          
           {/* ========================================================================= */}
-          {/* LEFT COLUMN: Main Text Editor */}
+          {/* MODE 1: CLEAN & BEAUTIFUL READER VIEW (DETAIL MATERI) */}
           {/* ========================================================================= */}
-          <View style={[styles.editorColumn, isWide && styles.editorColumnWide]}>
-            <Text style={styles.sectionLabel}>Isi Catatan Pelajaran</Text>
-            <TextInput
-              style={styles.contentInput}
-              placeholder="Ketik poin materi kuliah, rumus, penjelasan dosen, atau rangkuman bab di sini..."
-              placeholderTextColor="#4B5565"
-              value={content}
-              onChangeText={setContent}
-              multiline
-              textAlignVertical="top"
-            />
+          {viewMode === 'reader' ? (
+            <View style={styles.readerContainer}>
 
-            {/* AI Action Trigger Section */}
-            <View style={styles.aiControlBox}>
-              <Text style={styles.aiControlTitle}>Alat Pintar AI Mahasiswa</Text>
-              
-              {/* Question Count Selector */}
-              <View style={styles.quizCountRow}>
-                <Text style={styles.quizCountLabel}>Jumlah Soal Kuis:</Text>
-                <View style={styles.quizCountPills}>
-                  {QUIZ_COUNT_OPTIONS.map(cnt => (
-                    <TouchableOpacity
-                      key={cnt}
-                      style={[styles.countPill, quizCount === cnt && styles.countPillActive]}
-                      onPress={() => setQuizCount(cnt)}
-                    >
-                      <Text style={[styles.countPillText, quizCount === cnt && styles.countPillTextActive]}>
-                        {cnt} Soal
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+              {/* Subject Tag & Meta Stats Bar */}
+              <View style={styles.readerMetaRow}>
+                <View style={styles.readerSubjectBadge}>
+                  <Ionicons name="school" size={12} color="#60A5FA" />
+                  <Text style={styles.readerSubjectText}>{subject || 'Kuliah Umum'}</Text>
+                </View>
+
+                <View style={styles.readerStatsPills}>
+                  <View style={styles.statPill}>
+                    <Ionicons name="time-outline" size={11} color="#9CA3AF" />
+                    <Text style={styles.statPillText}>{readingTimeMin} mnt baca</Text>
+                  </View>
+                  <View style={styles.statPill}>
+                    <Ionicons name="document-text-outline" size={11} color="#9CA3AF" />
+                    <Text style={styles.statPillText}>{wordCount} kata</Text>
+                  </View>
                 </View>
               </View>
 
-              <View style={styles.aiActionRow}>
+              {/* Title */}
+              <Text style={styles.readerTitle}>{title || 'Materi Catatan Tanpa Judul'}</Text>
+
+              {/* Timestamp & Author Bar */}
+              <View style={styles.readerDateRow}>
+                <Ionicons name="calendar-outline" size={13} color="#6B7280" />
+                <Text style={styles.readerDateText}>
+                  {createdAt ? new Date(createdAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Catatan Baru'}
+                </Text>
+              </View>
+
+              {/* Quick Action Floating Bar */}
+              <View style={styles.readerActionBar}>
+                <TouchableOpacity style={styles.readerActionBtn} onPress={() => setViewMode('edit')}>
+                  <Ionicons name="create" size={14} color="#60A5FA" />
+                  <Text style={styles.readerActionBtnText}>Edit</Text>
+                </TouchableOpacity>
+
                 <TouchableOpacity
-                  style={styles.aiBtn}
+                  style={[styles.readerActionBtn, generatingSummary && { opacity: 0.6 }]}
                   onPress={handleGenerateSummary}
                   disabled={generatingSummary}
                 >
                   {generatingSummary ? (
-                    <ActivityIndicator size="small" color="#60A5FA" />
+                    <ActivityIndicator size="small" color="#FBBF24" />
                   ) : (
                     <>
-                      <Ionicons name="sparkles" size={15} color="#60A5FA" />
-                      <Text style={styles.aiBtnText}>Rangkum dengan AI</Text>
+                      <Ionicons name="sparkles" size={14} color="#FBBF24" />
+                      <Text style={[styles.readerActionBtnText, { color: '#FBBF24' }]}>
+                        {summary ? 'Ulang Rangkuman' : 'Rangkum AI'}
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={styles.aiBtn}
+                  style={[styles.readerActionBtn, generatingQuiz && { opacity: 0.6 }]}
                   onPress={handleGenerateQuiz}
                   disabled={generatingQuiz}
                 >
@@ -387,158 +441,289 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     <ActivityIndicator size="small" color="#34D399" />
                   ) : (
                     <>
-                      <Ionicons name="school" size={15} color="#34D399" />
-                      <Text style={[styles.aiBtnText, { color: '#34D399' }]}>Buatkan {quizCount} Kuis</Text>
+                      <Ionicons name="school" size={14} color="#34D399" />
+                      <Text style={[styles.readerActionBtnText, { color: '#34D399' }]}>
+                        {quizData.length > 0 ? `Kuis (${quizData.length})` : 'Buat Kuis'}
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>
-              </View>
-            </View>
 
-            {/* Save Button */}
-            <TouchableOpacity style={styles.saveBtn} onPress={handleSave} disabled={loading}>
-              {loading ? (
-                <ActivityIndicator color="#fff" size="small" />
-              ) : (
-                <Text style={styles.saveBtnText}>{noteId ? 'Simpan Perubahan' : 'Simpan Catatan'}</Text>
-              )}
-            </TouchableOpacity>
-          </View>
-
-          {/* ========================================================================= */}
-          {/* RIGHT COLUMN: AI Summary & Interactive Quiz Cards */}
-          {/* ========================================================================= */}
-          <View style={[styles.aiColumn, isWide && styles.aiColumnWide]}>
-            
-            {/* AI Summary Card with Append to Note & Clear */}
-            {summary && (
-              <View style={styles.summaryCard}>
-                <View style={styles.summaryTopRow}>
-                  <View style={styles.summaryBadge}>
-                    <Ionicons name="sparkles" size={13} color="#60A5FA" />
-                    <Text style={styles.summaryBadgeText}>Intisari Materi (AI Ara)</Text>
-                  </View>
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    <TouchableOpacity onPress={handleAppendSummaryToContent} style={styles.summaryActionBtn}>
-                      <Ionicons name="add-circle-outline" size={15} color="#60A5FA" />
-                      <Text style={styles.summaryActionText}>Sisipkan ke Catatan</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => setSummary(null)} style={{ padding: 2 }}>
-                      <Ionicons name="close" size={16} color="#6B7280" />
-                    </TouchableOpacity>
-                  </View>
-                </View>
-                <Text style={styles.summaryText}>{summary}</Text>
-              </View>
-            )}
-
-            {/* Interactive AI Quiz Studio */}
-            {quizData && quizData.length > 0 ? (
-              <View style={styles.quizSection}>
-                <View style={styles.quizHeaderRow}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <Ionicons name="school-outline" size={18} color="#34D399" />
-                    <Text style={styles.quizSectionTitle}>Kuis Pemahaman ({quizData.length} Soal)</Text>
-                  </View>
-                  
-                  {/* Delete / Clear Quiz Button */}
-                  <TouchableOpacity onPress={handleClearQuiz} style={styles.deleteQuizBtn}>
+                {noteId ? (
+                  <TouchableOpacity style={styles.readerActionDeleteBtn} onPress={handleDeleteCurrentNote}>
                     <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                    <Text style={styles.deleteQuizText}>Hapus Kuis</Text>
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {/* Main Content Article Body */}
+              <View style={styles.readerArticleCard}>
+                <Text style={styles.readerArticleContent}>{content || 'Belum ada isi materi catatan.'}</Text>
+              </View>
+
+              {/* Summary Section (If Generated) */}
+              {summary ? (
+                <View style={styles.readerSummaryCard}>
+                  <View style={styles.summaryTopRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="sparkles" size={16} color="#60A5FA" />
+                      <Text style={styles.summaryTitle}>📌 Intisari & Rangkuman AI</Text>
+                    </View>
+                    <TouchableOpacity onPress={handleAppendSummaryToContent} style={styles.appendBtn}>
+                      <Text style={styles.appendBtnText}>+ Sisipkan</Text>
+                    </TouchableOpacity>
+                  </View>
+                  <Text style={styles.summaryContent}>{summary}</Text>
+                </View>
+              ) : null}
+
+              {/* Interactive Quiz Section (If Generated) */}
+              {quizData.length > 0 ? (
+                <View style={styles.quizCard}>
+                  <View style={styles.quizTopRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="school" size={18} color="#34D399" />
+                      <Text style={styles.quizHeaderTitle}>🧠 Kuis Pemahaman ({quizData.length} Soal)</Text>
+                    </View>
+                    <View style={styles.quizHeaderActions}>
+                      <TouchableOpacity onPress={handleResetQuizAnswers} style={styles.miniBtn}>
+                        <Text style={styles.miniBtnText}>Reset</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity onPress={handleClearQuiz} style={styles.miniBtnDanger}>
+                        <Text style={styles.miniBtnDangerText}>Hapus</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Score Progress Bar */}
+                  <View style={styles.scoreBarCard}>
+                    <View style={styles.scoreTopInfo}>
+                      <Text style={styles.scoreLabel}>
+                        Progres: {answeredCount} dari {quizData.length} Soal Dijawab
+                      </Text>
+                      <Text style={styles.scoreValueText}>
+                        Skor: {correctCount}/{quizData.length} ({scorePercent}%)
+                      </Text>
+                    </View>
+                    <View style={styles.progressTrack}>
+                      <View style={[styles.progressFill, { width: `${(answeredCount / quizData.length) * 100}%` }]} />
+                    </View>
+                  </View>
+
+                  {/* Questions List */}
+                  {quizData.map((q, qIndex) => {
+                    const isAnswered = selectedAnswers[qIndex] !== undefined;
+                    const chosenIndex = selectedAnswers[qIndex];
+                    const isCorrect = chosenIndex === q.correctIndex;
+
+                    return (
+                      <View key={qIndex} style={styles.questionBlock}>
+                        <Text style={styles.questionNum}>Soal {qIndex + 1}:</Text>
+                        <Text style={styles.questionText}>{q.question}</Text>
+
+                        <View style={styles.optionsList}>
+                          {q.options.map((opt, optIndex) => {
+                            const isChosen = chosenIndex === optIndex;
+                            const isTheRightAnswer = optIndex === q.correctIndex;
+
+                            let optStyle = styles.optionBtn;
+                            let textStyle = styles.optionText;
+
+                            if (isAnswered) {
+                              if (isTheRightAnswer) {
+                                optStyle = styles.optionBtnCorrect;
+                                textStyle = styles.optionTextCorrect;
+                              } else if (isChosen && !isTheRightAnswer) {
+                                optStyle = styles.optionBtnWrong;
+                                textStyle = styles.optionTextWrong;
+                              }
+                            } else if (isChosen) {
+                              optStyle = styles.optionBtnSelected;
+                            }
+
+                            return (
+                              <TouchableOpacity
+                                key={optIndex}
+                                style={optStyle}
+                                onPress={() => handleSelectQuizOption(qIndex, optIndex)}
+                                activeOpacity={0.7}
+                              >
+                                <View style={styles.optionIndexBadge}>
+                                  <Text style={styles.optionIndexText}>
+                                    {String.fromCharCode(65 + optIndex)}
+                                  </Text>
+                                </View>
+                                <Text style={textStyle}>{opt}</Text>
+                                {isAnswered && isTheRightAnswer && (
+                                  <Ionicons name="checkmark-circle" size={16} color="#34D399" style={{ marginLeft: 'auto' }} />
+                                )}
+                                {isAnswered && isChosen && !isTheRightAnswer && (
+                                  <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 'auto' }} />
+                                )}
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </View>
+
+                        {isAnswered && (
+                          <View style={[styles.explanationCard, isCorrect ? styles.explanationCardCorrect : styles.explanationCardWrong]}>
+                            <Ionicons
+                              name={isCorrect ? 'sparkles' : 'information-circle'}
+                              size={15}
+                              color={isCorrect ? '#34D399' : '#FBBF24'}
+                            />
+                            <Text style={styles.explanationText}>
+                              {q.explanation}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
+                    );
+                  })}
+                </View>
+              ) : null}
+
+            </View>
+          ) : (
+
+            /* ========================================================================= */
+            /* MODE 2: FULL EDIT / INPUT FORM */
+            /* ========================================================================= */
+            <View style={styles.editContainer}>
+
+              {/* Title Input */}
+              <Text style={styles.inputLabel}>Judul Materi Kuliah:</Text>
+              <TextInput
+                style={styles.titleInput}
+                placeholder="Misal: Struktur Data & Algoritma Tree..."
+                placeholderTextColor="#4B5565"
+                value={title}
+                onChangeText={setTitle}
+              />
+
+              {/* Course / Subject Picker */}
+              <View style={styles.subjectHeaderRow}>
+                <Text style={styles.inputLabel}>Pilih Mata Kuliah:</Text>
+                <TouchableOpacity
+                  style={styles.manageSubjBtn}
+                  onPress={() => setShowSubjectModal(true)}
+                >
+                  <Ionicons name="settings-outline" size={13} color="#60A5FA" />
+                  <Text style={styles.manageSubjBtnText}>Kelola Matkul</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
+                {subjects.map(s => (
+                  <TouchableOpacity
+                    key={s.id}
+                    style={[styles.subjectChip, subject.toLowerCase() === s.name.toLowerCase() && styles.subjectChipActive]}
+                    onPress={() => setSubject(s.name)}
+                  >
+                    <Text style={[styles.subjectChipText, subject.toLowerCase() === s.name.toLowerCase() && styles.subjectChipTextActive]}>
+                      {s.name}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+
+              {/* Main Content Input */}
+              <Text style={styles.inputLabel}>Isi Catatan Materi Lengkap:</Text>
+              <TextInput
+                style={styles.contentInput}
+                placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
+                placeholderTextColor="#4B5565"
+                value={content}
+                onChangeText={setContent}
+                multiline
+                textAlignVertical="top"
+              />
+
+              {/* AI Study Tools in Edit Mode */}
+              <View style={styles.aiStudioCard}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                  <Ionicons name="sparkles" size={16} color="#60A5FA" />
+                  <Text style={styles.aiStudioTitle}>Studio Fitur AI Pintar</Text>
+                </View>
+                <Text style={styles.aiStudioSub}>
+                  Otomatisasi perangkuman intisari ujian & kuis latihan interaktif dengan AI Gemini.
+                </Text>
+
+                <View style={styles.aiBtnRow}>
+                  <TouchableOpacity
+                    style={[styles.aiToolBtn, generatingSummary && { opacity: 0.7 }]}
+                    onPress={handleGenerateSummary}
+                    disabled={generatingSummary}
+                  >
+                    {generatingSummary ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                        <Text style={styles.aiToolBtnText}>Rangkum Intisari Ujian</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {/* Quiz Count Selector */}
+                  <View style={styles.quizCountSelector}>
+                    {QUIZ_COUNT_OPTIONS.map(cnt => (
+                      <TouchableOpacity
+                        key={cnt}
+                        style={[styles.cntChip, quizCount === cnt && styles.cntChipActive]}
+                        onPress={() => setQuizCount(cnt)}
+                      >
+                        <Text style={[styles.cntChipText, quizCount === cnt && styles.cntChipTextActive]}>
+                          {cnt} Soal
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.aiToolBtnQuiz, generatingQuiz && { opacity: 0.7 }]}
+                    onPress={handleGenerateQuiz}
+                    disabled={generatingQuiz}
+                  >
+                    {generatingQuiz ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="school" size={14} color="#FFFFFF" />
+                        <Text style={styles.aiToolBtnText}>Buat {quizCount} Kuis</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
                 </View>
-
-                {/* Score & Progress Tracker */}
-                <View style={styles.quizScoreBanner}>
-                  <Text style={styles.scoreText}>
-                    Progress: {answeredCount}/{quizData.length} Dijawab • Skor: {correctCount}/{quizData.length} ({scorePercent}%)
-                  </Text>
-                  {answeredCount > 0 && (
-                    <TouchableOpacity onPress={handleResetQuizAnswers} style={styles.resetQuizBtn}>
-                      <Ionicons name="refresh" size={12} color="#9CA3AF" />
-                      <Text style={styles.resetQuizText}>Ulangi</Text>
-                    </TouchableOpacity>
-                  )}
-                </View>
-
-                {quizData.map((q, qIndex) => {
-                  const userAnswer = selectedAnswers[qIndex];
-                  const isAnswered = userAnswer !== undefined;
-                  return (
-                    <View key={qIndex} style={styles.quizCard}>
-                      <Text style={styles.quizQuestion}>
-                        {qIndex + 1}. {q.question}
-                      </Text>
-
-                      <View style={styles.optionsList}>
-                        {q.options.map((opt, optIndex) => {
-                          const isSelected = userAnswer === optIndex;
-                          const isCorrect = optIndex === q.correctIndex;
-                          const isOptionCorrect = isAnswered && isCorrect;
-                          const isOptionWrong = isAnswered && isSelected && !isCorrect;
-                          const isOptionSelected = !isAnswered && isSelected;
-
-                          return (
-                            <TouchableOpacity
-                              key={optIndex}
-                              style={[
-                                styles.optionItem,
-                                isOptionCorrect && styles.optionCorrect,
-                                isOptionWrong && styles.optionWrong,
-                                isOptionSelected && styles.optionSelected,
-                              ]}
-                              onPress={() => handleSelectQuizOption(qIndex, optIndex)}
-                            >
-                              <Text
-                                style={[
-                                  styles.optionText,
-                                  isOptionCorrect && styles.optionTextCorrect,
-                                  isOptionWrong && styles.optionTextWrong,
-                                ]}
-                              >
-                                {opt}
-                              </Text>
-                              {isOptionCorrect && (
-                                <Ionicons name="checkmark-circle" size={16} color="#10B981" />
-                              )}
-                              {isOptionWrong && (
-                                <Ionicons name="close-circle" size={16} color="#EF4444" />
-                              )}
-                            </TouchableOpacity>
-                          );
-                        })}
-                      </View>
-
-                      {isAnswered && q.explanation && (
-                        <View style={styles.explanationBox}>
-                          <Text style={styles.explanationText}>💡 {q.explanation}</Text>
-                        </View>
-                      )}
-                    </View>
-                  );
-                })}
               </View>
-            ) : !summary ? (
-              <View style={styles.emptyAiBox}>
-                <Ionicons name="sparkles-outline" size={24} color="#4B5565" style={{ marginBottom: 6 }} />
-                <Text style={styles.emptyAiTitle}>AI Study Assistant</Text>
-                <Text style={styles.emptyAiSub}>
-                  Pilih jumlah soal (3, 5, atau 10 soal) lalu klik "Buatkan Kuis" atau "Rangkum dengan AI" untuk membuat simulasi belajar cerdas.
-                </Text>
-              </View>
-            ) : null}
 
-          </View>
+              {/* Bottom Save Action Button */}
+              <TouchableOpacity
+                style={[styles.saveBtnFull, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
+                onPress={handleSave}
+                disabled={loading || !title.trim() || !content.trim()}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="save" size={17} color="#FFFFFF" />
+                    <Text style={styles.saveBtnFullText}>Simpan Catatan Kuliah</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+
+            </View>
+          )}
 
         </View>
-
       </ScrollView>
 
       {/* Subject Manager Modal */}
       <SubjectManagerModal
         visible={showSubjectModal}
         onClose={() => setShowSubjectModal(false)}
-        onSelectSubject={(chosenName) => setSubject(chosenName)}
+        onSelectSubject={(subjName) => setSubject(subjName)}
       />
     </SafeAreaView>
   );
@@ -547,63 +732,285 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: '#090B0E',
   },
   loaderCenter: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
+    backgroundColor: '#090B0E',
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#161B24',
     backgroundColor: '#0E1117',
+    gap: 10,
+  },
+  backBtn: {
+    padding: 6,
+    borderRadius: 8,
+    backgroundColor: '#161B24',
+  },
+  segmentedWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#161B24',
+    borderRadius: 9,
+    padding: 3,
+    gap: 4,
+  },
+  segmentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 7,
+  },
+  segmentBtnActive: {
+    backgroundColor: '#1E2636',
+  },
+  segmentText: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  segmentTextActive: {
+    color: '#60A5FA',
+    fontWeight: '700',
+  },
+  headerSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  headerSaveText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  headerIconBtn: {
+    padding: 7,
+    borderRadius: 8,
+    backgroundColor: '#161B24',
   },
   scroll: {
-    paddingHorizontal: 18,
-    paddingTop: 14,
+    flex: 1,
+  },
+  innerContent: {
+    padding: 16,
+  },
+  innerContentWide: {
+    maxWidth: 860,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  /* ========================================================================= */
+  /* READER VIEW STYLES */
+  /* ========================================================================= */
+  readerContainer: {
+    gap: 14,
+  },
+  readerMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  readerSubjectBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#16233B',
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#253856',
+  },
+  readerSubjectText: {
+    color: '#60A5FA',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  readerStatsPills: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  statPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: '#141822',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  statPillText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  readerTitle: {
+    fontSize: 22,
+    fontWeight: '800',
+    color: '#F9FAFB',
+    lineHeight: 30,
+    letterSpacing: -0.3,
+  },
+  readerDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  readerDateText: {
+    color: '#6B7280',
+    fontSize: 12,
+  },
+  readerActionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderBottomWidth: 1,
+    borderColor: '#161B24',
+    flexWrap: 'wrap',
+  },
+  readerActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#141822',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#202634',
+  },
+  readerActionBtnText: {
+    color: '#60A5FA',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  readerActionDeleteBtn: {
+    padding: 7,
+    backgroundColor: '#201214',
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#4A1D24',
+    marginLeft: 'auto',
+  },
+  readerArticleCard: {
+    backgroundColor: '#0E1117',
+    borderRadius: 14,
+    padding: 18,
+    borderWidth: 1,
+    borderColor: '#1C2330',
+  },
+  readerArticleContent: {
+    color: '#E2E8F0',
+    fontSize: 14.5,
+    lineHeight: 24,
+    fontFamily: Platform.OS === 'ios' ? 'System' : 'normal',
+  },
+  readerSummaryCard: {
+    backgroundColor: '#111A2E',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#1D3256',
+  },
+  summaryTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  summaryTitle: {
+    color: '#60A5FA',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  appendBtn: {
+    backgroundColor: '#1E2F4D',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  appendBtnText: {
+    color: '#93C5FD',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  summaryContent: {
+    color: '#DBEAFE',
+    fontSize: 13,
+    lineHeight: 20,
+  },
+  /* ========================================================================= */
+  /* EDIT VIEW STYLES */
+  /* ========================================================================= */
+  editContainer: {
+    gap: 12,
+  },
+  inputLabel: {
+    color: '#9CA3AF',
+    fontSize: 12,
+    fontWeight: '600',
+    marginBottom: 4,
   },
   titleInput: {
-    color: '#F3F4F6',
-    fontSize: 20,
+    backgroundColor: '#0E1117',
+    borderRadius: 10,
+    padding: 14,
+    color: '#F9FAFB',
+    fontSize: 15,
     fontWeight: '700',
-    borderBottomWidth: 1,
-    borderBottomColor: '#1E2430',
-    paddingVertical: 10,
-    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#202634',
+    marginBottom: 10,
   },
   subjectHeaderRow: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    marginBottom: 8,
-  },
-  sectionLabel: {
-    color: '#6B7280',
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
+    justifyContent: 'space-between',
+    marginBottom: 4,
   },
   manageSubjBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#16233B',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+    backgroundColor: '#141822',
   },
   manageSubjBtnText: {
     color: '#60A5FA',
-    fontSize: 10.5,
+    fontSize: 11,
     fontWeight: '600',
   },
   subjectRow: {
-    gap: 6,
-    marginBottom: 16,
+    gap: 8,
+    marginBottom: 12,
   },
   subjectChip: {
+    backgroundColor: '#141822',
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#141822',
     borderWidth: 1,
     borderColor: '#202634',
   },
@@ -613,327 +1020,300 @@ const styles = StyleSheet.create({
   },
   subjectChipText: {
     color: '#9CA3AF',
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 12,
+    fontWeight: '600',
   },
   subjectChipTextActive: {
-    color: '#F3F4F6',
-    fontWeight: '600',
-  },
-  addNewSubjChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    backgroundColor: '#111827',
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    borderColor: '#26334A',
-  },
-  addNewSubjText: {
     color: '#60A5FA',
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  editorLayout: {
-    gap: 16,
-  },
-  editorLayoutWide: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 20,
-  },
-  editorColumn: {
-    width: '100%',
-  },
-  editorColumnWide: {
-    flex: 1.2,
-    minWidth: 320,
-  },
-  aiColumn: {
-    width: '100%',
-  },
-  aiColumnWide: {
-    flex: 1,
-    minWidth: 300,
+    fontWeight: '700',
   },
   contentInput: {
-    backgroundColor: '#141822',
+    backgroundColor: '#0E1117',
     borderRadius: 12,
     padding: 14,
     color: '#F3F4F6',
-    fontSize: 13.5,
+    fontSize: 14,
     lineHeight: 22,
     minHeight: 220,
     borderWidth: 1,
     borderColor: '#202634',
-    marginBottom: 14,
+    marginBottom: 12,
   },
-  aiControlBox: {
-    backgroundColor: '#141822',
+  aiStudioCard: {
+    backgroundColor: '#0E1117',
     borderRadius: 12,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#1F2937',
     marginBottom: 14,
   },
-  aiControlTitle: {
-    color: '#F3F4F6',
-    fontSize: 13,
+  aiStudioTitle: {
+    color: '#F9FAFB',
+    fontSize: 13.5,
     fontWeight: '700',
-    marginBottom: 10,
   },
-  quizCountRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
+  aiStudioSub: {
+    color: '#6B7280',
+    fontSize: 11.5,
     marginBottom: 12,
   },
-  quizCountLabel: {
-    color: '#9CA3AF',
-    fontSize: 12,
-  },
-  quizCountPills: {
+  aiBtnRow: {
     flexDirection: 'row',
-    gap: 6,
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
   },
-  countPill: {
-    backgroundColor: '#0E1117',
-    paddingHorizontal: 10,
-    paddingVertical: 5,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: '#222836',
-  },
-  countPillActive: {
-    backgroundColor: '#1E293B',
-    borderColor: '#1C3B2F',
-  },
-  countPillText: {
-    color: '#6B7280',
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  countPillTextActive: {
-    color: '#34D399',
-    fontWeight: '600',
-  },
-  aiActionRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  aiBtn: {
+  aiToolBtn: {
     flex: 1,
+    minWidth: 140,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#0E1117',
+    backgroundColor: '#2563EB',
     paddingVertical: 10,
+    paddingHorizontal: 12,
     borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#222836',
   },
-  aiBtnText: {
-    color: '#60A5FA',
+  aiToolBtnQuiz: {
+    flex: 1,
+    minWidth: 140,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#059669',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  aiToolBtnText: {
+    color: '#FFFFFF',
     fontSize: 12,
+    fontWeight: '700',
+  },
+  quizCountSelector: {
+    flexDirection: 'row',
+    gap: 4,
+    backgroundColor: '#161B24',
+    padding: 3,
+    borderRadius: 8,
+  },
+  cntChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  cntChipActive: {
+    backgroundColor: '#059669',
+  },
+  cntChipText: {
+    color: '#9CA3AF',
+    fontSize: 11,
     fontWeight: '600',
   },
-  summaryCard: {
-    backgroundColor: '#101624',
-    borderRadius: 12,
-    padding: 14,
+  cntChipTextActive: {
+    color: '#FFFFFF',
+    fontWeight: '700',
+  },
+  saveBtnFull: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: '#2563EB',
+    paddingVertical: 14,
+    borderRadius: 10,
+    marginTop: 6,
+  },
+  saveBtnFullText: {
+    color: '#FFFFFF',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  /* ========================================================================= */
+  /* QUIZ COMPONENT STYLES */
+  /* ========================================================================= */
+  quizCard: {
+    backgroundColor: '#0E1117',
+    borderRadius: 14,
+    padding: 16,
     borderWidth: 1,
-    borderColor: '#19263B',
-    marginBottom: 14,
+    borderColor: '#192C23',
+    gap: 14,
+    marginTop: 6,
   },
-  summaryTopRow: {
+  quizTopRow: {
     flexDirection: 'row',
+    alignItems: 'center',
     justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: 10,
   },
-  summaryBadge: {
+  quizHeaderTitle: {
+    color: '#34D399',
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  quizHeaderActions: {
     flexDirection: 'row',
-    alignItems: 'center',
     gap: 6,
   },
-  summaryBadgeText: {
-    color: '#93C5FD',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  summaryActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#16233B',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    gap: 4,
-  },
-  summaryActionText: {
-    color: '#60A5FA',
-    fontSize: 10.5,
-    fontWeight: '600',
-  },
-  summaryText: {
-    color: '#E2E8F0',
-    fontSize: 12.5,
-    lineHeight: 20,
-  },
-  quizSection: {
+  miniBtn: {
     backgroundColor: '#141822',
-    borderRadius: 14,
-    padding: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
     borderWidth: 1,
     borderColor: '#202634',
-    marginBottom: 14,
   },
-  quizHeaderRow: {
+  miniBtnText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  miniBtnDanger: {
+    backgroundColor: '#201214',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#4A1D24',
+  },
+  miniBtnDangerText: {
+    color: '#EF4444',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  scoreBarCard: {
+    backgroundColor: '#131D19',
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#1D3B2D',
+  },
+  scoreTopInfo: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 8,
   },
-  quizSectionTitle: {
-    color: '#F3F4F6',
-    fontSize: 13.5,
-    fontWeight: '700',
-  },
-  deleteQuizBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-  },
-  deleteQuizText: {
-    color: '#EF4444',
-    fontSize: 11,
-    fontWeight: '500',
-  },
-  quizScoreBanner: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    backgroundColor: '#0E1726',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-    borderRadius: 8,
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#1E293B',
-  },
-  scoreText: {
-    color: '#93C5FD',
-    fontSize: 11.5,
-    fontWeight: '600',
-  },
-  resetQuizBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  resetQuizText: {
+  scoreLabel: {
     color: '#9CA3AF',
     fontSize: 11,
   },
-  quizCard: {
-    backgroundColor: '#0E1117',
+  scoreValueText: {
+    color: '#34D399',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  progressTrack: {
+    height: 6,
+    backgroundColor: '#1C2E26',
+    borderRadius: 3,
+    overflow: 'hidden',
+  },
+  progressFill: {
+    height: '100%',
+    backgroundColor: '#10B981',
+    borderRadius: 3,
+  },
+  questionBlock: {
+    backgroundColor: '#12161F',
     borderRadius: 10,
     padding: 12,
-    marginBottom: 10,
     borderWidth: 1,
-    borderColor: '#1E2432',
+    borderColor: '#1E2533',
+    gap: 8,
   },
-  quizQuestion: {
+  questionNum: {
+    color: '#60A5FA',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  questionText: {
     color: '#F3F4F6',
-    fontSize: 12.5,
+    fontSize: 13.5,
     fontWeight: '600',
-    marginBottom: 8,
+    lineHeight: 20,
   },
   optionsList: {
     gap: 6,
+    marginTop: 4,
   },
-  optionItem: {
+  optionBtn: {
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#141822',
-    borderRadius: 8,
+    backgroundColor: '#0E1117',
     paddingHorizontal: 10,
-    paddingVertical: 7,
+    paddingVertical: 8,
+    borderRadius: 8,
     borderWidth: 1,
     borderColor: '#202634',
+    gap: 8,
   },
-  optionSelected: {
+  optionBtnSelected: {
+    backgroundColor: '#16233B',
     borderColor: '#3B82F6',
-    backgroundColor: '#182338',
   },
-  optionCorrect: {
+  optionBtnCorrect: {
+    backgroundColor: '#0D281E',
     borderColor: '#10B981',
-    backgroundColor: '#0E241B',
   },
-  optionWrong: {
+  optionBtnWrong: {
+    backgroundColor: '#261214',
     borderColor: '#EF4444',
-    backgroundColor: '#261316',
+  },
+  optionIndexBadge: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#161B24',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  optionIndexText: {
+    color: '#9CA3AF',
+    fontSize: 10.5,
+    fontWeight: '700',
   },
   optionText: {
-    color: '#9CA3AF',
-    fontSize: 11.5,
+    color: '#D1D5DB',
+    fontSize: 12.5,
     flex: 1,
   },
   optionTextCorrect: {
-    color: '#6EE7B7',
+    color: '#34D399',
     fontWeight: '600',
+    fontSize: 12.5,
+    flex: 1,
   },
   optionTextWrong: {
-    color: '#FCA5A5',
+    color: '#F87171',
+    fontWeight: '600',
+    fontSize: 12.5,
+    flex: 1,
   },
-  explanationBox: {
-    marginTop: 8,
-    backgroundColor: '#151922',
-    padding: 8,
-    borderRadius: 6,
+  explanationCard: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
+    marginTop: 4,
+    borderWidth: 1,
+  },
+  explanationCardCorrect: {
+    backgroundColor: '#0A2118',
+    borderColor: '#144634',
+  },
+  explanationCardWrong: {
+    backgroundColor: '#241D10',
+    borderColor: '#4D3B16',
   },
   explanationText: {
-    color: '#9CA3AF',
-    fontSize: 11,
-    lineHeight: 16,
-  },
-  emptyAiBox: {
-    backgroundColor: '#141822',
-    borderRadius: 12,
-    padding: 20,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#202634',
-  },
-  emptyAiTitle: {
-    color: '#D1D5DB',
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  emptyAiSub: {
-    color: '#6B7280',
-    fontSize: 11,
-    textAlign: 'center',
+    color: '#E5E7EB',
+    fontSize: 12,
     lineHeight: 17,
-  },
-  saveBtn: {
-    backgroundColor: '#2563EB',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 4,
-  },
-  saveBtnText: {
-    color: '#FFFFFF',
-    fontSize: 13.5,
-    fontWeight: '600',
+    flex: 1,
   },
 });
