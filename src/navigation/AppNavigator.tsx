@@ -35,6 +35,9 @@ export type TabParamList = {
   Journal: undefined;
   Calendar: undefined;
   Profile: undefined;
+  StudyNoteDetail: { noteId?: string } | undefined;
+  JournalEntry: { entryId?: string } | undefined;
+  Admin: undefined;
 };
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
