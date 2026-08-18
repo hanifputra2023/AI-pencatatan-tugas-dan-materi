@@ -101,24 +101,34 @@ export interface GeminiMessage {
   parts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }>;
 }
 
+export interface SendMessageOptions {
+  isJsonMode?: boolean;
+  maxTokens?: number;
+}
+
 async function callSingleModelWithKey(
   apiKey: string,
   modelName: string,
   contents: GeminiMessage[],
-  systemPrompt: string
+  systemPrompt: string,
+  options?: SendMessageOptions
 ): Promise<string> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
-  const requestBody = {
+  const isJson = options?.isJsonMode === true;
+  const maxOutputTokens = options?.maxTokens || (isJson ? 4096 : 1200);
+
+  const requestBody: any = {
     systemInstruction: {
       parts: [{ text: systemPrompt }],
     },
     contents,
     generationConfig: {
-      temperature: 0.85,
+      temperature: isJson ? 0.2 : 0.85,
       topK: 40,
       topP: 0.95,
-      maxOutputTokens: 800,
+      maxOutputTokens,
+      ...(isJson ? { responseMimeType: 'application/json' } : {}),
     },
   };
 
@@ -145,6 +155,54 @@ async function callSingleModelWithKey(
   return replyText;
 }
 
+// Helper to safely extract and parse JSON from AI response even if wrapped in conversational text or markdown
+export function extractJsonFromText<T>(text: string): T {
+  if (!text) throw new Error('Respon AI kosong.');
+
+  // 1. Direct parse after stripping markdown blocks
+  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
+  try {
+    return JSON.parse(cleaned);
+  } catch (e) {}
+
+  // 2. Extract valid array [ ... ]
+  const startArr = text.indexOf('[');
+  const endArr = text.lastIndexOf(']');
+  if (startArr !== -1 && endArr !== -1 && endArr > startArr) {
+    const arrStr = text.substring(startArr, endArr + 1);
+    try {
+      return JSON.parse(arrStr);
+    } catch (e) {}
+  }
+
+  // 3. Extract valid object { ... }
+  const startObj = text.indexOf('{');
+  const endObj = text.lastIndexOf('}');
+  if (startObj !== -1 && endObj !== -1 && endObj > startObj) {
+    const objStr = text.substring(startObj, endObj + 1);
+    try {
+      return JSON.parse(objStr);
+    } catch (e) {}
+  }
+
+  // 4. Salvage partially truncated JSON array: if starts with [ but cut off before ]
+  if (startArr !== -1) {
+    const partial = text.substring(startArr);
+    const lastBrace = partial.lastIndexOf('}');
+    if (lastBrace !== -1) {
+      const salvagedStr = partial.substring(0, lastBrace + 1) + ']';
+      try {
+        const parsed = JSON.parse(salvagedStr);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed as unknown as T;
+        }
+      } catch (e) {}
+    }
+  }
+
+  throw new Error('Respon AI tidak berformat JSON yang valid. Silakan klik Buat Kuis sekali lagi.');
+}
+
 // =========================================================================
 // MULTI-KEY & MULTI-MODEL SMART FAILOVER ROUTING ENGINE
 // =========================================================================
@@ -152,7 +210,8 @@ export async function sendMessageToGemini(
   history: GeminiMessage[],
   newMessage: string,
   attachment?: ChatAttachment | null,
-  customSystemInstruction?: string
+  customSystemInstruction?: string,
+  options?: SendMessageOptions
 ): Promise<string> {
   const keysPool = getGeminiApiKeysPool();
   if (keysPool.length === 0) {
@@ -197,7 +256,7 @@ export async function sendMessageToGemini(
     // 2. Iterate through candidate models for this key
     for (const model of ACTIVE_MODELS) {
       try {
-        const reply = await callSingleModelWithKey(currentKey, model, contents, systemPrompt);
+        const reply = await callSingleModelWithKey(currentKey, model, contents, systemPrompt, options);
         return reply;
       } catch (err: any) {
         lastError = err;

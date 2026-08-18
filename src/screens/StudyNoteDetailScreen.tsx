@@ -8,7 +8,7 @@ import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
 import { supabase } from '../lib/supabase';
-import { sendMessageToGemini } from '../lib/gemini';
+import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { StudyNote, QuizQuestion } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
@@ -114,36 +114,6 @@ ${content}`;
     );
   };
 
-// Helper to safely extract and parse JSON from AI response even if wrapped in conversational text or markdown
-function extractJsonFromText<T>(text: string): T {
-  const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
-  try {
-    return JSON.parse(cleaned);
-  } catch (e) {}
-
-  // Find outermost [ ... ]
-  const startArr = text.indexOf('[');
-  const endArr = text.lastIndexOf(']');
-  if (startArr !== -1 && endArr !== -1 && endArr > startArr) {
-    const arrStr = text.substring(startArr, endArr + 1);
-    try {
-      return JSON.parse(arrStr);
-    } catch (e) {}
-  }
-
-  // Find outermost { ... }
-  const startObj = text.indexOf('{');
-  const endObj = text.lastIndexOf('}');
-  if (startObj !== -1 && endObj !== -1 && endObj > startObj) {
-    const objStr = text.substring(startObj, endObj + 1);
-    try {
-      return JSON.parse(objStr);
-    } catch (e) {}
-  }
-
-  throw new Error('Respon AI tidak berformat JSON yang valid. Silakan coba klik Buat Kuis sekali lagi.');
-}
-
   // AI Feature 2: Generate Comprehensive Interactive Quiz (3, 5, or 10 Questions)
   const handleGenerateQuiz = async () => {
     if (!content.trim()) {
@@ -161,7 +131,7 @@ Format output HARUS HANYA berupa JSON valid array murni:
     "question": "Pertanyaan soal",
     "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
     "correctIndex": 0,
-    "explanation": "Penjelasan kenapa opsi ini benar"
+    "explanation": "Penjelasan ilmiah kenapa opsi ini benar"
   }
 ]
 
@@ -169,10 +139,13 @@ Mata Kuliah: ${subject || 'Kuliah'}
 Materi Catatan:
 ${content}`;
 
-      const academicSystemPrompt = `Kamu adalah mesin generator kuis akademik universitas.
-Output jawabanmu WAJIB HANYA berupa JSON array murni tanpa kata sapaan/pengantar (JANGAN gunakan "Wah, kamu...", "Tentu!"), tanpa teks penutup, dan tanpa pembungkus percakapan.`;
+      const academicSystemPrompt = `Kamu adalah mesin pembuat kuis akademik berformat JSON murni.
+Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa penutup.`;
 
-      const aiReply = await sendMessageToGemini([], prompt, null, academicSystemPrompt);
+      const aiReply = await sendMessageToGemini([], prompt, null, academicSystemPrompt, {
+        isJsonMode: true,
+        maxTokens: 4096,
+      });
       const parsedQuiz: QuizQuestion[] = extractJsonFromText<QuizQuestion[]>(aiReply);
       setQuizData(parsedQuiz);
       setSelectedAnswers({});
