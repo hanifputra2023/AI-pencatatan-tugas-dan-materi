@@ -8,7 +8,7 @@ import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
 import { supabase } from '../lib/supabase';
-import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey } from '../lib/gemini';
+import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey, setInMemoryApiKeys } from '../lib/gemini';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 

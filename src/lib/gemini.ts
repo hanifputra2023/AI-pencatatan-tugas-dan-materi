@@ -23,6 +23,12 @@ export const setInMemoryApiKeys = (keys: string[]) => {
   inMemoryApiKeys = keys.filter(k => k && k.trim() !== '');
 };
 
+export const setInMemoryApiKey = (key: string) => {
+  if (key && key.trim() !== '') {
+    inMemoryApiKeys = [key.trim(), ...inMemoryApiKeys.filter(k => k !== key.trim())];
+  }
+};
+
 export const getGeminiApiKeysPool = (): string[] => {
   const pool = [...inMemoryApiKeys];
   if (process.env.EXPO_PUBLIC_GEMINI_API_KEY && process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim() !== '') {
