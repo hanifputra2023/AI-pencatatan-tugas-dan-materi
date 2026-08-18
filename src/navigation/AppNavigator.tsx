@@ -79,6 +79,35 @@ function MainTabs() {
       <Tab.Screen name="Journal"  component={JournalScreen}    options={{ title: 'Jurnal' }} />
       <Tab.Screen name="Calendar" component={CalendarScreen}   options={{ title: 'Statistik' }} />
       <Tab.Screen name="Profile"  component={ProfileScreen}    options={{ title: 'Akun' }} />
+
+      {/* Secondary & Detail Screens - Keeps Bottom Navigation Bar Persistent & Accessible */}
+      <Tab.Screen
+        name="StudyNoteDetail"
+        component={StudyNoteDetailScreen}
+        options={{
+          title: 'Kuliah & Tugas',
+          tabBarItemStyle: { display: 'none' },
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="JournalEntry"
+        component={JournalEntryScreen}
+        options={{
+          title: 'Jurnal',
+          tabBarItemStyle: { display: 'none' },
+          tabBarButton: () => null,
+        }}
+      />
+      <Tab.Screen
+        name="Admin"
+        component={AdminScreen}
+        options={{
+          title: 'Akun',
+          tabBarItemStyle: { display: 'none' },
+          tabBarButton: () => null,
+        }}
+      />
     </Tab.Navigator>
   );
 }
@@ -100,31 +129,9 @@ export default function AppNavigator() {
         {session ? (
           <>
             <Stack.Screen name="Main" component={MainTabs} />
-            <Stack.Screen
-              name="StudyNoteDetail"
-              component={StudyNoteDetailScreen}
-              options={{
-                headerShown: false,
-              }}
-            />
-            <Stack.Screen
-              name="JournalEntry"
-              component={JournalEntryScreen}
-              options={{
-                headerShown: true,
-                title: 'Catatan Harian',
-                headerStyle: { backgroundColor: '#11141C' },
-                headerTintColor: '#F3F4F6',
-                headerShadowVisible: false,
-              }}
-            />
-            <Stack.Screen
-              name="Admin"
-              component={AdminScreen}
-              options={{
-                headerShown: false,
-              }}
-            />
+            <Stack.Screen name="StudyNoteDetail" component={StudyNoteDetailScreen} />
+            <Stack.Screen name="JournalEntry" component={JournalEntryScreen} />
+            <Stack.Screen name="Admin" component={AdminScreen} />
           </>
         ) : (
           <>

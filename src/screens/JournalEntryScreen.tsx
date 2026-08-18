@@ -95,6 +95,25 @@ export default function JournalEntryScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* Top Header */}
+      <View style={styles.topHeader}>
+        <Text style={styles.topHeaderTitle}>{entryId ? 'Edit Catatan Harian' : 'Tulis Jurnal Baru'}</Text>
+        <TouchableOpacity
+          style={[styles.headerSaveBtn, (!content.trim()) && { opacity: 0.5 }]}
+          onPress={handleSave}
+          disabled={loading || !content.trim()}
+        >
+          {loading ? (
+            <ActivityIndicator color="#FFFFFF" size="small" />
+          ) : (
+            <>
+              <Ionicons name="checkmark" size={16} color="#FFFFFF" />
+              <Text style={styles.headerSaveText}>Simpan</Text>
+            </>
+          )}
+        </TouchableOpacity>
+      </View>
+
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -203,6 +222,35 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0E1117',
+  },
+  topHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E2430',
+    backgroundColor: '#11141C',
+  },
+  topHeaderTitle: {
+    color: '#F3F4F6',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  headerSaveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 13,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  headerSaveText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
   },
   loaderCenter: {
     flex: 1,
