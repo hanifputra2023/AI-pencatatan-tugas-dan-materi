@@ -1,0 +1,26 @@
+# dependencies
+node_modules/
+
+# expo & build
+.expo/
+dist/
+web-build/
+
+# environment variables
+.env
+.env.local
+.env*.local
+
+# logs
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# system & security files
+.DS_Store
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.orig.*
