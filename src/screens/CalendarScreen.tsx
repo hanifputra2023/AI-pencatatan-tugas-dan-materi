@@ -74,20 +74,7 @@ export default function CalendarScreen() {
 
   useEffect(() => {
     fetchData();
-
-    if (!user) return;
-
-    const channel = supabase
-      .channel('calendar_multi_realtime_' + user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_notes', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_tasks', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, fetchData]);
+  }, [fetchData]);
 
   useFocusEffect(
     useCallback(() => {

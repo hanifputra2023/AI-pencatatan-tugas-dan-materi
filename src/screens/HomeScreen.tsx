@@ -179,20 +179,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchData();
-
-    if (!user) return;
-
-    const channel = supabase
-      .channel('home_realtime_' + user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, () => fetchData())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, fetchData]);
+  }, [fetchData]);
 
   useFocusEffect(
     useCallback(() => {

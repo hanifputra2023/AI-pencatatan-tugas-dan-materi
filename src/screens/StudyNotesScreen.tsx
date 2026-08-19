@@ -93,19 +93,7 @@ export default function StudyNotesScreen() {
   useEffect(() => {
     fetchNotes();
     fetchTasks();
-
-    if (!user) return;
-
-    const channel = supabase
-      .channel('study_realtime_' + user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_notes', filter: `user_id=eq.${user.id}` }, () => fetchNotes())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_tasks', filter: `user_id=eq.${user.id}` }, () => fetchTasks())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, fetchNotes, fetchTasks]);
+  }, [fetchNotes, fetchTasks]);
 
   useFocusEffect(
     useCallback(() => {
