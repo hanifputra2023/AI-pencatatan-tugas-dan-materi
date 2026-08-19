@@ -130,11 +130,6 @@ export default function HomeScreen() {
     setQuests(updated);
     try {
       await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
-      if (user) {
-        await supabase.auth.updateUser({
-          data: { [`quests_${today}`]: updated },
-        });
-      }
     } catch (e) {}
   };
 

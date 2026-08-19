@@ -77,72 +77,37 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [session?.user?.id, fetchRole]);
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      if (session?.user?.id) {
-        fetchRole(session.user.id);
+    // 1. Initial Session Load
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      if (initialSession) {
+        setSession(initialSession);
+        if (initialSession.user?.id) {
+          fetchRole(initialSession.user.id);
+        }
       }
+      setLoading(false);
+    }).catch(() => {
       setLoading(false);
     });
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
-      if (session?.user?.id) {
-        fetchRole(session.user.id);
-      } else {
+    // 2. Safe Auth State Listener (Supabase JS autoRefreshToken handles rotation cleanly)
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, newSession) => {
+      if (event === 'SIGNED_OUT') {
+        setSession(null);
         setRole('student');
+      } else if (newSession) {
+        setSession(newSession);
+        if (newSession.user?.id) {
+          fetchRole(newSession.user.id);
+        }
       }
       setLoading(false);
     });
-
-    return () => subscription.unsubscribe();
-  }, [fetchRole]);
-
-  // Periodic token refresh — prevents silent session expiry on web browsers
-  // Browsers throttle timers in background tabs, so we also refresh on visibility change
-  useEffect(() => {
-    const refreshSession = async () => {
-      try {
-        const { data: { session: current } } = await supabase.auth.getSession();
-        if (!current) return;
-
-        const expiresAt = current.expires_at ?? 0;
-        const now = Math.floor(Date.now() / 1000);
-        const timeLeft = expiresAt - now;
-
-        // If token expires in less than 10 minutes, refresh proactively
-        if (timeLeft < 600) {
-          const { data: { session: refreshed } } = await supabase.auth.refreshSession();
-          if (refreshed) {
-            setSession(refreshed);
-          }
-        }
-      } catch {
-        // Silent — onAuthStateChange will handle auth failures
-      }
-    };
-
-    // Check every 5 minutes
-    const interval = setInterval(refreshSession, 5 * 60 * 1000);
-
-    // Also refresh when user returns to the tab (catches background-tab throttle, web only)
-    let onVisibilityChange: (() => void) | null = null;
-    if (Platform.OS === 'web') {
-      onVisibilityChange = () => {
-        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
-          refreshSession();
-        }
-      };
-      document.addEventListener('visibilitychange', onVisibilityChange);
-    }
 
     return () => {
-      clearInterval(interval);
-      if (onVisibilityChange) {
-        document.removeEventListener('visibilitychange', onVisibilityChange);
-      }
+      subscription.unsubscribe();
     };
-  }, []);
+  }, [fetchRole]);
 
   // Realtime listener for role promotion/demotion
   useEffect(() => {

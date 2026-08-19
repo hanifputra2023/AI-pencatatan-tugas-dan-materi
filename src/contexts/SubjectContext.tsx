@@ -168,14 +168,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
 
     if (user) {
-      // 1. Sync to Supabase Auth user_metadata (100% reliable cloud sync)
-      try {
-        await supabase.auth.updateUser({
-          data: { student_subjects: updated },
-        });
-      } catch (e) {}
-
-      // 2. Try saving to table if available
+      // Try saving to table if available
       try {
         const { data } = await supabase
           .from('student_subjects')
@@ -203,12 +196,6 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
 
     if (user) {
-      try {
-        await supabase.auth.updateUser({
-          data: { student_subjects: updated },
-        });
-      } catch (e) {}
-
       try {
         await supabase.from('student_subjects').delete().eq('id', id);
       } catch (e) {}
