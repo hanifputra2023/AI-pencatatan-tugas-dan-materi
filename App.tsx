@@ -3,6 +3,7 @@ import React, { useEffect } from 'react';
 import { View, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider } from './src/contexts/AuthContext';
+import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { MoodProvider } from './src/contexts/MoodContext';
 import { AlertProvider } from './src/contexts/AlertContext';
 import { SubjectProvider } from './src/contexts/SubjectContext';
@@ -48,25 +49,11 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
 }
 
 function MainAppContainer() {
-  const { width } = useWindowDimensions();
-  const isWebDesktop = Platform.OS === 'web' && width > 768;
+  const { theme } = useTheme();
 
   return (
-    <View style={styles.outerBackground}>
-      <View
-        style={[
-          styles.appContainer,
-          isWebDesktop && {
-            maxWidth: 1080,
-            width: '100%',
-            height: '100%',
-            alignSelf: 'center',
-            borderLeftWidth: 1,
-            borderRightWidth: 1,
-            borderColor: '#1E2430',
-          },
-        ]}
-      >
+    <View style={[styles.outerBackground, { backgroundColor: theme.bg }]}>
+      <View style={[styles.appContainer, { backgroundColor: theme.bg }]}>
         <AppNavigator />
       </View>
     </View>
@@ -76,14 +63,16 @@ function MainAppContainer() {
 export default function App() {
   return (
     <AuthProvider>
-      <MoodProvider>
-        <AlertProvider>
-          <SubjectProvider>
-            <StatusBar style="light" />
-            <MainAppContainer />
-          </SubjectProvider>
-        </AlertProvider>
-      </MoodProvider>
+      <ThemeProvider>
+        <MoodProvider>
+          <AlertProvider>
+            <SubjectProvider>
+              <StatusBar style="light" />
+              <MainAppContainer />
+            </SubjectProvider>
+          </AlertProvider>
+        </MoodProvider>
+      </ThemeProvider>
     </AuthProvider>
   );
 }

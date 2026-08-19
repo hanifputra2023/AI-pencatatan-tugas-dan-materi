@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSubjects } from '../contexts/SubjectContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { confirmAction, showAlert } from '../lib/alert';
 
 interface SubjectManagerModalProps {
@@ -19,6 +20,7 @@ export default function SubjectManagerModal({
   onSelectSubject,
 }: SubjectManagerModalProps) {
   const { subjects, addSubject, deleteSubject } = useSubjects();
+  const { theme, isLightMode } = useTheme();
   const [newSubjName, setNewSubjName] = useState('');
   const [saving, setSaving] = useState(false);
 
@@ -59,36 +61,36 @@ export default function SubjectManagerModal({
       <TouchableWithoutFeedback onPress={onClose}>
         <View style={styles.overlay}>
           <TouchableWithoutFeedback>
-            <View style={styles.card}>
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               
               {/* Header */}
               <View style={styles.topRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={styles.iconBox}>
-                    <Ionicons name="school" size={18} color="#60A5FA" />
+                  <View style={[styles.iconBox, { backgroundColor: theme.accentBg }]}>
+                    <Ionicons name="school" size={18} color={theme.accentLight} />
                   </View>
                   <View>
-                    <Text style={styles.title}>Daftar Mata Kuliah Saya</Text>
-                    <Text style={styles.subtitle}>Kelola matkul semester ini untuk pilihan cepat</Text>
+                    <Text style={[styles.title, { color: theme.text }]}>Daftar Mata Kuliah Saya</Text>
+                    <Text style={[styles.subtitle, { color: theme.subtext }]}>Kelola matkul semester ini untuk pilihan cepat</Text>
                   </View>
                 </View>
-                <TouchableOpacity onPress={onClose} style={styles.closeBtn}>
-                  <Ionicons name="close" size={18} color="#9CA3AF" />
+                <TouchableOpacity onPress={onClose} style={[styles.closeBtn, { backgroundColor: theme.cardInner }]}>
+                  <Ionicons name="close" size={18} color={theme.subtext} />
                 </TouchableOpacity>
               </View>
 
               {/* Add New Subject Input Form */}
               <View style={styles.addInputRow}>
                 <TextInput
-                  style={styles.input}
+                  style={[styles.input, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
                   placeholder="Ketik mata kuliah baru (misal: Kecerdasan Buatan)..."
-                  placeholderTextColor="#4B5565"
+                  placeholderTextColor={theme.muted}
                   value={newSubjName}
                   onChangeText={setNewSubjName}
                   onSubmitEditing={handleAdd}
                 />
                 <TouchableOpacity
-                  style={styles.addBtn}
+                  style={[styles.addBtn, { backgroundColor: theme.primary }]}
                   onPress={handleAdd}
                   disabled={saving}
                 >
@@ -98,15 +100,15 @@ export default function SubjectManagerModal({
               </View>
 
               {/* List of Current Subjects */}
-              <Text style={styles.listLabel}>Mata Kuliah Tersimpan ({subjects.length}):</Text>
+              <Text style={[styles.listLabel, { color: theme.subtext }]}>Mata Kuliah Tersimpan ({subjects.length}):</Text>
               <ScrollView style={styles.listScroll} showsVerticalScrollIndicator={false}>
                 {subjects.length === 0 ? (
-                  <View style={styles.emptyWrap}>
-                    <Text style={styles.emptyText}>Belum ada mata kuliah yang ditambahkan.</Text>
+                  <View style={[styles.emptyWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <Text style={[styles.emptyText, { color: theme.subtext }]}>Belum ada mata kuliah yang ditambahkan.</Text>
                   </View>
                 ) : (
                   subjects.map((item, idx) => (
-                    <View key={item.id || idx} style={styles.subjItem}>
+                    <View key={item.id || idx} style={[styles.subjItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                       <TouchableOpacity
                         style={styles.subjItemLeft}
                         onPress={() => {
@@ -116,12 +118,12 @@ export default function SubjectManagerModal({
                           }
                         }}
                       >
-                        <Ionicons name="book-outline" size={15} color="#60A5FA" />
-                        <Text style={styles.subjName}>{item.name}</Text>
+                        <Ionicons name="book-outline" size={15} color={theme.accentLight} />
+                        <Text style={[styles.subjName, { color: theme.text }]}>{item.name}</Text>
                       </TouchableOpacity>
                       
                       <TouchableOpacity
-                        style={styles.deleteBtn}
+                        style={[styles.deleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418' }]}
                         onPress={() => handleDelete(item.id, item.name)}
                       >
                         <Ionicons name="trash-outline" size={15} color="#EF4444" />
@@ -132,8 +134,8 @@ export default function SubjectManagerModal({
               </ScrollView>
 
               {/* Footer Button */}
-              <TouchableOpacity style={styles.doneBtn} onPress={onClose}>
-                <Text style={styles.doneBtnText}>Selesai</Text>
+              <TouchableOpacity style={[styles.doneBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={onClose}>
+                <Text style={[styles.doneBtnText, { color: theme.text }]}>Selesai</Text>
               </TouchableOpacity>
 
             </View>

@@ -3,10 +3,12 @@ import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, SafeAreaView, ActivityIndicator, Switch, Modal, Platform,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey, setInMemoryApiKeys } from '../lib/gemini';
 import { useResponsive } from '../hooks/useResponsive';
@@ -18,8 +20,18 @@ const COLOR_PALETTE = [
   '#14B8A6', '#84CC16', '#F97316', '#6366F1',
 ];
 
-const PRESET_PERSONAS = [
+export interface PersonaPreset {
+  id?: string;
+  name: string;
+  botName: string;
+  desc: string;
+  prompt: string;
+  isCustom?: boolean;
+}
+
+const PRESET_PERSONAS: PersonaPreset[] = [
   {
+    id: 'default_1',
     name: 'Sahabat Hangat (Default)',
     botName: 'Ara',
     desc: 'Empatik, santai, mendengar tanpa menghakimi.',
@@ -31,27 +43,34 @@ Prinsip utamamu:
 3. Berikan kata-kata penyemangat, pelukan hangat virtual, atau sudut pandang positif yang menenangkan.
 4. Jika pengguna melampirkan foto/file/suara, beri respons yang perhatian terhadap isi lampiran tersebut.
 5. Jawabanmu ringkas, nyaman dibaca (2-4 kalimat), natural, dan gunakan emoji yang manis & relevan.`,
+    isCustom: false,
   },
   {
+    id: 'default_2',
     name: 'Konselor Mindfulness',
     botName: 'Mindful Ara',
     desc: 'Bijaksana, reflektif, menenangkan pikiran.',
     prompt: `Kamu adalah konselor emosional yang bijaksana, lembut, dan menenangkan.
 Gunakan pendekatan mindfulness untuk membantu pengguna memahami emosi mereka secara mendalam dan berikan pertanyaan reflektif yang menenteramkan.`,
+    isCustom: false,
   },
   {
+    id: 'default_3',
     name: 'Coach Motivator Mahasiswa',
     botName: 'Coach Ara',
     desc: 'Berenergi, solutif, memacu semangat belajar.',
     prompt: `Kamu adalah pelatih kehidupan (Life & Academic Coach) yang berenergi positif dan solutif.
 Fokus pada membakar semangat mahasiswa yang sedang lesu tugas/skripsi dan berikan langkah aksi konkret yang bisa dilakukan hari ini.`,
+    isCustom: false,
   },
   {
+    id: 'default_4',
     name: 'Tutor Dosen Akademik',
     botName: 'Prof. Ara',
     desc: 'Kritis, akademis, mendalam, dan terstruktur.',
     prompt: `Kamu adalah asisten akademik cerdas dengan latar belakang akademisi.
 Bantu mahasiswa memahami konsep perkuliahan, logika ilmiah, metodologi riset, dan analisis materi dengan terstruktur, rapi, dan mudah dipahami.`,
+    isCustom: false,
   },
 ];
 
@@ -64,6 +83,7 @@ interface UserProfile {
 export default function AdminScreen() {
   const navigation = useNavigation();
   const { isAdmin } = useAuth();
+  const { theme, isLightMode } = useTheme();
   const {
     moods, addMood, updateMood, deleteMood, resetToDefaults,
     aiPersona, updateAiPersona,
@@ -102,6 +122,15 @@ export default function AdminScreen() {
   const [aiMaxTokens, setAiMaxTokens] = useState(appSettings['ai_max_tokens'] || '1000');
   const [savingAi, setSavingAi] = useState(false);
 
+  // Custom Persona Presets State
+  const [customPresets, setCustomPresets] = useState<PersonaPreset[]>([]);
+  const [showAddPresetModal, setShowAddPresetModal] = useState(false);
+  const [newPresetName, setNewPresetName] = useState('');
+  const [newPresetBotName, setNewPresetBotName] = useState('Ara');
+  const [newPresetDesc, setNewPresetDesc] = useState('');
+  const [newPresetPrompt, setNewPresetPrompt] = useState('');
+  const [savingCustomPreset, setSavingCustomPreset] = useState(false);
+
   // AI Tester Playground State
   const [testPrompt, setTestPrompt] = useState('Hai Ara, aku lagi capek banget sama tugas kuliah hari ini...');
   const [testResponse, setTestResponse] = useState('');
@@ -138,8 +167,26 @@ export default function AdminScreen() {
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [userSearch, setUserSearch] = useState('');
 
+  const fetchCustomPresets = async () => {
+    try {
+      const cached = await AsyncStorage.getItem('@custom_ai_presets');
+      if (cached) {
+        setCustomPresets(JSON.parse(cached));
+      }
+      const { data } = await supabase.from('app_configs').select('*').eq('key', 'custom_ai_presets').single();
+      if (data?.value) {
+        const parsed = JSON.parse(data.value);
+        if (Array.isArray(parsed)) {
+          setCustomPresets(parsed);
+          await AsyncStorage.setItem('@custom_ai_presets', data.value);
+        }
+      }
+    } catch (e) {}
+  };
+
   useEffect(() => {
     fetchStats();
+    fetchCustomPresets();
     if (activeTab === 'users') fetchUsers();
   }, [activeTab]);
 
@@ -255,10 +302,68 @@ export default function AdminScreen() {
     }
   };
 
-  const handleSelectPreset = (p: typeof PRESET_PERSONAS[0]) => {
-    const currentName = botNameInput.trim() || p.botName;
-    const synchronizedPrompt = p.prompt.replace(/Kamu adalah "[^"]+"/g, `Kamu adalah "${currentName}"`);
+  const handleSelectPreset = (p: PersonaPreset) => {
+    const currentName = botNameInput.trim() || p.botName || 'Ara';
+    let synchronizedPrompt = p.prompt;
+    if (/Kamu adalah "[^"]+"/i.test(synchronizedPrompt)) {
+      synchronizedPrompt = synchronizedPrompt.replace(/Kamu adalah "[^"]+"/g, `Kamu adalah "${currentName}"`);
+    }
     setPromptText(synchronizedPrompt);
+  };
+
+  const handleAddCustomPreset = async () => {
+    if (!newPresetName.trim() || !newPresetPrompt.trim()) {
+      showAlert('Perhatian', 'Nama Preset dan Instruksi Inti wajib diisi.');
+      return;
+    }
+    setSavingCustomPreset(true);
+    try {
+      const newPreset: PersonaPreset = {
+        id: 'custom_' + Date.now(),
+        name: newPresetName.trim(),
+        botName: newPresetBotName.trim() || botNameInput.trim() || 'Ara',
+        desc: newPresetDesc.trim() || 'Preset gaya karakter kustom.',
+        prompt: newPresetPrompt.trim(),
+        isCustom: true,
+      };
+      const updated = [...customPresets, newPreset];
+      setCustomPresets(updated);
+      await AsyncStorage.setItem('@custom_ai_presets', JSON.stringify(updated));
+      await supabase.from('app_configs').upsert({
+        key: 'custom_ai_presets',
+        value: JSON.stringify(updated),
+      });
+      // Automatically apply this preset to the prompt textarea!
+      handleSelectPreset(newPreset);
+      setShowAddPresetModal(false);
+      setNewPresetName('');
+      setNewPresetBotName('Ara');
+      setNewPresetDesc('');
+      setNewPresetPrompt('');
+      showAlert('Berhasil Ditambahkan! ✨', `Preset "${newPreset.name}" berhasil dibuat dan instruksi intinya telah dimuat ke editor.`);
+    } catch (e: any) {
+      showAlert('Gagal Menyimpan', e.message || 'Terjadi kesalahan saat menyimpan preset.');
+    } finally {
+      setSavingCustomPreset(false);
+    }
+  };
+
+  const handleDeleteCustomPreset = (presetId: string, presetName: string) => {
+    confirmAction(
+      'Hapus Preset Kustom?',
+      `Apakah Anda yakin ingin menghapus preset "${presetName}"?`,
+      async () => {
+        const updated = customPresets.filter(p => p.id !== presetId);
+        setCustomPresets(updated);
+        await AsyncStorage.setItem('@custom_ai_presets', JSON.stringify(updated));
+        await supabase.from('app_configs').upsert({
+          key: 'custom_ai_presets',
+          value: JSON.stringify(updated),
+        });
+        showAlert('Terhapus', `Preset "${presetName}" berhasil dihapus.`);
+      },
+      'Hapus'
+    );
   };
 
   const handleSaveAiConfig = async () => {
@@ -526,7 +631,7 @@ export default function AdminScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.portalContainer}>
+    <SafeAreaView style={[styles.portalContainer, { backgroundColor: theme.bg }]}>
       
       {/* ========================================================================= */}
       {/* 1. MOBILE SLIDE-IN DRAWER MODAL (Toggle Navbar Asidebar) */}
@@ -908,22 +1013,58 @@ export default function AdminScreen() {
                     ))}
                   </View>
 
-                  {/* Preset Personas */}
-                  <Text style={styles.inputLabel}>Pilih Preset Gaya Karakter:</Text>
+                  {/* Preset Personas Header with Add Button */}
+                  <View style={styles.presetSectionHeaderRow}>
+                    <Text style={[styles.inputLabel, { marginBottom: 0 }]}>Pilih Preset Gaya Karakter:</Text>
+                    <TouchableOpacity
+                      style={styles.addPresetActionBtn}
+                      onPress={() => {
+                        setNewPresetBotName(botNameInput || 'Ara');
+                        setShowAddPresetModal(true);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="add-circle" size={15} color="#60A5FA" />
+                      <Text style={styles.addPresetActionText}>+ Tambah Preset Kustom</Text>
+                    </TouchableOpacity>
+                  </View>
+
                   <View style={styles.presetGrid}>
-                    {PRESET_PERSONAS.map(p => {
-                      const isSelected = promptText.includes(p.name) || promptText === p.prompt;
+                    {[...PRESET_PERSONAS, ...customPresets].map(p => {
+                      const isSelected = promptText === p.prompt || promptText.includes(p.name);
                       return (
                         <TouchableOpacity
-                          key={p.name}
+                          key={p.id || p.name}
                           style={[styles.presetCard, isSelected && styles.presetCardActive]}
                           onPress={() => handleSelectPreset(p)}
+                          activeOpacity={0.8}
                         >
                           <View style={styles.presetTop}>
-                            <Text style={[styles.presetTitle, isSelected && styles.presetTitleActive]}>{p.name}</Text>
-                            {isSelected && <Ionicons name="checkmark-circle" size={16} color="#60A5FA" />}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, marginRight: 4 }}>
+                              <Text style={[styles.presetTitle, isSelected && styles.presetTitleActive]} numberOfLines={1}>
+                                {p.name}
+                              </Text>
+                              {p.isCustom && (
+                                <View style={styles.customPresetBadge}>
+                                  <Text style={styles.customPresetBadgeText}>Kustom</Text>
+                                </View>
+                              )}
+                            </View>
+
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              {p.isCustom && (
+                                <TouchableOpacity
+                                  onPress={() => handleDeleteCustomPreset(p.id!, p.name)}
+                                  style={styles.deletePresetIconBtn}
+                                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                                >
+                                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                                </TouchableOpacity>
+                              )}
+                              {isSelected && <Ionicons name="checkmark-circle" size={16} color="#60A5FA" />}
+                            </View>
                           </View>
-                          <Text style={styles.presetDesc}>{p.desc}</Text>
+                          <Text style={styles.presetDesc} numberOfLines={2}>{p.desc}</Text>
                         </TouchableOpacity>
                       );
                     })}
@@ -1373,6 +1514,109 @@ export default function AdminScreen() {
           </ScrollView>
         </View>
 
+      {/* ========================================================= */}
+      {/* MODAL: TAMBAH PRESET GAYA KARAKTER BARU */}
+      {/* ========================================================= */}
+      <Modal
+        visible={showAddPresetModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAddPresetModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowAddPresetModal(false)}
+          />
+
+          <View style={styles.presetModalCard}>
+            <View style={styles.presetModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={styles.presetModalIconWrap}>
+                  <Ionicons name="sparkles" size={16} color="#60A5FA" />
+                </View>
+                <View>
+                  <Text style={styles.presetModalTitle}>Tambah Preset Karakter AI</Text>
+                  <Text style={styles.presetModalSub}>Buat gaya instruksi kustom baru untuk bot</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowAddPresetModal(false)} style={styles.closeModalBtn}>
+                <Ionicons name="close" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.presetModalScroll} showsVerticalScrollIndicator={false}>
+              <Text style={styles.modalFieldLabel}>Nama Preset / Peran Karakter *</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Misal: Ahli Pemrograman & Debugging, Psikolog Ramah..."
+                placeholderTextColor="#5A6578"
+                value={newPresetName}
+                onChangeText={setNewPresetName}
+              />
+
+              <Text style={styles.modalFieldLabel}>Panggilan Bot Default</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Misal: Ara, Dev Ara, Sensei Ara..."
+                placeholderTextColor="#5A6578"
+                value={newPresetBotName}
+                onChangeText={setNewPresetBotName}
+              />
+
+              <Text style={styles.modalFieldLabel}>Deskripsi Singkat Karakter</Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Misal: Kritis, solutif, membantu analisa logika & perbaikan bug."
+                placeholderTextColor="#5A6578"
+                value={newPresetDesc}
+                onChangeText={setNewPresetDesc}
+              />
+
+              <Text style={styles.modalFieldLabel}>System Prompt Lengkap (Instruksi Inti) *</Text>
+              <Text style={styles.modalFieldHint}>
+                Tulis aturan perilaku, gaya bahasa, dan panduan respons AI saat preset ini dipilih:
+              </Text>
+              <TextInput
+                style={styles.modalPromptArea}
+                placeholder={`Kamu adalah "${newPresetBotName || 'Ara'}", seorang asisten ahli yang cerdas dan solutif.\n\nTugas utamamu:\n1. Jelaskan konsep dengan terstruktur dan mudah dipahami.\n2. Berikan contoh praktis dan solusi konkrit.\n3. Bersikap ramah, sopan, dan suportif.`}
+                placeholderTextColor="#4B5565"
+                value={newPresetPrompt}
+                onChangeText={setNewPresetPrompt}
+                multiline
+                textAlignVertical="top"
+              />
+            </ScrollView>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => setShowAddPresetModal(false)}
+                disabled={savingCustomPreset}
+              >
+                <Text style={styles.modalCancelText}>Batal</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.modalSubmitBtn}
+                onPress={handleAddCustomPreset}
+                disabled={savingCustomPreset}
+              >
+                {savingCustomPreset ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+                    <Text style={styles.modalSubmitText}>Simpan & Terapkan Preset</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
       </View>
     </SafeAreaView>
   );
@@ -1788,6 +2032,49 @@ const styles = StyleSheet.create({
     color: '#60A5FA',
     fontWeight: '600',
   },
+  presetSectionHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+    marginTop: 4,
+  },
+  addPresetActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#16233B',
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+    borderColor: '#253856',
+  },
+  addPresetActionText: {
+    color: '#60A5FA',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  customPresetBadge: {
+    backgroundColor: '#1C1938',
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#3730A3',
+  },
+  customPresetBadgeText: {
+    color: '#A5B4FC',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  deletePresetIconBtn: {
+    padding: 3,
+    backgroundColor: '#201214',
+    borderRadius: 4,
+    borderWidth: 1,
+    borderColor: '#4A1D24',
+  },
   presetGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -1825,6 +2112,141 @@ const styles = StyleSheet.create({
     color: '#5A6578',
     fontSize: 10.5,
     lineHeight: 15,
+  },
+
+  /* Custom Preset Modal Styles */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  modalBackdrop: {
+    position: 'absolute',
+    top: 0,
+    bottom: 0,
+    left: 0,
+    right: 0,
+  },
+  presetModalCard: {
+    width: '100%',
+    maxWidth: 540,
+    maxHeight: '90%',
+    backgroundColor: '#11141C',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#1E2430',
+    padding: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.5,
+    shadowRadius: 20,
+    elevation: 25,
+  },
+  presetModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1E2430',
+    marginBottom: 14,
+  },
+  presetModalIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    backgroundColor: '#16233B',
+    borderWidth: 1,
+    borderColor: '#253856',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  presetModalTitle: {
+    color: '#F3F4F6',
+    fontSize: 14.5,
+    fontWeight: '700',
+  },
+  presetModalSub: {
+    color: '#6B7280',
+    fontSize: 11,
+  },
+  closeModalBtn: {
+    padding: 4,
+  },
+  presetModalScroll: {
+    maxHeight: 400,
+  },
+  modalFieldLabel: {
+    color: '#9CA3AF',
+    fontSize: 11.5,
+    fontWeight: '600',
+    marginBottom: 6,
+    marginTop: 10,
+  },
+  modalFieldHint: {
+    color: '#5A6578',
+    fontSize: 10.5,
+    marginBottom: 6,
+  },
+  modalInput: {
+    backgroundColor: '#0E1117',
+    borderRadius: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    color: '#F3F4F6',
+    fontSize: 12.5,
+    borderWidth: 1,
+    borderColor: '#202634',
+  },
+  modalPromptArea: {
+    backgroundColor: '#0E1117',
+    borderRadius: 8,
+    padding: 12,
+    color: '#F3F4F6',
+    fontSize: 12,
+    lineHeight: 18,
+    minHeight: 140,
+    borderWidth: 1,
+    borderColor: '#202634',
+    marginBottom: 10,
+  },
+  modalBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    paddingTop: 14,
+    borderTopWidth: 1,
+    borderTopColor: '#1E2430',
+    marginTop: 10,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    backgroundColor: '#1E2430',
+    paddingVertical: 11,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalCancelText: {
+    color: '#9CA3AF',
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  modalSubmitBtn: {
+    flex: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#2563EB',
+    paddingVertical: 11,
+    borderRadius: 8,
+  },
+  modalSubmitText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
   },
   promptArea: {
     backgroundColor: '#0E1117',

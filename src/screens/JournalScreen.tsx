@@ -8,6 +8,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { JournalEntry } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -17,6 +18,7 @@ import { confirmAction } from '../lib/alert';
 export default function JournalScreen() {
   const { user } = useAuth();
   const { moods } = useMoods();
+  const { theme, isLightMode } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -93,26 +95,26 @@ export default function JournalScreen() {
     const mood = moods.find(m => m.type === item.mood);
     return (
       <TouchableOpacity
-        style={[styles.card, isWide && styles.cardWide]}
+        style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }, isWide && styles.cardWide]}
         onPress={() => navigation.navigate('JournalEntry', { entryId: item.id })}
         onLongPress={() => deleteEntry(item.id)}
       >
         <View style={styles.cardHeader}>
-          <Text style={styles.cardTitle} numberOfLines={1}>
+          <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
             {item.title || 'Catatan Harian'}
           </Text>
           <Text style={styles.cardEmoji}>{mood?.emoji || '•'}</Text>
         </View>
-        <Text style={styles.cardContent} numberOfLines={3}>{item.content}</Text>
+        <Text style={[styles.cardContent, { color: theme.subtext }]} numberOfLines={3}>{item.content}</Text>
         <View style={styles.cardFooter}>
-          <Text style={styles.cardDate}>
+          <Text style={[styles.cardDate, { color: theme.muted }]}>
             {new Date(item.created_at).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })}
           </Text>
           {item.tags?.length > 0 && (
             <View style={styles.tagsRow}>
               {item.tags.slice(0, 3).map(tag => (
-                <View key={tag} style={styles.tag}>
-                  <Text style={styles.tagText}>#{tag}</Text>
+                <View key={tag} style={[styles.tag, { backgroundColor: theme.cardInner }]}>
+                  <Text style={[styles.tagText, { color: theme.accentLight }]}>#{tag}</Text>
                 </View>
               ))}
             </View>
@@ -123,34 +125,46 @@ export default function JournalScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Jurnal</Text>
-          <Text style={styles.subtitle}>Catatan pikiran & peristiwa harian</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Jurnal Refleksi</Text>
+          <Text style={[styles.subtitle, { color: theme.subtext }]}>Catatan perasaan & refleksi harianmu</Text>
         </View>
-        <TouchableOpacity style={styles.addBtn} onPress={() => navigation.navigate('JournalEntry', {})}>
-          <Ionicons name="create-outline" size={18} color="#FFFFFF" />
-          <Text style={styles.addBtnText}>Tulis</Text>
+        <TouchableOpacity
+          style={[styles.addBtn, { backgroundColor: theme.primary }]}
+          onPress={() => navigation.navigate('JournalEntry', {})}
+        >
+          <Ionicons name="add" size={18} color="#FFFFFF" />
+          <Text style={styles.addBtnText}>Tulis Jurnal</Text>
         </TouchableOpacity>
       </View>
 
       {/* Filter Chips */}
       <View style={styles.filterContainer}>
         <TouchableOpacity
-          style={[styles.filterChip, !filterMood && styles.filterChipActive]}
+          style={[
+            styles.filterChip,
+            { backgroundColor: theme.card, borderColor: theme.border },
+            !filterMood && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+          ]}
           onPress={() => setFilterMood(null)}
         >
-          <Text style={[styles.filterText, !filterMood && styles.filterTextActive]}>Semua</Text>
+          <Text style={[styles.filterText, { color: theme.subtext }, !filterMood && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>Semua</Text>
         </TouchableOpacity>
         {moods.map(m => (
           <TouchableOpacity
             key={m.type}
-            style={[styles.filterChip, filterMood === m.type && styles.filterChipActive]}
+            style={[
+              styles.filterChip,
+              { backgroundColor: theme.card, borderColor: theme.border },
+              filterMood === m.type && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+            ]}
             onPress={() => setFilterMood(filterMood === m.type ? null : m.type)}
           >
-            <Text style={[styles.filterText, filterMood === m.type && styles.filterTextActive]}>
+            <Text style={[styles.filterText, { color: theme.subtext }, filterMood === m.type && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
               {m.emoji} {m.label}
             </Text>
           </TouchableOpacity>
@@ -158,13 +172,13 @@ export default function JournalScreen() {
       </View>
 
       {loading ? (
-        <View style={styles.loaderCenter}><ActivityIndicator size="small" color="#9CA3AF" /></View>
+        <View style={styles.loaderCenter}><ActivityIndicator size="small" color={theme.subtext} /></View>
       ) : entries.length === 0 ? (
-        <View style={styles.empty}>
-          <Ionicons name="book-outline" size={32} color="#6B7280" style={{ marginBottom: 10 }} />
-          <Text style={styles.emptyTitle}>Belum ada catatan</Text>
-          <Text style={styles.emptySub}>Mulai tulis jurnal pertama kamu hari ini.</Text>
-          <TouchableOpacity style={styles.emptyBtn} onPress={() => navigation.navigate('JournalEntry', {})}>
+        <View style={[styles.empty, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          <Ionicons name="book-outline" size={32} color={theme.muted} style={{ marginBottom: 10 }} />
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>Belum ada catatan</Text>
+          <Text style={[styles.emptySub, { color: theme.subtext }]}>Mulai tulis jurnal pertama kamu hari ini.</Text>
+          <TouchableOpacity style={[styles.emptyBtn, { backgroundColor: theme.primary }]} onPress={() => navigation.navigate('JournalEntry', {})}>
             <Text style={styles.emptyBtnText}>+ Tulis Jurnal</Text>
           </TouchableOpacity>
         </View>
@@ -180,6 +194,7 @@ export default function JournalScreen() {
           showsVerticalScrollIndicator={false}
         />
       )}
+      </View>
     </SafeAreaView>
   );
 }
@@ -188,6 +203,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0E1117',
+  },
+  innerContainer: {
+    flex: 1,
+    width: '100%',
+  },
+  innerContainerWide: {
+    maxWidth: 1440,
+    alignSelf: 'center',
   },
   header: {
     flexDirection: 'row',

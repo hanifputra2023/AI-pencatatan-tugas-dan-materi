@@ -8,6 +8,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { JournalEntry, StudyNote, StudentTask } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -20,6 +21,7 @@ type TabFilter = 'all' | 'study' | 'journal' | 'tasks';
 export default function CalendarScreen() {
   const { user } = useAuth();
   const { moods } = useMoods();
+  const { theme, isLightMode } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -110,15 +112,23 @@ export default function CalendarScreen() {
 
       const mood = dayJournals.length > 0 ? moods.find(m => m.type === dayJournals[0].mood) : null;
 
+      const showNotes = filter === 'all' || filter === 'study';
+      const showJournals = filter === 'all' || filter === 'journal';
+      const showTasks = filter === 'all' || filter === 'tasks';
+
+      const filteredNoteCount = showNotes ? dayNotes.length : 0;
+      const filteredJournalCount = showJournals ? dayJournals.length : 0;
+      const filteredTaskCount = showTasks ? dayTasks.length : 0;
+
       days.push({
         date,
         dateStr,
         dayNum: date.getDate(),
         mood,
-        journalCount: dayJournals.length,
-        noteCount: dayNotes.length,
-        taskCount: dayTasks.length,
-        hasActivity: dayJournals.length > 0 || dayNotes.length > 0 || dayTasks.length > 0,
+        journalCount: filteredJournalCount,
+        noteCount: filteredNoteCount,
+        taskCount: filteredTaskCount,
+        hasActivity: filteredNoteCount > 0 || filteredJournalCount > 0 || filteredTaskCount > 0,
       });
     }
     return days;
@@ -179,9 +189,18 @@ export default function CalendarScreen() {
   const topMood = moodStats[0] ? moods.find(m => m.type === moodStats[0][0]) : null;
 
   // Selected Day Items
-  const selectedDayJournals = journals.filter(e => new Date(e.created_at).toDateString() === selectedDateStr);
-  const selectedDayNotes = notes.filter(n => new Date(n.created_at).toDateString() === selectedDateStr);
-  const selectedDayTasks = tasks.filter(t => t.due_date && new Date(t.due_date).toDateString() === selectedDateStr);
+  const allDayJournals = journals.filter(e => new Date(e.created_at).toDateString() === selectedDateStr);
+  const allDayNotes = notes.filter(n => new Date(n.created_at).toDateString() === selectedDateStr);
+  const allDayTasks = tasks.filter(t => t.due_date && new Date(t.due_date).toDateString() === selectedDateStr);
+  const totalAllSelectedEvents = allDayJournals.length + allDayNotes.length + allDayTasks.length;
+
+  const showSelectedNotes = filter === 'all' || filter === 'study';
+  const showSelectedJournals = filter === 'all' || filter === 'journal';
+  const showSelectedTasks = filter === 'all' || filter === 'tasks';
+
+  const selectedDayJournals = showSelectedJournals ? allDayJournals : [];
+  const selectedDayNotes = showSelectedNotes ? allDayNotes : [];
+  const selectedDayTasks = showSelectedTasks ? allDayTasks : [];
   const totalSelectedEvents = selectedDayJournals.length + selectedDayNotes.length + selectedDayTasks.length;
 
   const totalQuizzesGenerated = notes.reduce((acc, n) => acc + (n.quiz_data?.length || 0), 0);
@@ -196,57 +215,74 @@ export default function CalendarScreen() {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 40 }}
+        contentContainerStyle={[styles.scrollContent, isWide && styles.scrollContentWide]}
       >
+        <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
         {/* Top Header */}
         <View style={styles.header}>
-          <Text style={styles.title}>Statistik & Kalender</Text>
-          <Text style={styles.subtitle}>Rekapitulasi aktivitas belajar, materi kuliah & refleksi 30 hari</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Statistik & Kalender</Text>
+          <Text style={[styles.subtitle, { color: theme.subtext }]}>Rekapitulasi aktivitas belajar, materi kuliah & refleksi 30 hari</Text>
         </View>
 
         {/* Top Filter Switcher */}
         <View style={styles.filterRow}>
           <TouchableOpacity
-            style={[styles.filterChip, filter === 'all' && styles.filterChipActive]}
+            style={[
+              styles.filterChip,
+              { backgroundColor: theme.card, borderColor: theme.border },
+              filter === 'all' && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+            ]}
             onPress={() => setFilter('all')}
           >
-            <Ionicons name="sparkles" size={13} color={filter === 'all' ? '#60A5FA' : '#9CA3AF'} />
-            <Text style={[styles.filterChipText, filter === 'all' && styles.filterChipTextActive]}>
+            <Ionicons name="sparkles" size={13} color={filter === 'all' ? theme.accentLight : theme.subtext} />
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'all' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
               Semua Aktivitas
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.filterChip, filter === 'study' && styles.filterChipActive]}
+            style={[
+              styles.filterChip,
+              { backgroundColor: theme.card, borderColor: theme.border },
+              filter === 'study' && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+            ]}
             onPress={() => setFilter('study')}
           >
-            <Ionicons name="school" size={13} color={filter === 'study' ? '#60A5FA' : '#9CA3AF'} />
-            <Text style={[styles.filterChipText, filter === 'study' && styles.filterChipTextActive]}>
+            <Ionicons name="school" size={13} color={filter === 'study' ? theme.accentLight : theme.subtext} />
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'study' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
               Materi ({notes.length})
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.filterChip, filter === 'journal' && styles.filterChipActive]}
+            style={[
+              styles.filterChip,
+              { backgroundColor: theme.card, borderColor: theme.border },
+              filter === 'journal' && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+            ]}
             onPress={() => setFilter('journal')}
           >
-            <Ionicons name="book" size={13} color={filter === 'journal' ? '#60A5FA' : '#9CA3AF'} />
-            <Text style={[styles.filterChipText, filter === 'journal' && styles.filterChipTextActive]}>
+            <Ionicons name="book" size={13} color={filter === 'journal' ? theme.accentLight : theme.subtext} />
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'journal' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
               Jurnal ({journals.length})
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.filterChip, filter === 'tasks' && styles.filterChipActive]}
+            style={[
+              styles.filterChip,
+              { backgroundColor: theme.card, borderColor: theme.border },
+              filter === 'tasks' && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+            ]}
             onPress={() => setFilter('tasks')}
           >
-            <Ionicons name="checkbox" size={13} color={filter === 'tasks' ? '#60A5FA' : '#9CA3AF'} />
-            <Text style={[styles.filterChipText, filter === 'tasks' && styles.filterChipTextActive]}>
+            <Ionicons name="checkbox" size={13} color={filter === 'tasks' ? theme.accentLight : theme.subtext} />
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'tasks' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
               Tugas ({tasks.length})
             </Text>
           </TouchableOpacity>
@@ -254,40 +290,40 @@ export default function CalendarScreen() {
 
         {/* 4 Summary Metric Cards */}
         <View style={styles.summaryGrid}>
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryIconBox}>
-              <Ionicons name="school-outline" size={15} color="#60A5FA" />
+          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.summaryIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+              <Ionicons name="school-outline" size={15} color={theme.accentLight} />
             </View>
-            <Text style={styles.summaryNum}>{notes.length}</Text>
-            <Text style={styles.summaryLabel}>Materi Kuliah</Text>
-            <Text style={styles.summarySub}>{totalQuizzesGenerated} Soal Kuis AI</Text>
+            <Text style={[styles.summaryNum, { color: theme.text }]}>{notes.length}</Text>
+            <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Materi Kuliah</Text>
+            <Text style={[styles.summarySub, { color: theme.muted }]}>{totalQuizzesGenerated} Soal Kuis AI</Text>
           </View>
 
-          <View style={styles.summaryCard}>
-            <View style={[styles.summaryIconBox, { backgroundColor: '#2E1065', borderColor: '#4C1D95' }]}>
-              <Ionicons name="checkbox-outline" size={15} color="#C084FC" />
+          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#F3E8FF' : '#2E1065', borderColor: isLightMode ? '#D8B4FE' : '#4C1D95' }]}>
+              <Ionicons name="checkbox-outline" size={15} color={isLightMode ? '#7E22CE' : '#C084FC'} />
             </View>
-            <Text style={styles.summaryNum}>{completedTasksCount}/{tasks.length}</Text>
-            <Text style={styles.summaryLabel}>Tugas Selesai</Text>
-            <Text style={styles.summarySub}>{tasks.length - completedTasksCount} Pending</Text>
+            <Text style={[styles.summaryNum, { color: theme.text }]}>{completedTasksCount}/{tasks.length}</Text>
+            <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Tugas Selesai</Text>
+            <Text style={[styles.summarySub, { color: theme.muted }]}>{tasks.length - completedTasksCount} Pending</Text>
           </View>
 
-          <View style={styles.summaryCard}>
-            <View style={[styles.summaryIconBox, { backgroundColor: '#143825', borderColor: '#1F5A3B' }]}>
-              <Ionicons name="book-outline" size={15} color="#4ADE80" />
+          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#DCFCE7' : '#143825', borderColor: isLightMode ? '#86EFAC' : '#1F5A3B' }]}>
+              <Ionicons name="book-outline" size={15} color={isLightMode ? '#15803D' : '#4ADE80'} />
             </View>
-            <Text style={styles.summaryNum}>{journals.length}</Text>
-            <Text style={styles.summaryLabel}>Total Jurnal</Text>
-            <Text style={styles.summarySub}>{topMood?.emoji || '✨'} Dominan {topMood?.label || ''}</Text>
+            <Text style={[styles.summaryNum, { color: theme.text }]}>{journals.length}</Text>
+            <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Total Jurnal</Text>
+            <Text style={[styles.summarySub, { color: theme.muted }]}>{topMood?.emoji || '✨'} Dominan {topMood?.label || ''}</Text>
           </View>
 
-          <View style={styles.summaryCard}>
-            <View style={[styles.summaryIconBox, { backgroundColor: '#3B1A16', borderColor: '#6B2C24' }]}>
-              <Ionicons name="flame-outline" size={15} color="#FB923C" />
+          <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#FFEDD5' : '#3B1A16', borderColor: isLightMode ? '#FDBA74' : '#6B2C24' }]}>
+              <Ionicons name="flame-outline" size={15} color={isLightMode ? '#C2410C' : '#FB923C'} />
             </View>
-            <Text style={styles.summaryNum}>{weekData.filter(d => d.hasActivity).length}/7</Text>
-            <Text style={styles.summaryLabel}>Aktif Minggu Ini</Text>
-            <Text style={styles.summarySub}>Hari Produktif</Text>
+            <Text style={[styles.summaryNum, { color: theme.text }]}>{weekData.filter(d => d.hasActivity).length}/7</Text>
+            <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Aktif Minggu Ini</Text>
+            <Text style={[styles.summarySub, { color: theme.muted }]}>Hari Produktif</Text>
           </View>
         </View>
 
@@ -300,24 +336,24 @@ export default function CalendarScreen() {
           <View style={[styles.column, isWide && { flex: 1.2 }]}>
 
             {/* 30-Day Activity Calendar Grid */}
-            <View style={styles.card}>
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.cardHeaderBetween}>
                 <View>
-                  <Text style={styles.cardTitle}>Kalender Aktivitas 30 Hari</Text>
-                  <Text style={styles.cardSub}>Klik tanggal untuk melihat rincian materi & jurnal</Text>
+                  <Text style={[styles.cardTitle, { color: theme.text }]}>Kalender Aktivitas 30 Hari</Text>
+                  <Text style={[styles.cardSub, { color: theme.subtext }]}>Klik tanggal untuk melihat rincian materi & jurnal</Text>
                 </View>
                 <View style={styles.legendRow}>
                   <View style={styles.legendItem}>
                     <View style={[styles.legendDot, { backgroundColor: '#3B82F6' }]} />
-                    <Text style={styles.legendText}>Materi</Text>
+                    <Text style={[styles.legendText, { color: theme.subtext }]}>Materi</Text>
                   </View>
                   <View style={styles.legendItem}>
                     <View style={[styles.legendDot, { backgroundColor: '#10B981' }]} />
-                    <Text style={styles.legendText}>Jurnal</Text>
+                    <Text style={[styles.legendText, { color: theme.subtext }]}>Jurnal</Text>
                   </View>
                   <View style={styles.legendItem}>
                     <View style={[styles.legendDot, { backgroundColor: '#F59E0B' }]} />
-                    <Text style={styles.legendText}>Tugas</Text>
+                    <Text style={[styles.legendText, { color: theme.subtext }]}>Tugas</Text>
                   </View>
                 </View>
               </View>
@@ -330,13 +366,14 @@ export default function CalendarScreen() {
                       key={i}
                       style={[
                         styles.gridCell,
-                        d.hasActivity && styles.gridCellActive,
-                        isSelected && styles.gridCellSelected,
+                        { backgroundColor: theme.cardInner, borderColor: theme.border },
+                        d.hasActivity && [styles.gridCellActive, { borderColor: theme.accentLight }],
+                        isSelected && [styles.gridCellSelected, { backgroundColor: theme.primary, borderColor: theme.primary }],
                       ]}
                       onPress={() => setSelectedDateStr(d.dateStr)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.gridDay, isSelected && styles.gridDaySelected]}>
+                      <Text style={[styles.gridDay, { color: theme.subtext }, isSelected && [styles.gridDaySelected, { color: '#FFFFFF' }]]}>
                         {d.dayNum}
                       </Text>
 
@@ -356,11 +393,11 @@ export default function CalendarScreen() {
             </View>
 
             {/* Selected Date Inspector Card */}
-            <View style={styles.card}>
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.cardHeaderBetween}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <Ionicons name="calendar" size={16} color="#60A5FA" />
-                  <Text style={styles.cardTitle}>
+                  <Ionicons name="calendar" size={16} color={theme.accentLight} />
+                  <Text style={[styles.cardTitle, { color: theme.text }]}>
                     {new Date(selectedDateStr).toLocaleDateString('id-ID', {
                       weekday: 'long',
                       day: 'numeric',
@@ -369,15 +406,19 @@ export default function CalendarScreen() {
                     })}
                   </Text>
                 </View>
-                <Text style={styles.badgeEventsCount}>
+                <Text style={[styles.badgeEventsCount, { backgroundColor: theme.accentBg, color: theme.accentLight, borderColor: theme.border }]}>
                   {totalSelectedEvents} Aktivitas
                 </Text>
               </View>
 
               {totalSelectedEvents === 0 ? (
                 <View style={styles.emptyDayWrap}>
-                  <Ionicons name="cafe-outline" size={24} color="#6B7280" />
-                  <Text style={styles.emptyDayText}>Tidak ada catatan materi, jurnal, atau tugas pada hari ini.</Text>
+                  <Ionicons name="cafe-outline" size={24} color={theme.muted} />
+                  <Text style={[styles.emptyDayText, { color: theme.subtext }]}>
+                    {totalAllSelectedEvents > 0 && filter !== 'all'
+                      ? `Tidak ada ${filter === 'study' ? 'materi' : filter === 'journal' ? 'jurnal' : 'tugas'} pada hari ini.`
+                      : 'Tidak ada catatan materi, jurnal, atau tugas pada hari ini.'}
+                  </Text>
                 </View>
               ) : (
                 <View style={styles.dayEventList}>
@@ -386,24 +427,24 @@ export default function CalendarScreen() {
                   {selectedDayNotes.map(n => (
                     <TouchableOpacity
                       key={n.id}
-                      style={styles.eventItem}
+                      style={[styles.eventItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
                       onPress={() => navigation.navigate('StudyNoteDetail', { noteId: n.id })}
                       activeOpacity={0.7}
                     >
-                      <View style={[styles.eventBadgeIcon, { backgroundColor: '#1E293B' }]}>
-                        <Ionicons name="school" size={15} color="#60A5FA" />
+                      <View style={[styles.eventBadgeIcon, { backgroundColor: theme.accentBg }]}>
+                        <Ionicons name="school" size={15} color={theme.accentLight} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={styles.eventHeaderRow}>
-                          <Text style={styles.eventSubjectBadge}>{n.subject || 'Mata Kuliah'}</Text>
-                          <Text style={styles.eventTimeText}>
+                          <Text style={[styles.eventSubjectBadge, { backgroundColor: theme.accentBg, color: theme.accentLight }]}>{n.subject || 'Mata Kuliah'}</Text>
+                          <Text style={[styles.eventTimeText, { color: theme.muted }]}>
                             {new Date(n.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                           </Text>
                         </View>
-                        <Text style={styles.eventTitle} numberOfLines={1}>{n.title}</Text>
-                        <Text style={styles.eventSnippet} numberOfLines={1}>{n.content}</Text>
+                        <Text style={[styles.eventTitle, { color: theme.text }]} numberOfLines={1}>{n.title}</Text>
+                        <Text style={[styles.eventSnippet, { color: theme.subtext }]} numberOfLines={1}>{n.content}</Text>
                       </View>
-                      <Ionicons name="chevron-forward" size={14} color="#6B7280" />
+                      <Ionicons name="chevron-forward" size={14} color={theme.subtext} />
                     </TouchableOpacity>
                   ))}
 
@@ -413,46 +454,46 @@ export default function CalendarScreen() {
                     return (
                       <TouchableOpacity
                         key={j.id}
-                        style={styles.eventItem}
+                        style={[styles.eventItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
                         onPress={() => navigation.navigate('JournalEntry', { entryId: j.id })}
                         activeOpacity={0.7}
                       >
-                        <View style={[styles.eventBadgeIcon, { backgroundColor: '#143825' }]}>
+                        <View style={[styles.eventBadgeIcon, { backgroundColor: isLightMode ? '#DCFCE7' : '#143825' }]}>
                           <Text style={{ fontSize: 14 }}>{mood?.emoji || '📝'}</Text>
                         </View>
                         <View style={{ flex: 1 }}>
                           <View style={styles.eventHeaderRow}>
-                            <Text style={[styles.eventSubjectBadge, { color: '#4ADE80', backgroundColor: '#133522', borderColor: '#1F5A3B' }]}>
+                            <Text style={[styles.eventSubjectBadge, { color: isLightMode ? '#15803D' : '#4ADE80', backgroundColor: isLightMode ? '#DCFCE7' : '#133522', borderColor: isLightMode ? '#86EFAC' : '#1F5A3B' }]}>
                               Jurnal {mood?.label || ''}
                             </Text>
-                            <Text style={styles.eventTimeText}>
+                            <Text style={[styles.eventTimeText, { color: theme.muted }]}>
                               {new Date(j.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
                             </Text>
                           </View>
-                          <Text style={styles.eventTitle} numberOfLines={1}>{j.title || 'Catatan Refleksi'}</Text>
-                          <Text style={styles.eventSnippet} numberOfLines={1}>{j.content}</Text>
+                          <Text style={[styles.eventTitle, { color: theme.text }]} numberOfLines={1}>{j.title || 'Catatan Refleksi'}</Text>
+                          <Text style={[styles.eventSnippet, { color: theme.subtext }]} numberOfLines={1}>{j.content}</Text>
                         </View>
-                        <Ionicons name="chevron-forward" size={14} color="#6B7280" />
+                        <Ionicons name="chevron-forward" size={14} color={theme.subtext} />
                       </TouchableOpacity>
                     );
                   })}
 
                   {/* Tasks Due on Selected Day */}
                   {selectedDayTasks.map(t => (
-                    <View key={t.id} style={styles.eventItem}>
-                      <View style={[styles.eventBadgeIcon, { backgroundColor: '#3B2412' }]}>
-                        <Ionicons name="checkbox" size={15} color="#F59E0B" />
+                    <View key={t.id} style={[styles.eventItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                      <View style={[styles.eventBadgeIcon, { backgroundColor: isLightMode ? '#FEF3C7' : '#3B2412' }]}>
+                        <Ionicons name="checkbox" size={15} color={isLightMode ? '#D97706' : '#F59E0B'} />
                       </View>
                       <View style={{ flex: 1 }}>
                         <View style={styles.eventHeaderRow}>
-                          <Text style={[styles.eventSubjectBadge, { color: '#FBBF24', backgroundColor: '#2E1E0C', borderColor: '#593914' }]}>
+                          <Text style={[styles.eventSubjectBadge, { color: isLightMode ? '#B45309' : '#FBBF24', backgroundColor: isLightMode ? '#FEF3C7' : '#2E1E0C', borderColor: isLightMode ? '#FCD34D' : '#593914' }]}>
                             Tugas: {t.subject}
                           </Text>
-                          <Text style={[styles.eventTimeText, { color: t.is_completed ? '#4ADE80' : '#F87171' }]}>
+                          <Text style={[styles.eventTimeText, { color: t.is_completed ? '#10B981' : '#EF4444' }]}>
                             {t.is_completed ? 'Selesai' : 'Pending'}
                           </Text>
                         </View>
-                        <Text style={styles.eventTitle} numberOfLines={1}>{t.title}</Text>
+                        <Text style={[styles.eventTitle, { color: theme.text }]} numberOfLines={1}>{t.title}</Text>
                       </View>
                     </View>
                   ))}
@@ -469,8 +510,8 @@ export default function CalendarScreen() {
           <View style={[styles.column, isWide && { flex: 1 }]}>
 
             {/* 7-Day Activity Trend Bar Chart */}
-            <View style={styles.card}>
-              <Text style={styles.cardTitle}>Tren Aktivitas 7 Hari Terakhir</Text>
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.cardTitle, { color: theme.text }]}>Tren Aktivitas 7 Hari Terakhir</Text>
               <View style={styles.barChart}>
                 {weekData.map((d, i) => (
                   <View key={i} style={styles.barCol}>
@@ -479,36 +520,36 @@ export default function CalendarScreen() {
                       style={[
                         styles.bar,
                         {
-                          backgroundColor: d.hasActivity ? '#3B82F6' : '#1E2430',
+                          backgroundColor: d.hasActivity ? theme.primary : theme.border,
                           height: d.hasActivity ? Math.min(60, Math.max(20, d.totalEvents * 16)) : 6,
                         },
                       ]}
                     />
-                    <Text style={styles.barDay}>{d.day}</Text>
+                    <Text style={[styles.barDay, { color: theme.subtext }]}>{d.day}</Text>
                   </View>
                 ))}
               </View>
             </View>
 
             {/* Subject Study Breakdown */}
-            <View style={styles.card}>
+            <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.cardHeaderBetween}>
-                <Text style={styles.cardTitle}>Distribusi Materi Kuliah</Text>
-                <Text style={styles.cardSubCount}>{notes.length} Catatan</Text>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>Distribusi Materi Kuliah</Text>
+                <Text style={[styles.cardSubCount, { color: theme.accentLight }]}>{notes.length} Catatan</Text>
               </View>
               {subjectStats.length === 0 ? (
-                <Text style={styles.emptyStatsText}>Belum ada catatan materi kuliah.</Text>
+                <Text style={[styles.emptyStatsText, { color: theme.subtext }]}>Belum ada catatan materi kuliah.</Text>
               ) : (
                 subjectStats.map(([subjName, count]) => {
                   const pct = Math.round((count / (notes.length || 1)) * 100);
                   return (
                     <View key={subjName} style={styles.statRow}>
-                      <Ionicons name="book-outline" size={13} color="#60A5FA" style={{ marginRight: 6 }} />
-                      <Text style={styles.statLabel} numberOfLines={1}>{subjName}</Text>
-                      <View style={styles.statBarBg}>
-                        <View style={[styles.statBar, { width: `${pct}%` as any, backgroundColor: '#3B82F6' }]} />
+                      <Ionicons name="book-outline" size={13} color={theme.accentLight} style={{ marginRight: 6 }} />
+                      <Text style={[styles.statLabel, { color: theme.text }]} numberOfLines={1}>{subjName}</Text>
+                      <View style={[styles.statBarBg, { backgroundColor: theme.cardInner }]}>
+                        <View style={[styles.statBar, { width: `${pct}%` as any, backgroundColor: theme.primary }]} />
                       </View>
-                      <Text style={styles.statCount}>{count} ({pct}%)</Text>
+                      <Text style={[styles.statCount, { color: theme.subtext }]}>{count} ({pct}%)</Text>
                     </View>
                   );
                 })
@@ -517,10 +558,10 @@ export default function CalendarScreen() {
 
             {/* Mood Sebaran Emosi */}
             {moodStats.length > 0 && (
-              <View style={styles.card}>
+              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <View style={styles.cardHeaderBetween}>
-                  <Text style={styles.cardTitle}>Sebaran Emosi & Jurnal</Text>
-                  <Text style={styles.cardSubCount}>{journals.length} Jurnal</Text>
+                  <Text style={[styles.cardTitle, { color: theme.text }]}>Sebaran Emosi & Jurnal</Text>
+                  <Text style={[styles.cardSubCount, { color: theme.accentLight }]}>{journals.length} Jurnal</Text>
                 </View>
                 {moodStats.map(([moodType, count]) => {
                   const mood = moods.find(m => m.type === moodType);
@@ -528,11 +569,11 @@ export default function CalendarScreen() {
                   return (
                     <View key={moodType} style={styles.statRow}>
                       <Text style={styles.statEmoji}>{mood?.emoji || '•'}</Text>
-                      <Text style={styles.statLabel}>{mood?.label || moodType}</Text>
-                      <View style={styles.statBarBg}>
-                        <View style={[styles.statBar, { width: `${pct}%` as any, backgroundColor: '#10B981' }]} />
+                      <Text style={[styles.statLabel, { color: theme.text }]}>{mood?.label || moodType}</Text>
+                      <View style={[styles.statBarBg, { backgroundColor: theme.cardInner }]}>
+                        <View style={[styles.statBar, { width: `${pct}%` as any, backgroundColor: isLightMode ? '#10B981' : '#059669' }]} />
                       </View>
-                      <Text style={styles.statCount}>{count} ({pct}%)</Text>
+                      <Text style={[styles.statCount, { color: theme.subtext }]}>{count} ({pct}%)</Text>
                     </View>
                   );
                 })}
@@ -543,6 +584,7 @@ export default function CalendarScreen() {
 
         </View>
 
+        </View>
       </ScrollView>
     </SafeAreaView>
   );
@@ -551,16 +593,30 @@ export default function CalendarScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#090B0E',
+    backgroundColor: '#0E1117',
   },
   loaderCenter: {
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#090B0E',
+    backgroundColor: '#0E1117',
   },
   scroll: {
+    flex: 1,
+  },
+  scrollContent: {
     paddingHorizontal: 18,
+    paddingBottom: 40,
+  },
+  scrollContentWide: {
+    paddingHorizontal: 28,
+  },
+  innerContainer: {
+    width: '100%',
+  },
+  innerContainerWide: {
+    maxWidth: 1440,
+    alignSelf: 'center',
   },
   header: {
     paddingTop: 16,

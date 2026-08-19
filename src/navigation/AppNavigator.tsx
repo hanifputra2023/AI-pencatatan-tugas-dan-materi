@@ -31,7 +31,7 @@ export type RootStackParamList = {
 export type TabParamList = {
   Home: undefined;
   Chat: undefined;
-  Study: undefined;
+  Study: { initialTab?: 'notes' | 'tasks' | 'pomodoro' } | undefined;
   Journal: undefined;
   Calendar: undefined;
   Profile: undefined;
@@ -44,16 +44,18 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
 
 import { useResponsive } from '../hooks/useResponsive';
+import { useTheme } from '../contexts/ThemeContext';
 import DesktopHeader from '../components/DesktopHeader';
 
 function MainTabs() {
   const { isSmallPhone, isDesktop, isTablet } = useResponsive();
+  const { theme } = useTheme();
 
   const iconSize = isSmallPhone ? 17 : (isDesktop || isTablet) ? 20 : 18;
   const labelFontSize = isSmallPhone ? 9 : (isDesktop || isTablet) ? 11.5 : 10;
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#0E1117' }}>
+    <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {isDesktop && <DesktopHeader />}
       <Tab.Navigator
         screenOptions={({ route }) => ({
@@ -68,11 +70,11 @@ function MainTabs() {
             };
             return <Ionicons name={icons[route.name]} size={iconSize} color={color} />;
           },
-          tabBarActiveTintColor: '#FFFFFF',
+          tabBarActiveTintColor: theme.accentLight,
           tabBarInactiveTintColor: '#5A6578',
           tabBarStyle: isDesktop ? { display: 'none' } : {
-            backgroundColor: '#11141C',
-            borderTopColor: '#1E2430',
+            backgroundColor: theme.card,
+            borderTopColor: theme.border,
             borderTopWidth: 1,
             paddingBottom: Platform.OS === 'ios' ? (isSmallPhone ? 10 : 14) : 8,
             paddingTop: isSmallPhone ? 6 : 8,

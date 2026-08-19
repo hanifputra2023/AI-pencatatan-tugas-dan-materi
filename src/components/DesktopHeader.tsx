@@ -3,6 +3,7 @@ import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useNavigationState } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useTheme } from '../contexts/ThemeContext';
 
 const DESKTOP_NAV_ITEMS = [
   { name: 'Home', label: 'Beranda', icon: 'grid-outline', activeIcon: 'grid' },
@@ -15,6 +16,7 @@ const DESKTOP_NAV_ITEMS = [
 export default function DesktopHeader() {
   const navigation = useNavigation<any>();
   const { user, signOut } = useAuth();
+  const { theme } = useTheme();
 
   // Get current active route name
   const currentRouteName = useNavigationState(state => {
@@ -29,65 +31,74 @@ export default function DesktopHeader() {
   });
 
   return (
-    <View style={styles.desktopHeader}>
-      {/* Brand Logo */}
-      <TouchableOpacity
-        style={styles.brandRow}
-        onPress={() => navigation.navigate('Home')}
-        activeOpacity={0.8}
-      >
-        <View style={styles.logoBadge}>
-          <Ionicons name="sparkles" size={16} color="#60A5FA" />
-        </View>
-        <View>
-          <Text style={styles.brandTitle}>StudyBot AI</Text>
-          <Text style={styles.brandSub}>Smart Academic & Journal</Text>
-        </View>
-      </TouchableOpacity>
-
-      {/* Nav Links */}
-      <View style={styles.navLinksRow}>
-        {DESKTOP_NAV_ITEMS.map(item => {
-          const isActive = currentRouteName === item.name ||
-            (item.name === 'Study' && currentRouteName === 'StudyNoteDetail') ||
-            (item.name === 'Journal' && currentRouteName === 'JournalEntry');
-
-          return (
-            <TouchableOpacity
-              key={item.name}
-              style={[styles.navLinkBtn, isActive && styles.navLinkBtnActive]}
-              onPress={() => navigation.navigate(item.name)}
-              activeOpacity={0.7}
-            >
-              <Ionicons
-                name={(isActive ? item.activeIcon : item.icon) as any}
-                size={16}
-                color={isActive ? '#60A5FA' : '#9CA3AF'}
-              />
-              <Text style={[styles.navLinkText, isActive && styles.navLinkTextActive]}>
-                {item.label}
-              </Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
-
-      {/* Right User & Actions */}
-      <View style={styles.rightActions}>
+    <View style={[styles.desktopHeader, { backgroundColor: theme.cardInner, borderBottomColor: theme.border }]}>
+      <View style={styles.innerHeader}>
+        {/* Brand Logo */}
         <TouchableOpacity
-          style={[styles.profileBtn, currentRouteName === 'Profile' && styles.profileBtnActive]}
-          onPress={() => navigation.navigate('Profile')}
-          activeOpacity={0.7}
+          style={styles.brandRow}
+          onPress={() => navigation.navigate('Home')}
+          activeOpacity={0.8}
         >
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarLetter}>
-              {(user?.email?.[0] || 'U').toUpperCase()}
-            </Text>
+          <View style={[styles.logoBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+            <Ionicons name="sparkles" size={16} color={theme.accentLight} />
           </View>
-          <Text style={styles.profileText} numberOfLines={1}>
-            {user?.user_metadata?.username || user?.email?.split('@')[0] || 'Akun'}
-          </Text>
+          <View>
+            <Text style={[styles.brandTitle, { color: theme.text }]}>StudyBot AI</Text>
+            <Text style={[styles.brandSub, { color: theme.subtext }]}>Smart Academic & Journal</Text>
+          </View>
         </TouchableOpacity>
+
+        {/* Nav Links */}
+        <View style={[styles.navLinksRow, { backgroundColor: theme.card, borderColor: theme.border }]}>
+          {DESKTOP_NAV_ITEMS.map(item => {
+            const isActive = currentRouteName === item.name ||
+              (item.name === 'Study' && currentRouteName === 'StudyNoteDetail') ||
+              (item.name === 'Journal' && currentRouteName === 'JournalEntry');
+
+            return (
+              <TouchableOpacity
+                key={item.name}
+                style={[
+                  styles.navLinkBtn,
+                  isActive && { backgroundColor: theme.accentBg, borderColor: theme.border }
+                ]}
+                onPress={() => navigation.navigate(item.name)}
+                activeOpacity={0.7}
+              >
+                <Ionicons
+                  name={(isActive ? item.activeIcon : item.icon) as any}
+                  size={16}
+                  color={isActive ? theme.accentLight : theme.subtext}
+                />
+                <Text style={[styles.navLinkText, { color: isActive ? theme.accentLight : theme.subtext }, isActive && { fontWeight: '700' }]}>
+                  {item.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+
+        {/* Right User & Actions */}
+        <View style={styles.rightActions}>
+          <TouchableOpacity
+            style={[
+              styles.profileBtn,
+              { backgroundColor: theme.card, borderColor: theme.border },
+              currentRouteName === 'Profile' && { borderColor: theme.accent, backgroundColor: theme.accentBg }
+            ]}
+            onPress={() => navigation.navigate('Profile')}
+            activeOpacity={0.7}
+          >
+            <View style={[styles.avatarCircle, { backgroundColor: theme.primary }]}>
+              <Text style={styles.avatarLetter}>
+                {(user?.email?.[0] || 'U').toUpperCase()}
+              </Text>
+            </View>
+            <Text style={[styles.profileText, { color: theme.text }]} numberOfLines={1}>
+              {user?.user_metadata?.username || user?.email?.split('@')[0] || 'Akun'}
+            </Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </View>
   );
@@ -99,12 +110,18 @@ const styles = StyleSheet.create({
     backgroundColor: '#0E1117',
     borderBottomWidth: 1,
     borderBottomColor: '#1E2430',
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
     paddingHorizontal: 24,
     width: '100%',
     zIndex: 100,
+    justifyContent: 'center',
+  },
+  innerHeader: {
+    maxWidth: 1440,
+    width: '100%',
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   brandRow: {
     flexDirection: 'row',

@@ -11,11 +11,16 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
 import { ChatMessage, ChatAttachment, ChatSession } from '../types';
 import { confirmAction, showAlert } from '../lib/alert';
 import { safeSaveChatMessages, safeSaveSessions, safeRemoveChatCache } from '../lib/safeStorage';
+
+import { RootStackParamList } from '../navigation/AppNavigator';
+import { useResponsive } from '../hooks/useResponsive';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
@@ -36,6 +41,9 @@ export default function ChatScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const { aiPersona, aiBotName } = useMoods();
+  const { theme, isLightMode } = useTheme();
+  const { isDesktop, isTablet } = useResponsive();
+  const isWide = isDesktop || isTablet;
 
   // Multi-Session & Message States
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -626,8 +634,8 @@ export default function ChatScreen() {
       <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAssistant]}>
         
         {isAi && (
-          <View style={styles.aiAvatar}>
-            <Text style={styles.aiAvatarLetter}>{(aiBotName || 'Ara')[0].toUpperCase()}</Text>
+          <View style={[styles.aiAvatar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+            <Text style={[styles.aiAvatarLetter, { color: theme.accentLight }]}>{(aiBotName || 'Ara')[0].toUpperCase()}</Text>
           </View>
         )}
 
@@ -635,46 +643,54 @@ export default function ChatScreen() {
           
           {/* Attachment Preview */}
           {item.attachment && (
-            <View style={styles.attachmentCard}>
+            <View style={[styles.attachmentCard, { borderColor: theme.border }]}>
               {item.attachment.type === 'image' && (
                 <Image source={{ uri: item.attachment.uri }} style={styles.attachmentImg} resizeMode="cover" />
               )}
               {item.attachment.type === 'audio' && (
-                <View style={styles.fileRow}>
-                  <Ionicons name="musical-notes" size={16} color="#60A5FA" />
-                  <Text style={styles.fileName} numberOfLines={1}>{item.attachment.name}</Text>
+                <View style={[styles.fileRow, { backgroundColor: theme.cardInner }]}>
+                  <Ionicons name="musical-notes" size={16} color={theme.accentLight} />
+                  <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={1}>{item.attachment.name}</Text>
                 </View>
               )}
               {item.attachment.type === 'document' && (
-                <View style={styles.fileRow}>
-                  <Ionicons name="document-text" size={16} color="#60A5FA" />
-                  <Text style={styles.fileName} numberOfLines={1}>{item.attachment.name}</Text>
+                <View style={[styles.fileRow, { backgroundColor: theme.cardInner }]}>
+                  <Ionicons name="document-text" size={16} color={theme.accentLight} />
+                  <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={1}>{item.attachment.name}</Text>
                 </View>
               )}
             </View>
           )}
 
           {/* Bubble Container */}
-          <View style={[styles.bubble, isUser ? styles.bubbleUser : styles.bubbleAssistant]}>
-            <Text style={[styles.msgText, isUser ? styles.msgTextUser : styles.msgTextAssistant]} selectable>
-              {item.content}
-            </Text>
+          <View style={[styles.bubble, isUser ? [styles.bubbleUser, { backgroundColor: theme.primary }] : [styles.bubbleAssistant, { backgroundColor: theme.card, borderColor: theme.border }]]}>
+            {isUser ? (
+              <Text style={styles.msgTextUser} selectable>
+                {item.content}
+              </Text>
+            ) : (
+              <MarkdownRenderer
+                content={item.content}
+                fontSize={13}
+                textColor={theme.text}
+              />
+            )}
           </View>
 
           {/* Timestamp & Actions */}
           <View style={[styles.metaRow, isUser && { justifyContent: 'flex-end' }]}>
-            <Text style={styles.timeText}>
+            <Text style={[styles.timeText, { color: theme.muted }]}>
               {new Date(item.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
             </Text>
 
             {isUser && (
               <TouchableOpacity onPress={() => handleStartEdit(item)} style={styles.editMsgBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="pencil-outline" size={12} color="#6B7280" />
+                <Ionicons name="pencil-outline" size={12} color={theme.subtext} />
               </TouchableOpacity>
             )}
 
             <TouchableOpacity onPress={() => deleteSingleMessage(item.id)} style={styles.deleteMsgBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="trash-outline" size={12} color="#6B7280" />
+              <Ionicons name="trash-outline" size={12} color={theme.subtext} />
             </TouchableOpacity>
           </View>
 
@@ -686,46 +702,47 @@ export default function ChatScreen() {
 
   if (initializing) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.centerBox}>
-          <ActivityIndicator size="small" color="#60A5FA" />
-          <Text style={styles.loadingText}>Memuat ruang obrolan...</Text>
+          <ActivityIndicator size="small" color={theme.accentLight} />
+          <Text style={[styles.loadingText, { color: theme.subtext }]}>Memuat ruang obrolan...</Text>
         </View>
       </SafeAreaView>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
       
       {/* ========================================================================= */}
       {/* HEADER WITH MULTI-SESSION THREAD CONTROLS */}
       {/* ========================================================================= */}
-      <View style={styles.header}>
+      <View style={[styles.header, { backgroundColor: theme.cardInner, borderBottomColor: theme.border }]}>
         
         <View style={styles.headerLeft}>
           {/* Sesi History Button */}
           <TouchableOpacity
-            style={styles.sessionHistoryBtn}
+            style={[styles.sessionHistoryBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
             onPress={() => {
               fetchSessions();
               setShowSessionDrawer(true);
             }}
             hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
           >
-            <Ionicons name="chatbubbles-outline" size={18} color="#60A5FA" />
+            <Ionicons name="chatbubbles-outline" size={18} color={theme.accentLight} />
           </TouchableOpacity>
 
-          <View style={styles.avatarCircle}>
-            <Text style={styles.avatarLetter}>{(aiBotName || 'Ara')[0].toUpperCase()}</Text>
+          <View style={[styles.avatarCircle, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+            <Text style={[styles.avatarLetter, { color: theme.accentLight }]}>{(aiBotName || 'Ara')[0].toUpperCase()}</Text>
           </View>
 
           <View style={{ flex: 1 }}>
             <View style={styles.nameRow}>
-              <Text style={styles.headerTitle}>{aiBotName || 'Ara'}</Text>
+              <Text style={[styles.headerTitle, { color: theme.text }]}>{aiBotName || 'Ara'}</Text>
               <View style={styles.statusDot} />
             </View>
-            <Text style={styles.headerSubtitle} numberOfLines={1}>
+            <Text style={[styles.headerSubtitle, { color: theme.subtext }]} numberOfLines={1}>
               {currentSessionTitle || 'Teman Curhat AI'}
             </Text>
           </View>
@@ -735,15 +752,15 @@ export default function ChatScreen() {
         <View style={styles.headerRightActions}>
           
           <TouchableOpacity
-            style={styles.headerActionBtn}
+            style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
             onPress={handleStartNewChat}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="add" size={18} color="#60A5FA" />
+            <Ionicons name="add" size={18} color={theme.accentLight} />
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.headerActionBtn}
+            style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
             onPress={handleExportToJournal}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
@@ -751,17 +768,17 @@ export default function ChatScreen() {
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={styles.headerActionBtn}
+            style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
             onPress={() => fetchHistory(currentSessionId)}
             hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
           >
-            <Ionicons name="refresh-outline" size={16} color={refreshing ? '#60A5FA' : '#9CA3AF'} />
+            <Ionicons name="refresh-outline" size={16} color={refreshing ? theme.accentLight : theme.subtext} />
           </TouchableOpacity>
 
           {messages.length > 0 && (
             <TouchableOpacity
               onPress={clearCurrentSessionChat}
-              style={styles.headerActionBtn}
+              style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
               hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
             >
               <Ionicons name="trash-outline" size={15} color="#EF4444" />
@@ -782,11 +799,11 @@ export default function ChatScreen() {
       >
         {messages.length === 0 ? (
           <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
-            <View style={styles.emptyIconBox}>
-              <Ionicons name="sparkles" size={26} color="#60A5FA" />
+            <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+              <Ionicons name="sparkles" size={26} color={theme.accentLight} />
             </View>
-            <Text style={styles.emptyTitle}>Ruang Cerita Bersama {aiBotName || 'Ara'}</Text>
-            <Text style={styles.emptyDesc}>
+            <Text style={[styles.emptyTitle, { color: theme.text }]}>Ruang Cerita Bersama {aiBotName || 'Ara'}</Text>
+            <Text style={[styles.emptyDesc, { color: theme.subtext }]}>
               Tulis apapun yang ada di pikiranmu atau diskusikan tugas kuliah. Percakapan tersimpan aman di sesi ini.
             </Text>
 
@@ -794,12 +811,12 @@ export default function ChatScreen() {
               {SUGGESTIONS.map((item, idx) => (
                 <TouchableOpacity
                   key={idx}
-                  style={styles.promptChip}
+                  style={[styles.promptChip, { backgroundColor: theme.card, borderColor: theme.border }]}
                   onPress={() => handleSend(item)}
                   disabled={loading}
                 >
-                  <Text style={styles.promptText}>{item}</Text>
-                  <Ionicons name="arrow-forward" size={13} color="#60A5FA" />
+                  <Text style={[styles.promptText, { color: theme.subtext }]}>{item}</Text>
+                  <Ionicons name="arrow-forward" size={13} color={theme.accentLight} />
                 </TouchableOpacity>
               ))}
             </View>
@@ -866,33 +883,33 @@ export default function ChatScreen() {
 
         {/* Attachment Options Menu */}
         {showAttachMenu && (
-          <View style={styles.attachMenu}>
+          <View style={[styles.attachMenu, { backgroundColor: theme.cardInner, borderTopColor: theme.border }]}>
             <TouchableOpacity style={styles.attachOption} onPress={pickImage}>
-              <View style={[styles.attachIconWrap, { backgroundColor: '#1E293B' }]}>
-                <Ionicons name="images" size={17} color="#60A5FA" />
+              <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                <Ionicons name="images" size={17} color={theme.accentLight} />
               </View>
-              <Text style={styles.attachLabel}>Galeri</Text>
+              <Text style={[styles.attachLabel, { color: theme.subtext }]}>Galeri</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.attachOption} onPress={takePhoto}>
-              <View style={[styles.attachIconWrap, { backgroundColor: '#1E293B' }]}>
-                <Ionicons name="camera" size={17} color="#34D399" />
+              <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B', borderColor: theme.border }]}>
+                <Ionicons name="camera" size={17} color={isLightMode ? '#16A34A' : '#34D399'} />
               </View>
-              <Text style={styles.attachLabel}>Kamera</Text>
+              <Text style={[styles.attachLabel, { color: theme.subtext }]}>Kamera</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.attachOption} onPress={pickAudio}>
-              <View style={[styles.attachIconWrap, { backgroundColor: '#1E293B' }]}>
-                <Ionicons name="mic" size={17} color="#F472B6" />
+              <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FCE7F3' : '#4C1D40', borderColor: theme.border }]}>
+                <Ionicons name="mic" size={17} color={isLightMode ? '#EC4899' : '#F472B6'} />
               </View>
-              <Text style={styles.attachLabel}>Audio</Text>
+              <Text style={[styles.attachLabel, { color: theme.subtext }]}>Audio</Text>
             </TouchableOpacity>
 
             <TouchableOpacity style={styles.attachOption} onPress={pickDocument}>
-              <View style={[styles.attachIconWrap, { backgroundColor: '#1E293B' }]}>
-                <Ionicons name="document-text" size={17} color="#FBBF24" />
+              <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#78350F', borderColor: theme.border }]}>
+                <Ionicons name="document-text" size={17} color={isLightMode ? '#D97706' : '#FBBF24'} />
               </View>
-              <Text style={styles.attachLabel}>Dokumen</Text>
+              <Text style={[styles.attachLabel, { color: theme.subtext }]}>Dokumen</Text>
             </TouchableOpacity>
           </View>
         )}
@@ -900,20 +917,20 @@ export default function ChatScreen() {
         {/* ======================================================================= */}
         {/* SYMMETRICAL COMPACT INPUT BAR (EQUAL HEIGHT TO SUBMIT BUTTON) */}
         {/* ======================================================================= */}
-        <View style={styles.inputContainer}>
+        <View style={[styles.inputContainer, { backgroundColor: theme.cardInner, borderTopColor: theme.border }]}>
           <TouchableOpacity
-            style={[styles.plusBtn, showAttachMenu && styles.plusBtnActive]}
+            style={[styles.plusBtn, { backgroundColor: theme.card, borderColor: theme.border }, showAttachMenu && { backgroundColor: theme.accentBg, borderColor: theme.accent }]}
             onPress={() => setShowAttachMenu(!showAttachMenu)}
             disabled={loading}
           >
-            <Ionicons name={showAttachMenu ? "close" : "add"} size={18} color={showAttachMenu ? "#60A5FA" : "#9CA3AF"} />
+            <Ionicons name={showAttachMenu ? "close" : "add"} size={18} color={showAttachMenu ? theme.accentLight : theme.subtext} />
           </TouchableOpacity>
 
           <TextInput
             ref={inputRef}
-            style={styles.input}
+            style={[styles.input, { backgroundColor: theme.bg, borderColor: theme.border, color: theme.text }]}
             placeholder={editingMsg ? "Edit pesanmu..." : `Ceritakan apapun ke ${aiBotName || 'Ara'}...`}
-            placeholderTextColor="#4B5565"
+            placeholderTextColor={theme.muted}
             value={inputText}
             onChangeText={setInputText}
             returnKeyType="send"
@@ -927,7 +944,9 @@ export default function ChatScreen() {
           <TouchableOpacity
             style={[
               styles.sendBtn,
-              (!inputText.trim() && !attachment) || loading ? styles.sendBtnDisabled : styles.sendBtnActive,
+              (!inputText.trim() && !attachment) || loading
+                ? [styles.sendBtnDisabled, { backgroundColor: theme.cardInner, borderWidth: 1, borderColor: theme.border }]
+                : styles.sendBtnActive,
             ]}
             onPress={() => handleSend()}
             disabled={(!inputText.trim() && !attachment) || loading}
@@ -935,12 +954,13 @@ export default function ChatScreen() {
             {loading ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (
-              <Ionicons name="arrow-up" size={16} color="#FFFFFF" />
+              <Ionicons name="arrow-up" size={16} color={(!inputText.trim() && !attachment) ? theme.muted : '#FFFFFF'} />
             )}
           </TouchableOpacity>
         </View>
 
       </KeyboardAvoidingView>
+      </View>
 
       {/* ========================================================================= */}
       {/* SESSION DRAWER MODAL (RIWAYAT SESI OBROLAN / MULTI-THREAD CHAT) */}
@@ -958,78 +978,113 @@ export default function ChatScreen() {
             onPress={() => setShowSessionDrawer(false)}
           />
 
-          <View style={styles.sessionSheet}>
-            
-            <View style={styles.sessionSheetHeader}>
+          <View style={[styles.sessionDrawerCard, { backgroundColor: theme.card, borderRightColor: theme.border }]}>
+            <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="chatbubbles" size={17} color="#60A5FA" />
-                <Text style={styles.sessionSheetTitle}>Riwayat Sesi Obrolan</Text>
+                <Ionicons name="chatbubbles" size={18} color={theme.accentLight} />
+                <Text style={[styles.drawerTitle, { color: theme.text }]}>Riwayat Sesi Curhat</Text>
               </View>
-              <TouchableOpacity onPress={() => setShowSessionDrawer(false)} style={{ padding: 4 }}>
-                <Ionicons name="close" size={18} color="#9CA3AF" />
+              <TouchableOpacity onPress={() => setShowSessionDrawer(false)} style={styles.closeDrawerBtn}>
+                <Ionicons name="close" size={18} color={theme.subtext} />
               </TouchableOpacity>
             </View>
 
-            {/* New Chat Action Button */}
-            <TouchableOpacity style={styles.newChatDrawerBtn} onPress={handleStartNewChat}>
-              <Ionicons name="add-circle" size={17} color="#FFFFFF" />
-              <Text style={styles.newChatDrawerText}>+ Mulai Obrolan Baru</Text>
+            <TouchableOpacity style={[styles.drawerNewChatBtn, { backgroundColor: theme.primary }]} onPress={handleStartNewChat}>
+              <Ionicons name="add" size={16} color="#FFFFFF" />
+              <Text style={styles.drawerNewChatText}>Mulai Percakapan Baru</Text>
             </TouchableOpacity>
 
-            <ScrollView style={styles.sessionListScroll} showsVerticalScrollIndicator={false}>
+            <ScrollView style={styles.drawerSessionList} showsVerticalScrollIndicator={false}>
               {loadingSessions ? (
-                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
-                  <ActivityIndicator size="small" color="#60A5FA" />
-                </View>
+                <ActivityIndicator size="small" color={theme.accentLight} style={{ marginVertical: 20 }} />
               ) : sessions.length === 0 ? (
-                <View style={styles.emptySessionBox}>
-                  <Ionicons name="chatbox-ellipses-outline" size={24} color="#4B5565" />
-                  <Text style={styles.emptySessionText}>Belum ada riwayat sesi tersimpan.</Text>
-                </View>
+                <Text style={[styles.emptySessionText, { color: theme.subtext }]}>Belum ada riwayat sesi.</Text>
               ) : (
                 sessions.map(s => {
-                  const isSelected = s.id === currentSessionId;
+                  const isActive = s.id === currentSessionId;
                   return (
-                    <TouchableOpacity
+                    <View
                       key={s.id}
-                      style={[styles.sessionCard, isSelected && styles.sessionCardActive]}
-                      onPress={() => handleSelectSession(s)}
+                      style={[
+                        styles.sessionItemRow,
+                        { backgroundColor: theme.cardInner, borderColor: theme.border },
+                        isActive && [styles.sessionItemRowActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                      ]}
                     >
-                      <View style={styles.sessionCardLeft}>
-                        <Ionicons
-                          name={isSelected ? "chatbubble-ellipses" : "chatbubble-outline"}
-                          size={15}
-                          color={isSelected ? "#60A5FA" : "#6B7280"}
-                        />
-                        <View style={{ flex: 1 }}>
-                          <Text style={[styles.sessionCardTitle, isSelected && styles.sessionCardTitleActive]} numberOfLines={1}>
-                            {s.title || 'Sesi Obrolan'}
-                          </Text>
-                          <Text style={styles.sessionCardDate}>
-                            {new Date(s.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                          </Text>
-                        </View>
-                      </View>
+                      <TouchableOpacity
+                        style={{ flex: 1 }}
+                        onPress={() => handleSelectSession(s)}
+                      >
+                        <Text style={[styles.sessionItemTitle, { color: theme.subtext }, isActive && [styles.sessionItemTitleActive, { color: theme.text }]]} numberOfLines={1}>
+                          {s.title || 'Obrolan'}
+                        </Text>
+                        <Text style={[styles.sessionItemTime, { color: theme.muted }]}>
+                          {new Date(s.updated_at || s.created_at || new Date()).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      </TouchableOpacity>
 
                       <TouchableOpacity
-                        onPress={() => handleDeleteSession(s.id, s.title)}
                         style={styles.sessionDeleteBtn}
+                        onPress={() => handleDeleteSession(s.id, s.title)}
                         hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
                       >
                         <Ionicons name="trash-outline" size={14} color="#EF4444" />
                       </TouchableOpacity>
-                    </TouchableOpacity>
+                    </View>
                   );
                 })
               )}
             </ScrollView>
-
-            <View style={styles.sessionSheetFooter}>
-              <Text style={styles.sessionFooterNote}>Semua percakapan tersimpan privat</Text>
-            </View>
-
           </View>
         </View>
+      </Modal>
+
+      {/* Attachment Selection Menu Modal */}
+      <Modal
+        visible={showAttachMenu}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowAttachMenu(false)}
+      >
+        <TouchableOpacity
+          style={styles.attachModalOverlay}
+          activeOpacity={1}
+          onPress={() => setShowAttachMenu(false)}
+        >
+          <View style={[styles.attachMenuCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <Text style={[styles.attachMenuTitle, { color: theme.text }]}>Kirim Lampiran</Text>
+
+            <TouchableOpacity style={[styles.attachOptionRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={pickImage}>
+              <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                <Ionicons name="image-outline" size={18} color={theme.accentLight} />
+              </View>
+              <View>
+                <Text style={[styles.attachOptionLabel, { color: theme.text }]}>Foto / Gambar Soal</Text>
+                <Text style={[styles.attachOptionSub, { color: theme.subtext }]}>JPG, PNG untuk dianalisis AI</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.attachOptionRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={pickAudio}>
+              <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#3B1A16', borderColor: theme.border }]}>
+                <Ionicons name="mic-outline" size={18} color={isLightMode ? '#D97706' : '#FB923C'} />
+              </View>
+              <View>
+                <Text style={[styles.attachOptionLabel, { color: theme.text }]}>Audio / Voice Note</Text>
+                <Text style={[styles.attachOptionSub, { color: theme.subtext }]}>MP3, WAV, M4A</Text>
+              </View>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={[styles.attachOptionRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={pickDocument}>
+              <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#DCFCE7' : '#143825', borderColor: theme.border }]}>
+                <Ionicons name="document-text-outline" size={18} color={isLightMode ? '#16A34A' : '#4ADE80'} />
+              </View>
+              <View>
+                <Text style={[styles.attachOptionLabel, { color: theme.text }]}>Dokumen Materi / PDF</Text>
+                <Text style={[styles.attachOptionSub, { color: theme.subtext }]}>PDF, TXT, DOCX</Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
       </Modal>
 
     </SafeAreaView>
@@ -1040,6 +1095,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0E1117',
+  },
+  innerContainer: {
+    flex: 1,
+    width: '100%',
+  },
+  innerContainerWide: {
+    maxWidth: 1040,
+    alignSelf: 'center',
   },
   centerBox: {
     flex: 1,
@@ -1451,7 +1514,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
-  sessionSheet: {
+  sessionDrawerCard: {
     width: '82%',
     maxWidth: 320,
     height: '100%',
@@ -1463,7 +1526,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     elevation: 25,
   },
-  sessionSheetHeader: {
+  drawerHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
@@ -1471,12 +1534,15 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: '#1A202C',
   },
-  sessionSheetTitle: {
+  drawerTitle: {
     color: '#F3F4F6',
     fontSize: 13.5,
     fontWeight: '700',
   },
-  newChatDrawerBtn: {
+  closeDrawerBtn: {
+    padding: 4,
+  },
+  drawerNewChatBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1486,24 +1552,21 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     marginVertical: 10,
   },
-  newChatDrawerText: {
+  drawerNewChatText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
   },
-  sessionListScroll: {
+  drawerSessionList: {
     flex: 1,
-  },
-  emptySessionBox: {
-    paddingVertical: 30,
-    alignItems: 'center',
-    gap: 8,
   },
   emptySessionText: {
     color: '#6B7280',
     fontSize: 11.5,
+    textAlign: 'center',
+    marginTop: 20,
   },
-  sessionCard: {
+  sessionItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -1514,26 +1577,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#202634',
   },
-  sessionCardActive: {
+  sessionItemRowActive: {
     backgroundColor: '#16233B',
     borderColor: '#253856',
   },
-  sessionCardLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    flex: 1,
-  },
-  sessionCardTitle: {
+  sessionItemTitle: {
     color: '#9CA3AF',
     fontSize: 11.5,
     fontWeight: '500',
   },
-  sessionCardTitleActive: {
+  sessionItemTitleActive: {
     color: '#F3F4F6',
     fontWeight: '600',
   },
-  sessionCardDate: {
+  sessionItemTime: {
     color: '#4B5565',
     fontSize: 9,
     marginTop: 2,
@@ -1541,14 +1598,43 @@ const styles = StyleSheet.create({
   sessionDeleteBtn: {
     padding: 4,
   },
-  sessionSheetFooter: {
-    borderTopWidth: 1,
-    borderTopColor: '#1A202C',
-    paddingTop: 8,
-    alignItems: 'center',
+  attachModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.6)',
+    justifyContent: 'flex-end',
   },
-  sessionFooterNote: {
-    color: '#4B5565',
-    fontSize: 9.5,
+  attachMenuCard: {
+    backgroundColor: '#11141C',
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+    borderWidth: 1,
+    borderColor: '#1E2430',
+    padding: 20,
+    gap: 12,
+  },
+  attachMenuTitle: {
+    color: '#F3F4F6',
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  attachOptionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    backgroundColor: '#141822',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#202634',
+  },
+  attachOptionLabel: {
+    color: '#F3F4F6',
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  attachOptionSub: {
+    color: '#6B7280',
+    fontSize: 11,
   },
 });

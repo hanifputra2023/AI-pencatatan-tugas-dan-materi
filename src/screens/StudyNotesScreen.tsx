@@ -4,16 +4,18 @@ import {
   StyleSheet, SafeAreaView, ActivityIndicator, FlatList
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { useNavigation, useFocusEffect } from '@react-navigation/native';
+import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { StudyNote, StudentTask } from '../types';
-import { RootStackParamList } from '../navigation/AppNavigator';
+import { RootStackParamList, TabParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { confirmAction, showAlert } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const POMODORO_DURATIONS = [
   { label: '25 Menit (Fokus)', value: 25 * 60 },
@@ -24,14 +26,25 @@ const POMODORO_DURATIONS = [
 export default function StudyNotesScreen() {
   const { user } = useAuth();
   const { subjects } = useSubjects();
+  const { theme, isLightMode } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const route = useRoute<RouteProp<TabParamList, 'Study'>>();
   const { isDesktop, isTablet, isMobile } = useResponsive();
   const isWide = isDesktop || isTablet;
 
-  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'pomodoro'>('notes');
+  const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'pomodoro'>(
+    route.params?.initialTab || 'notes'
+  );
+
+  useEffect(() => {
+    if (route.params?.initialTab) {
+      setActiveTab(route.params.initialTab);
+    }
+  }, [route.params?.initialTab]);
 
   // Notes state
   const [notes, setNotes] = useState<StudyNote[]>([]);
+  const [draftNote, setDraftNote] = useState<any>(null);
   const [selectedSubject, setSelectedSubject] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingNotes, setLoadingNotes] = useState(true);
@@ -60,6 +73,37 @@ export default function StudyNotesScreen() {
       setNewTaskSubject(subjects[0].name);
     }
   }, [subjects]);
+
+  const checkDraft = useCallback(async () => {
+    try {
+      const key = `@study_note_draft_${user?.id || 'anonymous'}`;
+      const raw = await AsyncStorage.getItem(key);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (parsed && (parsed.title?.trim() || parsed.content?.trim())) {
+          setDraftNote(parsed);
+          return;
+        }
+      }
+    } catch (e) {}
+    setDraftNote(null);
+  }, [user]);
+
+  const handleDiscardDraft = () => {
+    confirmAction(
+      'Hapus Draf Catatan?',
+      'Draf catatan yang belum disimpan ini akan dibersihkan.',
+      async () => {
+        try {
+          const key = `@study_note_draft_${user?.id || 'anonymous'}`;
+          await AsyncStorage.removeItem(key);
+          setDraftNote(null);
+          showAlert('Draf Dihapus', 'Draf catatan berhasil dibersihkan.');
+        } catch (e) {}
+      },
+      'Hapus Draf'
+    );
+  };
 
   const fetchNotes = useCallback(async () => {
     if (!user) {
@@ -93,6 +137,7 @@ export default function StudyNotesScreen() {
   useEffect(() => {
     fetchNotes();
     fetchTasks();
+    checkDraft();
 
     if (!user) return;
 
@@ -105,13 +150,14 @@ export default function StudyNotesScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, fetchNotes, fetchTasks]);
+  }, [user, fetchNotes, fetchTasks, checkDraft]);
 
   useFocusEffect(
     useCallback(() => {
       fetchNotes();
       fetchTasks();
-    }, [fetchNotes, fetchTasks])
+      checkDraft();
+    }, [fetchNotes, fetchTasks, checkDraft])
   );
 
   // Pomodoro Timer Controller
@@ -233,18 +279,19 @@ export default function StudyNotesScreen() {
   const allFilterSubjects = ['Semua', ...Array.from(new Set([...subjects.map(s => s.name), ...notes.map(n => n.subject?.trim()).filter(Boolean)]))];
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
       {/* Top Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.title}>Belajar & Kuliah</Text>
-          <Text style={styles.subtitle}>Catatan pintar AI, manajemen tugas & fokus nugas</Text>
+          <Text style={[styles.title, { color: theme.text }]}>Belajar & Kuliah</Text>
+          <Text style={[styles.subtitle, { color: theme.subtext }]}>Catatan pintar AI, manajemen tugas & fokus nugas</Text>
         </View>
 
         {activeTab === 'notes' && (
           <TouchableOpacity
-            style={styles.addBtn}
+            style={[styles.addBtn, { backgroundColor: theme.primary }]}
             onPress={() => navigation.navigate('StudyNoteDetail', {})}
           >
             <Ionicons name="add" size={17} color="#FFFFFF" />
@@ -254,7 +301,7 @@ export default function StudyNotesScreen() {
 
         {activeTab === 'tasks' && isMobile && (
           <TouchableOpacity
-            style={styles.addBtn}
+            style={[styles.addBtn, { backgroundColor: theme.primary }]}
             onPress={() => setShowTaskForm(!showTaskForm)}
           >
             <Ionicons name={showTaskForm ? 'close' : 'add'} size={17} color="#FFFFFF" />
@@ -264,33 +311,33 @@ export default function StudyNotesScreen() {
       </View>
 
       {/* Mode Switcher Tabs */}
-      <View style={styles.tabsRow}>
+      <View style={[styles.tabsRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'notes' && styles.tabBtnActive]}
+          style={[styles.tabBtn, activeTab === 'notes' && [styles.tabBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.border }]]}
           onPress={() => setActiveTab('notes')}
         >
-          <Ionicons name="document-text-outline" size={15} color={activeTab === 'notes' ? '#F3F4F6' : '#6B7280'} style={{ marginRight: 6 }} />
-          <Text style={[styles.tabText, activeTab === 'notes' && styles.tabTextActive]}>
-            Catatan ({notes.length})
+          <Ionicons name="document-text-outline" size={15} color={activeTab === 'notes' ? theme.accentLight : theme.subtext} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabText, { color: activeTab === 'notes' ? theme.accentLight : theme.subtext }]}>
+            Catatan ({notes.length}){draftNote ? ' • 📝 Draf' : ''}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'tasks' && styles.tabBtnActive]}
+          style={[styles.tabBtn, activeTab === 'tasks' && [styles.tabBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.border }]]}
           onPress={() => setActiveTab('tasks')}
         >
-          <Ionicons name="checkbox-outline" size={15} color={activeTab === 'tasks' ? '#F3F4F6' : '#6B7280'} style={{ marginRight: 6 }} />
-          <Text style={[styles.tabText, activeTab === 'tasks' && styles.tabTextActive]}>
+          <Ionicons name="checkbox-outline" size={15} color={activeTab === 'tasks' ? theme.accentLight : theme.subtext} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabText, { color: activeTab === 'tasks' ? theme.accentLight : theme.subtext }]}>
             Tugas & Deadline ({tasks.filter(t => !t.is_completed).length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.tabBtn, activeTab === 'pomodoro' && styles.tabBtnActive]}
+          style={[styles.tabBtn, activeTab === 'pomodoro' && [styles.tabBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.border }]]}
           onPress={() => setActiveTab('pomodoro')}
         >
-          <Ionicons name="timer-outline" size={15} color={activeTab === 'pomodoro' ? '#F3F4F6' : '#6B7280'} style={{ marginRight: 6 }} />
-          <Text style={[styles.tabText, activeTab === 'pomodoro' && styles.tabTextActive]}>
+          <Ionicons name="timer-outline" size={15} color={activeTab === 'pomodoro' ? theme.accentLight : theme.subtext} style={{ marginRight: 6 }} />
+          <Text style={[styles.tabText, { color: activeTab === 'pomodoro' ? theme.accentLight : theme.subtext }]}>
             Fokus Nugas
           </Text>
         </TouchableOpacity>
@@ -306,18 +353,18 @@ export default function StudyNotesScreen() {
           <View style={styles.controlsArea}>
 
             {/* Dedicated Search Input Bar */}
-            <View style={styles.searchBar}>
-              <Ionicons name="search-outline" size={16} color="#9CA3AF" />
+            <View style={[styles.searchBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Ionicons name="search-outline" size={16} color={theme.subtext} />
               <TextInput
-                style={styles.searchInput}
+                style={[styles.searchInput, { color: theme.text }]}
                 placeholder="Cari materi kuliah, rumus, judul bab, atau isi catatan..."
-                placeholderTextColor="#5A6578"
+                placeholderTextColor={theme.muted}
                 value={searchQuery}
                 onChangeText={setSearchQuery}
               />
               {searchQuery ? (
                 <TouchableOpacity onPress={() => setSearchQuery('')} style={styles.clearSearchBtn}>
-                  <Ionicons name="close-circle" size={16} color="#9CA3AF" />
+                  <Ionicons name="close-circle" size={16} color={theme.subtext} />
                 </TouchableOpacity>
               ) : null}
             </View>
@@ -325,50 +372,110 @@ export default function StudyNotesScreen() {
             {/* Search feedback info badge when searching */}
             {searchQuery ? (
               <View style={styles.searchFeedbackRow}>
-                <Text style={styles.searchFeedbackText}>
+                <Text style={[styles.searchFeedbackText, { color: theme.accentLight }]}>
                   Menemukan {filteredNotes.length} catatan untuk "{searchQuery}"
                 </Text>
                 <TouchableOpacity onPress={() => setSearchQuery('')}>
-                  <Text style={styles.resetSearchText}>Reset</Text>
+                  <Text style={[styles.resetSearchText, { color: theme.accentLight }]}>Reset</Text>
                 </TouchableOpacity>
               </View>
             ) : null}
 
             {/* Subject Filter Row + Manage Courses Button */}
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
-              {allFilterSubjects.map(s => (
+              {draftNote ? (
                 <TouchableOpacity
-                  key={s}
-                  style={[styles.subjectChip, selectedSubject.toLowerCase() === s.toLowerCase() && styles.subjectChipActive]}
-                  onPress={() => setSelectedSubject(s)}
+                  style={[styles.subjectChip, { backgroundColor: isLightMode ? '#FEF3C7' : '#261C08', borderColor: '#F59E0B' }]}
+                  onPress={() => navigation.navigate('StudyNoteDetail', {})}
                 >
-                  <Text style={[styles.subjectChipText, selectedSubject.toLowerCase() === s.toLowerCase() && styles.subjectChipTextActive]}>
-                    {s}
+                  <Text style={[styles.subjectChipText, { color: isLightMode ? '#B45309' : '#FBBF24', fontWeight: '700' }]}>
+                    Draf Aktif (1)
                   </Text>
                 </TouchableOpacity>
-              ))}
+              ) : null}
+
+              {allFilterSubjects.map(s => {
+                const isSelected = selectedSubject.toLowerCase() === s.toLowerCase();
+                return (
+                  <TouchableOpacity
+                    key={s}
+                    style={[
+                      styles.subjectChip,
+                      { backgroundColor: theme.card, borderColor: theme.border },
+                      isSelected && [styles.subjectChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                    ]}
+                    onPress={() => setSelectedSubject(s)}
+                  >
+                    <Text style={[styles.subjectChipText, { color: theme.subtext }, isSelected && [styles.subjectChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                      {s}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
 
               <TouchableOpacity
-                style={styles.manageSubjFilterBtn}
+                style={[styles.manageSubjFilterBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => setShowSubjectModal(true)}
               >
-                <Ionicons name="settings-outline" size={13} color="#60A5FA" />
-                <Text style={styles.manageSubjFilterText}>Kelola Matkul</Text>
+                <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
+                <Text style={[styles.manageSubjFilterText, { color: theme.accentLight }]}>Kelola Matkul</Text>
               </TouchableOpacity>
             </ScrollView>
           </View>
 
           {loadingNotes ? (
-            <View style={styles.loaderCenter}><ActivityIndicator size="small" color="#9CA3AF" /></View>
+            <View style={styles.loaderCenter}><ActivityIndicator size="small" color={theme.subtext} /></View>
           ) : filteredNotes.length === 0 ? (
             <View style={styles.emptyWrap}>
-              <View style={styles.emptyIconBox}>
-                <Ionicons name="book-outline" size={28} color="#6B7280" />
+              {/* If draft exists, show draft card even if note list is empty */}
+              {draftNote ? (
+                <View style={[styles.draftCard, { backgroundColor: theme.card, borderColor: '#F59E0B', width: '100%', marginBottom: 20 }]}>
+                  <View style={styles.draftCardHeader}>
+                    <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#261C08' }]}>
+                      <Ionicons name="document-text" size={12} color="#FBBF24" />
+                      <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FBBF24' }]}>DRAF BELUM TERSIMPAN</Text>
+                    </View>
+                    <TouchableOpacity onPress={handleDiscardDraft} style={styles.draftDeleteBtn}>
+                      <Ionicons name="trash-outline" size={14} color="#F87171" />
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={[styles.draftTitle, { color: theme.text }]} numberOfLines={1}>
+                    {draftNote.title || 'Catatan Baru (Tanpa Judul)'}
+                  </Text>
+                  <Text style={[styles.draftSnippet, { color: theme.subtext }]} numberOfLines={2}>
+                    {draftNote.content || 'Belum ada isi materi...'}
+                  </Text>
+
+                  <View style={styles.draftFooter}>
+                    <View style={styles.draftMetaRow}>
+                      <Ionicons name="school-outline" size={12} color={theme.muted} />
+                      <Text style={[styles.draftSubjectText, { color: theme.muted }]}>{draftNote.subject || 'Umum'}</Text>
+                      {draftNote.savedAt ? (
+                        <Text style={[styles.draftTimeText, { color: theme.muted }]}>
+                          • {new Date(draftNote.savedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                        </Text>
+                      ) : null}
+                    </View>
+
+                    <TouchableOpacity
+                      style={[styles.draftContinueBtn, { backgroundColor: theme.primary }]}
+                      onPress={() => navigation.navigate('StudyNoteDetail', {})}
+                    >
+                      <Ionicons name="create" size={13} color="#FFFFFF" />
+                      <Text style={styles.draftContinueText}>Lanjutkan Menulis</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              ) : null}
+
+              <View style={[styles.emptyIconBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <Ionicons name="book-outline" size={28} color={theme.muted} />
               </View>
-              <Text style={styles.emptyTitle}>Belum ada catatan kuliah</Text>
-              <Text style={styles.emptySub}>Catat materi kuliah dan biarkan AI merangkumnya jadi poin ujian.</Text>
+              <Text style={[styles.emptyTitle, { color: theme.text }]}>Belum ada catatan kuliah</Text>
+              <Text style={[styles.emptySub, { color: theme.subtext }]}>Catat materi kuliah dan biarkan AI merangkumnya jadi poin ujian.</Text>
               <TouchableOpacity
-                style={styles.emptyAddBtn}
+                style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
                 onPress={() => navigation.navigate('StudyNoteDetail', {})}
               >
                 <Text style={styles.emptyAddText}>+ Buat Catatan Pertama</Text>
@@ -383,51 +490,93 @@ export default function StudyNotesScreen() {
               columnWrapperStyle={isWide ? { gap: 12 } : undefined}
               contentContainerStyle={styles.notesList}
               showsVerticalScrollIndicator={false}
+              ListHeaderComponent={
+                draftNote ? (
+                  <View style={[styles.draftCard, { backgroundColor: theme.card, borderColor: '#F59E0B' }]}>
+                    <View style={styles.draftCardHeader}>
+                      <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#261C08' }]}>
+                        <Ionicons name="document-text" size={12} color="#FBBF24" />
+                        <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FBBF24' }]}>DRAF BELUM TERSIMPAN</Text>
+                      </View>
+                      <TouchableOpacity onPress={handleDiscardDraft} style={styles.draftDeleteBtn}>
+                        <Ionicons name="trash-outline" size={14} color="#F87171" />
+                      </TouchableOpacity>
+                    </View>
+
+                    <Text style={[styles.draftTitle, { color: theme.text }]} numberOfLines={1}>
+                      {draftNote.title || 'Catatan Baru (Tanpa Judul)'}
+                    </Text>
+                    <Text style={[styles.draftSnippet, { color: theme.subtext }]} numberOfLines={2}>
+                      {draftNote.content || 'Belum ada isi materi...'}
+                    </Text>
+
+                    <View style={styles.draftFooter}>
+                      <View style={styles.draftMetaRow}>
+                        <Ionicons name="school-outline" size={12} color={theme.muted} />
+                        <Text style={[styles.draftSubjectText, { color: theme.muted }]}>{draftNote.subject || 'Umum'}</Text>
+                        {draftNote.savedAt ? (
+                          <Text style={[styles.draftTimeText, { color: theme.muted }]}>
+                            • {new Date(draftNote.savedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                          </Text>
+                        ) : null}
+                      </View>
+
+                      <TouchableOpacity
+                        style={[styles.draftContinueBtn, { backgroundColor: theme.primary }]}
+                        onPress={() => navigation.navigate('StudyNoteDetail', {})}
+                      >
+                        <Ionicons name="create" size={13} color="#FFFFFF" />
+                        <Text style={styles.draftContinueText}>Lanjutkan Menulis</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                ) : null
+              }
               renderItem={({ item }) => {
                 const words = item.content?.trim() ? item.content.trim().split(/\s+/).length : 0;
                 const readMin = Math.max(1, Math.ceil(words / 160));
                 return (
                   <TouchableOpacity
-                    style={[styles.noteCard, isWide && styles.noteCardWide]}
+                    style={[styles.noteCard, { backgroundColor: theme.card, borderColor: theme.border }, isWide && styles.noteCardWide]}
                     onPress={() => navigation.navigate('StudyNoteDetail', { noteId: item.id })}
                     onLongPress={() => deleteNote(item.id)}
                     activeOpacity={0.8}
                   >
                     <View style={styles.noteTopRow}>
-                      <View style={styles.subjectBadge}>
-                        <Text style={styles.subjectBadgeText}>{item.subject}</Text>
+                      <View style={[styles.subjectBadge, { backgroundColor: theme.accentBg }]}>
+                        <Text style={[styles.subjectBadgeText, { color: theme.accentLight }]}>{item.subject}</Text>
                       </View>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={styles.noteReadTime}>⏱️ {readMin} mnt</Text>
-                        <Text style={styles.noteDate}>
+                        <Text style={[styles.noteReadTime, { color: theme.muted }]}>⏱️ {readMin} mnt</Text>
+                        <Text style={[styles.noteDate, { color: theme.muted }]}>
                           {new Date(item.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
                         </Text>
                       </View>
                     </View>
 
-                    <Text style={styles.noteTitle} numberOfLines={1}>{item.title}</Text>
-                    <Text style={styles.noteSnippet} numberOfLines={3}>{item.content}</Text>
+                    <Text style={[styles.noteTitle, { color: theme.text }]} numberOfLines={1}>{item.title}</Text>
+                    <Text style={[styles.noteSnippet, { color: theme.subtext }]} numberOfLines={3}>{item.content}</Text>
 
                     {/* AI Badges & Open Detail Action */}
                     <View style={styles.noteAiFooter}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap', flex: 1 }}>
                         {item.summary ? (
-                          <View style={styles.aiBadge}>
-                            <Ionicons name="sparkles" size={11} color="#60A5FA" />
-                            <Text style={styles.aiBadgeText}>Rangkuman AI</Text>
+                          <View style={[styles.aiBadge, { backgroundColor: theme.accentBg }]}>
+                            <Ionicons name="sparkles" size={11} color={theme.accentLight} />
+                            <Text style={[styles.aiBadgeText, { color: theme.accentLight }]}>Rangkuman AI</Text>
                           </View>
                         ) : null}
                         {item.quiz_data && item.quiz_data.length > 0 ? (
-                          <View style={styles.aiBadge}>
-                            <Ionicons name="school" size={11} color="#34D399" />
-                            <Text style={styles.aiBadgeText}>{item.quiz_data.length} Soal</Text>
+                          <View style={[styles.aiBadge, { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B' }]}>
+                            <Ionicons name="school" size={11} color={isLightMode ? '#16A34A' : '#34D399'} />
+                            <Text style={[styles.aiBadgeText, { color: isLightMode ? '#16A34A' : '#34D399' }]}>{item.quiz_data.length} Soal</Text>
                           </View>
                         ) : null}
                       </View>
 
-                      <View style={styles.openDetailPill}>
-                        <Text style={styles.openDetailText}>Detail</Text>
-                        <Ionicons name="arrow-forward" size={11} color="#60A5FA" />
+                      <View style={[styles.openDetailPill, { backgroundColor: theme.accentBg }]}>
+                        <Text style={[styles.openDetailText, { color: theme.accentLight }]}>Detail</Text>
+                        <Ionicons name="arrow-forward" size={11} color={theme.accentLight} />
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -450,70 +599,78 @@ export default function StudyNotesScreen() {
             {/* Left Column (Create Task Form - Permanent on Desktop, Collapsible on Mobile) */}
             {(isWide || showTaskForm) && (
               <View style={[styles.taskFormColumn, isWide && styles.taskFormColumnWide]}>
-                <View style={styles.taskFormCard}>
-                  <Text style={styles.taskFormTitle}>Tambah Tugas Kuliah</Text>
+                <View style={[styles.taskFormCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Text style={[styles.taskFormTitle, { color: theme.text }]}>Tambah Tugas Kuliah</Text>
 
                   <TextInput
-                    style={styles.taskInput}
+                    style={[styles.taskInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
                     placeholder="Nama tugas (misal: Laporan Praktikum Bab 2)"
-                    placeholderTextColor="#5A6578"
+                    placeholderTextColor={theme.muted}
                     value={newTaskTitle}
                     onChangeText={setNewTaskTitle}
                   />
 
                   {/* Course Picker for Task */}
-                  <Text style={styles.formMiniLabel}>Pilih Mata Kuliah:</Text>
+                  <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Pilih Mata Kuliah:</Text>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.subjectRow, { marginBottom: 10 }]}>
                     {subjects.map(s => {
                       const isSel = newTaskSubject.toLowerCase() === s.name.toLowerCase();
                       return (
                         <TouchableOpacity
                           key={s.id}
-                          style={[styles.subjectChip, isSel && styles.subjectChipActive]}
+                          style={[
+                            styles.subjectChip,
+                            { backgroundColor: theme.cardInner, borderColor: theme.border },
+                            isSel && [styles.subjectChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                          ]}
                           onPress={() => setNewTaskSubject(s.name)}
                         >
-                          <Text style={[styles.subjectChipText, isSel && styles.subjectChipTextActive]}>
+                          <Text style={[styles.subjectChipText, { color: theme.subtext }, isSel && [styles.subjectChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                             {s.name}
                           </Text>
                         </TouchableOpacity>
                       );
                     })}
                     <TouchableOpacity
-                      style={styles.addNewSubjChip}
+                      style={[styles.addNewSubjChip, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
                       onPress={() => setShowSubjectModal(true)}
                     >
-                      <Ionicons name="add" size={13} color="#60A5FA" />
-                      <Text style={styles.addNewSubjText}>Matkul Baru</Text>
+                      <Ionicons name="add" size={13} color={theme.accentLight} />
+                      <Text style={[styles.addNewSubjText, { color: theme.accentLight }]}>Matkul Baru</Text>
                     </TouchableOpacity>
                   </ScrollView>
 
                   {/* Deadline Input */}
-                  <Text style={styles.formMiniLabel}>Tenggat / Deadline:</Text>
+                  <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Tenggat / Deadline:</Text>
                   <TextInput
-                    style={styles.taskInput}
+                    style={[styles.taskInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
                     placeholder="Misal: Besok 23:59, 25 Okt"
-                    placeholderTextColor="#5A6578"
+                    placeholderTextColor={theme.muted}
                     value={newTaskDueDate}
                     onChangeText={setNewTaskDueDate}
                   />
 
                   {/* Priority Picker */}
-                  <Text style={styles.formMiniLabel}>Tingkat Prioritas:</Text>
+                  <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Tingkat Prioritas:</Text>
                   <View style={styles.priorityRow}>
                     {(['high', 'medium', 'low'] as const).map(p => (
                       <TouchableOpacity
                         key={p}
-                        style={[styles.priorityChip, newTaskPriority === p && styles.priorityChipActive]}
+                        style={[
+                          styles.priorityChip,
+                          { backgroundColor: theme.cardInner, borderColor: theme.border },
+                          newTaskPriority === p && [styles.priorityChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                        ]}
                         onPress={() => setNewTaskPriority(p)}
                       >
-                        <Text style={[styles.priorityText, newTaskPriority === p && styles.priorityTextActive]}>
+                        <Text style={[styles.priorityText, { color: theme.subtext }, newTaskPriority === p && [styles.priorityTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                           {p === 'high' ? '🔥 Mendesak' : p === 'medium' ? '⚡ Sedang' : '🍃 Santai'}
                         </Text>
                       </TouchableOpacity>
                     ))}
                   </View>
 
-                  <TouchableOpacity style={styles.saveTaskBtn} onPress={handleAddTask}>
+                  <TouchableOpacity style={[styles.saveTaskBtn, { backgroundColor: theme.primary }]} onPress={handleAddTask}>
                     <Text style={styles.saveTaskBtnText}>+ Simpan Tugas</Text>
                   </TouchableOpacity>
                 </View>
@@ -526,73 +683,85 @@ export default function StudyNotesScreen() {
               {/* Filter Tabs */}
               <View style={styles.taskFilterRow}>
                 <TouchableOpacity
-                  style={[styles.taskFilterChip, taskFilter === 'pending' && styles.taskFilterActive]}
+                  style={[
+                    styles.taskFilterChip,
+                    { backgroundColor: theme.card, borderColor: theme.border },
+                    taskFilter === 'pending' && [styles.taskFilterActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                  ]}
                   onPress={() => setTaskFilter('pending')}
                 >
-                  <Text style={[styles.taskFilterText, taskFilter === 'pending' && styles.taskFilterTextActive]}>
+                  <Text style={[styles.taskFilterText, { color: theme.subtext }, taskFilter === 'pending' && [styles.taskFilterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                     Belum Selesai ({tasks.filter(t => !t.is_completed).length})
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.taskFilterChip, taskFilter === 'completed' && styles.taskFilterActive]}
+                  style={[
+                    styles.taskFilterChip,
+                    { backgroundColor: theme.card, borderColor: theme.border },
+                    taskFilter === 'completed' && [styles.taskFilterActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                  ]}
                   onPress={() => setTaskFilter('completed')}
                 >
-                  <Text style={[styles.taskFilterText, taskFilter === 'completed' && styles.taskFilterTextActive]}>
+                  <Text style={[styles.taskFilterText, { color: theme.subtext }, taskFilter === 'completed' && [styles.taskFilterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                     Selesai ({tasks.filter(t => t.is_completed).length})
                   </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.taskFilterChip, taskFilter === 'all' && styles.taskFilterActive]}
+                  style={[
+                    styles.taskFilterChip,
+                    { backgroundColor: theme.card, borderColor: theme.border },
+                    taskFilter === 'all' && [styles.taskFilterActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                  ]}
                   onPress={() => setTaskFilter('all')}
                 >
-                  <Text style={[styles.taskFilterText, taskFilter === 'all' && styles.taskFilterTextActive]}>
+                  <Text style={[styles.taskFilterText, { color: theme.subtext }, taskFilter === 'all' && [styles.taskFilterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                     Semua ({tasks.length})
                   </Text>
                 </TouchableOpacity>
               </View>
 
               {loadingTasks ? (
-                <View style={styles.loaderCenter}><ActivityIndicator size="small" color="#9CA3AF" /></View>
+                <View style={styles.loaderCenter}><ActivityIndicator size="small" color={theme.subtext} /></View>
               ) : filteredTasks.length === 0 ? (
-                <View style={styles.emptyTaskWrap}>
-                  <Ionicons name="checkbox-outline" size={32} color="#4B5565" style={{ marginBottom: 8 }} />
-                  <Text style={styles.emptyTitle}>Tidak ada tugas dalam kategori ini</Text>
-                  <Text style={styles.emptySub}>Semua rapi dan terkontrol.</Text>
+                <View style={[styles.emptyTaskWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Ionicons name="checkbox-outline" size={32} color={theme.muted} style={{ marginBottom: 8 }} />
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>Tidak ada tugas dalam kategori ini</Text>
+                  <Text style={[styles.emptySub, { color: theme.subtext }]}>Semua rapi dan terkontrol.</Text>
                 </View>
               ) : (
                 <View style={styles.taskListContainer}>
                   {filteredTasks.map(t => {
                     const isHigh = t.priority === 'high';
                     return (
-                      <View key={t.id} style={[styles.taskCard, t.is_completed && styles.taskCardDone]}>
+                      <View key={t.id} style={[styles.taskCard, { backgroundColor: theme.card, borderColor: theme.border }, t.is_completed && styles.taskCardDone]}>
                         <TouchableOpacity onPress={() => toggleTask(t)} style={styles.taskCheckbox}>
-                          <View style={[styles.taskCircle, t.is_completed && styles.taskCircleActive]}>
+                          <View style={[styles.taskCircle, { borderColor: theme.border }, t.is_completed && [styles.taskCircleActive, { backgroundColor: theme.primary, borderColor: theme.primary }]]}>
                             {t.is_completed && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
                           </View>
                         </TouchableOpacity>
 
                         <View style={{ flex: 1 }}>
                           <View style={styles.taskHeaderRow}>
-                            <View style={styles.taskSubjectBadge}>
-                              <Text style={styles.taskSubjectText}>{t.subject}</Text>
+                            <View style={[styles.taskSubjectBadge, { backgroundColor: theme.accentBg }]}>
+                              <Text style={[styles.taskSubjectText, { color: theme.accentLight }]}>{t.subject}</Text>
                             </View>
                             {t.due_date ? (
-                              <View style={[styles.dueBadge, isHigh && styles.dueBadgeHigh]}>
-                                <Ionicons name="calendar-outline" size={11} color={isHigh ? '#EF4444' : '#9CA3AF'} />
-                                <Text style={[styles.dueText, isHigh && styles.dueTextHigh]}>{t.due_date}</Text>
+                              <View style={[styles.dueBadge, { backgroundColor: theme.cardInner }, isHigh && styles.dueBadgeHigh]}>
+                                <Ionicons name="calendar-outline" size={11} color={isHigh ? '#EF4444' : theme.subtext} />
+                                <Text style={[styles.dueText, { color: theme.subtext }, isHigh && styles.dueTextHigh]}>{t.due_date}</Text>
                               </View>
                             ) : null}
                           </View>
 
-                          <Text style={[styles.taskTitle, t.is_completed && styles.taskTitleDone]}>
+                          <Text style={[styles.taskTitle, { color: theme.text }, t.is_completed && [styles.taskTitleDone, { color: theme.muted }]]}>
                             {t.title}
                           </Text>
                         </View>
 
                         <TouchableOpacity onPress={() => deleteTask(t.id)} style={styles.deleteTaskBtn}>
-                          <Ionicons name="trash-outline" size={14} color="#6B7280" />
+                          <Ionicons name="trash-outline" size={14} color={theme.muted} />
                         </TouchableOpacity>
                       </View>
                     );
@@ -614,18 +783,22 @@ export default function StudyNotesScreen() {
         <ScrollView contentContainerStyle={styles.pomodoroContainer} showsVerticalScrollIndicator={false}>
           <View style={styles.pomodoroCenterBox}>
 
-            <Text style={styles.pomoHeader}>Studio Fokus Belajar</Text>
-            <Text style={styles.pomoSub}>Tingkatkan konsentrasi belajar dengan teknik Pomodoro teruji.</Text>
+            <Text style={[styles.pomoHeader, { color: theme.text }]}>Studio Fokus Belajar</Text>
+            <Text style={[styles.pomoSub, { color: theme.subtext }]}>Tingkatkan konsentrasi belajar dengan teknik Pomodoro teruji.</Text>
 
             {/* Duration Selector */}
             <View style={styles.pomoPresetsRow}>
               {POMODORO_DURATIONS.map(d => (
                 <TouchableOpacity
                   key={d.value}
-                  style={[styles.pomoPresetChip, pomoTotalTime === d.value && styles.pomoPresetActive]}
+                  style={[
+                    styles.pomoPresetChip,
+                    { backgroundColor: theme.card, borderColor: theme.border },
+                    pomoTotalTime === d.value && [styles.pomoPresetActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                  ]}
                   onPress={() => setPomoDuration(d.value)}
                 >
-                  <Text style={[styles.pomoPresetText, pomoTotalTime === d.value && styles.pomoPresetTextActive]}>
+                  <Text style={[styles.pomoPresetText, { color: theme.subtext }, pomoTotalTime === d.value && [styles.pomoPresetTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                     {d.label}
                   </Text>
                 </TouchableOpacity>
@@ -633,22 +806,22 @@ export default function StudyNotesScreen() {
             </View>
 
             {/* Big Timer Circle Display */}
-            <View style={styles.pomoClockCircle}>
-              <Text style={styles.pomoTimerText}>{formatPomoTime(pomoTimeLeft)}</Text>
-              <Text style={styles.pomoStatusText}>
+            <View style={[styles.pomoClockCircle, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <Text style={[styles.pomoTimerText, { color: theme.text }]}>{formatPomoTime(pomoTimeLeft)}</Text>
+              <Text style={[styles.pomoStatusText, { color: theme.subtext }]}>
                 {pomoActive ? 'Sedang Fokus Nugas...' : 'Siap Mulai'}
               </Text>
             </View>
 
             {/* Controller Buttons */}
             <View style={styles.pomoControlsRow}>
-              <TouchableOpacity style={styles.pomoResetBtn} onPress={resetPomodoro}>
-                <Ionicons name="refresh" size={16} color="#9CA3AF" />
-                <Text style={styles.pomoResetText}>Reset</Text>
+              <TouchableOpacity style={[styles.pomoResetBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={resetPomodoro}>
+                <Ionicons name="refresh" size={16} color={theme.subtext} />
+                <Text style={[styles.pomoResetText, { color: theme.subtext }]}>Reset</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.pomoPlayBtn, pomoActive && styles.pomoPlayBtnPause]}
+                style={[styles.pomoPlayBtn, { backgroundColor: theme.primary }, pomoActive && styles.pomoPlayBtnPause]}
                 onPress={togglePomodoro}
               >
                 <Ionicons name={pomoActive ? 'pause' : 'play'} size={18} color="#FFFFFF" />
@@ -657,9 +830,9 @@ export default function StudyNotesScreen() {
             </View>
 
             {/* Focus Mindful Tip */}
-            <View style={styles.pomoTipCard}>
+            <View style={[styles.pomoTipCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Ionicons name="bulb-outline" size={18} color="#F59E0B" />
-              <Text style={styles.pomoTipText}>
+              <Text style={[styles.pomoTipText, { color: theme.subtext }]}>
                 “Matikan notifikasi media sosial selama 25 menit ini. Fokus selesaikan 1 tugas kuliah.”
               </Text>
             </View>
@@ -675,6 +848,7 @@ export default function StudyNotesScreen() {
         onSelectSubject={(name) => setSelectedSubject(name)}
       />
 
+      </View>
     </SafeAreaView>
   );
 }
@@ -683,6 +857,14 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0E1117',
+  },
+  innerContainer: {
+    flex: 1,
+    width: '100%',
+  },
+  innerContainerWide: {
+    maxWidth: 1440,
+    alignSelf: 'center',
   },
   loaderCenter: {
     flex: 1,
@@ -858,6 +1040,90 @@ const styles = StyleSheet.create({
     paddingHorizontal: 18,
     paddingBottom: 40,
     gap: 10,
+  },
+  draftCard: {
+    backgroundColor: '#1C1608',
+    borderRadius: 14,
+    padding: 16,
+    borderWidth: 1.5,
+    borderColor: '#B45309',
+    marginBottom: 12,
+  },
+  draftCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  draftBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#382806',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: '#78350F',
+  },
+  draftBadgeText: {
+    color: '#FBBF24',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  draftDeleteBtn: {
+    padding: 4,
+    borderRadius: 6,
+    backgroundColor: '#2D1418',
+  },
+  draftTitle: {
+    color: '#FEF3C7',
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  draftSnippet: {
+    color: '#D1D5DB',
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginBottom: 12,
+  },
+  draftFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 10,
+    borderTopWidth: 1,
+    borderTopColor: '#2C220E',
+  },
+  draftMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  draftSubjectText: {
+    color: '#FDE68A',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  draftTimeText: {
+    color: '#9CA3AF',
+    fontSize: 11,
+  },
+  draftContinueBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: '#D97706',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  draftContinueText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
   },
   noteCard: {
     flex: 1,

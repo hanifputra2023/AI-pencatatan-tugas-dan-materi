@@ -131,7 +131,26 @@ ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Public can view settings" ON public.app_settings FOR SELECT USING (true);
 CREATE POLICY "Authenticated can manage settings" ON public.app_settings FOR ALL USING (true);
 
--- 9. AUTO-CREATE PROFILE TRIGGER
+-- 9. USER THEME SETTINGS TABLE (CUSTOM LIGHT / DARK / CUSTOM COLOR PALETTE)
+CREATE TABLE IF NOT EXISTS public.user_theme_settings (
+  user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE PRIMARY KEY,
+  theme_mode TEXT DEFAULT 'dark',
+  theme_id TEXT DEFAULT 'obsidian-blue',
+  primary_color TEXT DEFAULT '#2563EB',
+  accent_color TEXT DEFAULT '#3B82F6',
+  background_color TEXT DEFAULT '#0E1117',
+  card_color TEXT DEFAULT '#141822',
+  text_color TEXT DEFAULT '#F3F4F6',
+  border_color TEXT DEFAULT '#1E2430',
+  custom_theme JSONB,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+ALTER TABLE public.user_theme_settings ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can view own theme" ON public.user_theme_settings FOR SELECT USING (auth.uid() = user_id);
+CREATE POLICY "Users can update own theme" ON public.user_theme_settings FOR UPDATE USING (auth.uid() = user_id);
+CREATE POLICY "Users can insert own theme" ON public.user_theme_settings FOR INSERT WITH CHECK (auth.uid() = user_id);
+
+-- 10. AUTO-CREATE PROFILE TRIGGER
 CREATE OR REPLACE FUNCTION public.handle_new_user()
 RETURNS TRIGGER AS $$
 BEGIN
@@ -146,7 +165,7 @@ CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE FUNCTION public.handle_new_user();
 
--- 10. ENABLE REALTIME FOR ALL TABLES
+-- 11. ENABLE REALTIME FOR ALL TABLES
 ALTER PUBLICATION supabase_realtime ADD TABLE public.profiles;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.chat_messages;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.journal_entries;
@@ -155,3 +174,4 @@ ALTER PUBLICATION supabase_realtime ADD TABLE public.study_notes;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.student_tasks;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.app_moods;
 ALTER PUBLICATION supabase_realtime ADD TABLE public.app_settings;
+ALTER PUBLICATION supabase_realtime ADD TABLE public.user_theme_settings;

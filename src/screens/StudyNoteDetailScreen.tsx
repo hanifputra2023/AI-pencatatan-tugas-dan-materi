@@ -1,12 +1,14 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, SafeAreaView, ActivityIndicator, Platform
+  StyleSheet, SafeAreaView, ActivityIndicator, Platform, AppState
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
+import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { StudyNote, QuizQuestion } from '../types';
@@ -14,6 +16,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
+import MarkdownRenderer from '../components/MarkdownRenderer';
 
 type StudyNoteRouteProp = RouteProp<RootStackParamList, 'StudyNoteDetail'>;
 
@@ -22,6 +25,7 @@ const QUIZ_COUNT_OPTIONS = [3, 5, 10];
 export default function StudyNoteDetailScreen() {
   const { user } = useAuth();
   const { subjects, addSubject } = useSubjects();
+  const { theme, isLightMode } = useTheme();
   const route = useRoute<StudyNoteRouteProp>();
   const navigation = useNavigation();
   const { isDesktop, isTablet } = useResponsive();
@@ -51,13 +55,347 @@ export default function StudyNoteDetailScreen() {
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
 
+  const contentInputRef = useRef<TextInput>(null);
+  const [editorFontSize, setEditorFontSize] = useState(14);
+  const [contentHeight, setContentHeight] = useState(260);
+  const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+  const lastSelectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+  const [editTab, setEditTab] = useState<'write' | 'preview'>('write');
+
+  const FONT_SIZES = [12, 14, 16, 18, 20];
+
+  const getEffectiveSelection = useCallback(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const activeEl = document.activeElement;
+      if (activeEl && (activeEl.tagName === 'TEXTAREA' || activeEl.tagName === 'INPUT')) {
+        const ta = activeEl as HTMLTextAreaElement;
+        if (typeof ta.selectionStart === 'number' && typeof ta.selectionEnd === 'number') {
+          if (ta.selectionStart !== ta.selectionEnd || lastSelectionRef.current.start === 0) {
+            lastSelectionRef.current = { start: ta.selectionStart, end: ta.selectionEnd };
+          }
+        }
+      }
+    }
+    return lastSelectionRef.current;
+  }, []);
+
+  const wrapSelection = useCallback((before: string, after: string, placeholder: string) => {
+    const sel = getEffectiveSelection();
+    let start = sel.start ?? 0;
+    let end = sel.end ?? 0;
+
+    if (start > end) {
+      const temp = start;
+      start = end;
+      end = temp;
+    }
+    start = Math.max(0, Math.min(start, content.length));
+    end = Math.max(0, Math.min(end, content.length));
+
+    const hasSelection = start !== end;
+
+    if (hasSelection) {
+      const selected = content.substring(start, end);
+
+      // Check if text is ALREADY wrapped by this exact format -> TOGGLE OFF
+      const beforeLen = before.length;
+      const afterLen = after.length;
+      const textBefore = content.substring(Math.max(0, start - beforeLen), start);
+      const textAfter = content.substring(end, Math.min(content.length, end + afterLen));
+
+      if (textBefore === before && textAfter === after) {
+        // Toggle OFF: Remove surrounding tag
+        const newText = content.substring(0, start - beforeLen) + selected + content.substring(end + afterLen);
+        setContent(newText);
+        const newStart = start - beforeLen;
+        const newEnd = newStart + selected.length;
+        lastSelectionRef.current = { start: newStart, end: newEnd };
+        setSelection({ start: newStart, end: newEnd });
+        setTimeout(() => {
+          contentInputRef.current?.focus();
+        }, 50);
+        return;
+      }
+
+      // Check if selected substring already starts and ends with tag
+      if (selected.startsWith(before) && selected.endsWith(after) && selected.length >= beforeLen + afterLen) {
+        const unwrapped = selected.substring(beforeLen, selected.length - afterLen);
+        const newText = content.substring(0, start) + unwrapped + content.substring(end);
+        setContent(newText);
+        const newEnd = start + unwrapped.length;
+        lastSelectionRef.current = { start, end: newEnd };
+        setSelection({ start, end: newEnd });
+        setTimeout(() => {
+          contentInputRef.current?.focus();
+        }, 50);
+        return;
+      }
+
+      // Wrap the highlighted text directly!
+      const newText = content.substring(0, start) + before + selected + after + content.substring(end);
+      setContent(newText);
+      const newStart = start + before.length;
+      const newEnd = newStart + selected.length;
+      lastSelectionRef.current = { start: newStart, end: newEnd };
+      setSelection({ start: newStart, end: newEnd });
+      setTimeout(() => {
+        contentInputRef.current?.focus();
+      }, 50);
+    } else {
+      // No text selected: insert placeholder and highlight it so typing replaces it
+      const newText = content.substring(0, start) + before + placeholder + after + content.substring(start);
+      setContent(newText);
+      const newCursorStart = start + before.length;
+      const newCursorEnd = newCursorStart + placeholder.length;
+      lastSelectionRef.current = { start: newCursorStart, end: newCursorEnd };
+      setSelection({ start: newCursorStart, end: newCursorEnd });
+      setTimeout(() => {
+        contentInputRef.current?.focus();
+      }, 50);
+    }
+  }, [content, getEffectiveSelection]);
+
+  const prefixLine = useCallback((prefix: string, placeholder: string) => {
+    const sel = getEffectiveSelection();
+    let start = sel.start ?? 0;
+    let end = sel.end ?? 0;
+
+    if (start > end) {
+      const temp = start;
+      start = end;
+      end = temp;
+    }
+    start = Math.max(0, Math.min(start, content.length));
+    end = Math.max(0, Math.min(end, content.length));
+
+    const hasSelection = start !== end;
+
+    if (hasSelection) {
+      const lastNewlineBeforeStart = content.lastIndexOf('\n', start - 1);
+      const lineStartIndex = lastNewlineBeforeStart === -1 ? 0 : lastNewlineBeforeStart + 1;
+      const nextNewlineAfterEnd = content.indexOf('\n', end);
+      const lineEndIndex = nextNewlineAfterEnd === -1 ? content.length : nextNewlineAfterEnd;
+
+      const selectedLinesBlock = content.substring(lineStartIndex, lineEndIndex);
+      const lines = selectedLinesBlock.split('\n');
+
+      const transformedLines = lines.map((line, idx) => {
+        if (prefix.startsWith('#')) {
+          return prefix + line.replace(/^#{1,6}\s*/, '');
+        }
+        if (prefix === '1. ') {
+          return `${idx + 1}. ` + line.replace(/^(\d+\.|[-*•>])\s*/, '');
+        }
+        if (prefix === '- ') {
+          return `- ` + line.replace(/^(\d+\.|[-*•>])\s*/, '');
+        }
+        if (prefix === '> ') {
+          return `> ` + line.replace(/^>\s*/, '');
+        }
+        if (prefix.includes('---')) {
+          return `${line}\n---`;
+        }
+        return prefix + line;
+      });
+
+      const newBlock = transformedLines.join('\n');
+      const newText = content.substring(0, lineStartIndex) + newBlock + content.substring(lineEndIndex);
+      setContent(newText);
+
+      const newStart = lineStartIndex;
+      const newEnd = lineStartIndex + newBlock.length;
+      lastSelectionRef.current = { start: newStart, end: newEnd };
+      setSelection({ start: newStart, end: newEnd });
+      setTimeout(() => {
+        contentInputRef.current?.focus();
+      }, 50);
+    } else {
+      const lastNewline = content.lastIndexOf('\n', start - 1);
+      const lineStart = lastNewline === -1 ? 0 : lastNewline + 1;
+      const nextNewline = content.indexOf('\n', start);
+      const lineEnd = nextNewline === -1 ? content.length : nextNewline;
+      const currentLine = content.substring(lineStart, lineEnd);
+
+      if (currentLine.trim().length > 0) {
+        let newLine = currentLine;
+        if (prefix.startsWith('#')) {
+          newLine = prefix + currentLine.replace(/^#{1,6}\s*/, '');
+        } else if (prefix === '1. ') {
+          newLine = `1. ` + currentLine.replace(/^(\d+\.|[-*•>])\s*/, '');
+        } else if (prefix === '- ') {
+          newLine = `- ` + currentLine.replace(/^(\d+\.|[-*•>])\s*/, '');
+        } else if (prefix === '> ') {
+          newLine = `> ` + currentLine.replace(/^>\s*/, '');
+        } else if (prefix.includes('---')) {
+          newLine = `${currentLine}\n---`;
+        } else {
+          newLine = prefix + currentLine;
+        }
+
+        const newText = content.substring(0, lineStart) + newLine + content.substring(lineEnd);
+        setContent(newText);
+        const newCursor = lineStart + newLine.length;
+        lastSelectionRef.current = { start: newCursor, end: newCursor };
+        setSelection({ start: newCursor, end: newCursor });
+        setTimeout(() => {
+          contentInputRef.current?.focus();
+        }, 50);
+      } else {
+        const insert = prefix + placeholder;
+        const newText = content.substring(0, lineStart) + insert + content.substring(lineEnd);
+        setContent(newText);
+        const newCursorStart = lineStart + prefix.length;
+        const newCursorEnd = newCursorStart + placeholder.length;
+        lastSelectionRef.current = { start: newCursorStart, end: newCursorEnd };
+        setSelection({ start: newCursorStart, end: newCursorEnd });
+        setTimeout(() => {
+          contentInputRef.current?.focus();
+        }, 50);
+      }
+    }
+  }, [content, getEffectiveSelection]);
+
+  const [draftSavedTime, setDraftSavedTime] = useState<string | null>(null);
+  const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
+  const draftSaveTimeoutRef = useRef<any>(null);
+
+  const getDraftKey = useCallback(() => {
+    return `@study_note_draft_${user?.id || 'anonymous'}`;
+  }, [user]);
+
+  // Load Note from DB or Restore Local Draft on Mount
   useEffect(() => {
     if (noteId) {
       fetchNote();
-    } else if (subjects.length > 0 && !subject) {
-      setSubject(subjects[0].name);
+      setViewMode('reader');
+    } else {
+      setViewMode('edit');
+      const loadDraft = async () => {
+        try {
+          const draftKey = getDraftKey();
+          const rawDraft = await AsyncStorage.getItem(draftKey);
+          if (rawDraft) {
+            const draft = JSON.parse(rawDraft);
+            if (draft && (draft.title || draft.content)) {
+              setTitle(draft.title || '');
+              setSubject(draft.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
+              setContent(draft.content || '');
+              setSummary(draft.summary || null);
+              setQuizData(draft.quizData || []);
+              if (draft.savedAt) {
+                setDraftSavedTime(new Date(draft.savedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+              }
+              setHasRestoredDraft(true);
+              setFetching(false);
+              return;
+            }
+          }
+        } catch (e) {
+          console.log('Error loading note draft:', e);
+        }
+
+        setTitle('');
+        setSubject(subjects.length > 0 ? subjects[0].name : 'Umum');
+        setContent('');
+        setSummary(null);
+        setQuizData([]);
+        setSelectedAnswers({});
+        setCreatedAt('');
+        setFetching(false);
+      };
+
+      loadDraft();
     }
-  }, [noteId, subjects]);
+  }, [noteId, getDraftKey]);
+
+  // Auto-Save Draft to Local Storage (Debounced 700ms)
+  useEffect(() => {
+    // Only auto-save for new notes
+    if (noteId) return;
+
+    // Only save if there's actual text
+    if (!title.trim() && !content.trim()) {
+      return;
+    }
+
+    if (draftSaveTimeoutRef.current) {
+      clearTimeout(draftSaveTimeoutRef.current);
+    }
+
+    draftSaveTimeoutRef.current = setTimeout(async () => {
+      try {
+        const draftKey = getDraftKey();
+        const draftPayload = {
+          title,
+          subject,
+          content,
+          summary,
+          quizData,
+          savedAt: new Date().toISOString(),
+        };
+        await AsyncStorage.setItem(draftKey, JSON.stringify(draftPayload));
+        setDraftSavedTime(new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+        setHasRestoredDraft(true);
+      } catch (e) {
+        console.log('Error saving note draft:', e);
+      }
+    }, 700);
+
+    return () => {
+      if (draftSaveTimeoutRef.current) clearTimeout(draftSaveTimeoutRef.current);
+    };
+  }, [title, subject, content, summary, quizData, noteId, getDraftKey]);
+
+  // AppState Listener to flush-save draft on background / screen off
+  useEffect(() => {
+    if (noteId) return;
+
+    const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      if (nextAppState === 'background' || nextAppState === 'inactive') {
+        if (title.trim() || content.trim()) {
+          try {
+            const draftKey = getDraftKey();
+            const draftPayload = {
+              title,
+              subject,
+              content,
+              summary,
+              quizData,
+              savedAt: new Date().toISOString(),
+            };
+            await AsyncStorage.setItem(draftKey, JSON.stringify(draftPayload));
+          } catch (e) {}
+        }
+      }
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [title, subject, content, summary, quizData, noteId, getDraftKey]);
+
+  // Discard Draft & Start Fresh
+  const handleDiscardDraft = () => {
+    confirmAction(
+      'Hapus Draf Catatan?',
+      'Semua teks draf yang belum disimpan akan dihapus dan formulir dikosongkan.',
+      async () => {
+        try {
+          const draftKey = getDraftKey();
+          await AsyncStorage.removeItem(draftKey);
+        } catch (e) {}
+        setTitle('');
+        setContent('');
+        setSummary(null);
+        setQuizData([]);
+        setSelectedAnswers({});
+        setDraftSavedTime(null);
+        setHasRestoredDraft(false);
+        showAlert('Draf Dihapus', 'Formulir catatan telah dikosongkan.');
+      },
+      'Hapus Draf'
+    );
+  };
 
   const fetchNote = async () => {
     const { data } = await supabase.from('study_notes').select('*').eq('id', noteId).single();
@@ -262,6 +600,13 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         await supabase.from('study_notes').update(payload).eq('id', noteId);
       } else {
         await supabase.from('study_notes').insert(payload);
+        // Clear local draft once saved to Supabase
+        try {
+          const draftKey = getDraftKey();
+          await AsyncStorage.removeItem(draftKey);
+          setHasRestoredDraft(false);
+          setDraftSavedTime(null);
+        } catch (e) {}
       }
     }
     setLoading(false);
@@ -307,6 +652,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
   // Reading Stats
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
+  const charCount = content.length;
   const readingTimeMin = Math.max(1, Math.ceil(wordCount / 160));
 
   // Quiz Score Calculation
@@ -317,32 +663,32 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
   const scorePercent = quizData.length > 0 ? Math.round((correctCount / quizData.length) * 100) : 0;
 
   if (fetching) {
-    return <View style={styles.loaderCenter}><ActivityIndicator size="small" color="#9CA3AF" /></View>;
+    return <View style={[styles.loaderCenter, { backgroundColor: theme.bg }]}><ActivityIndicator size="small" color={theme.accentLight} /></View>;
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
       {/* Top Header Mode Switcher */}
-      <View style={styles.topHeader}>
+      <View style={[styles.topHeader, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
         {/* Segmented Mode Switcher */}
-        <View style={styles.segmentedWrap}>
+        <View style={[styles.segmentedWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
           <TouchableOpacity
-            style={[styles.segmentBtn, viewMode === 'reader' && styles.segmentBtnActive]}
+            style={[styles.segmentBtn, viewMode === 'reader' && [styles.segmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
             onPress={() => setViewMode('reader')}
           >
-            <Ionicons name="book-outline" size={14} color={viewMode === 'reader' ? '#60A5FA' : '#9CA3AF'} />
-            <Text style={[styles.segmentText, viewMode === 'reader' && styles.segmentTextActive]}>
+            <Ionicons name="book-outline" size={14} color={viewMode === 'reader' ? theme.accentLight : theme.subtext} />
+            <Text style={[styles.segmentText, { color: theme.subtext }, viewMode === 'reader' && [styles.segmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
               Detail Materi
             </Text>
           </TouchableOpacity>
 
           <TouchableOpacity
-            style={[styles.segmentBtn, viewMode === 'edit' && styles.segmentBtnActive]}
+            style={[styles.segmentBtn, viewMode === 'edit' && [styles.segmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
             onPress={() => setViewMode('edit')}
           >
-            <Ionicons name="create-outline" size={14} color={viewMode === 'edit' ? '#60A5FA' : '#9CA3AF'} />
-            <Text style={[styles.segmentText, viewMode === 'edit' && styles.segmentTextActive]}>
+            <Ionicons name="create-outline" size={14} color={viewMode === 'edit' ? theme.accentLight : theme.subtext} />
+            <Text style={[styles.segmentText, { color: theme.subtext }, viewMode === 'edit' && [styles.segmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
               Edit Catatan
             </Text>
           </TouchableOpacity>
@@ -351,7 +697,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         {/* Right Action */}
         {viewMode === 'edit' ? (
           <TouchableOpacity
-            style={[styles.headerSaveBtn, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
+            style={[styles.headerSaveBtn, { backgroundColor: theme.primary }, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
             onPress={handleSave}
             disabled={loading || !title.trim() || !content.trim()}
           >
@@ -365,14 +711,14 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
             )}
           </TouchableOpacity>
         ) : (
-          <TouchableOpacity style={styles.headerIconBtn} onPress={handleCopyNote}>
-            <Ionicons name="copy-outline" size={18} color="#9CA3AF" />
+          <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={handleCopyNote}>
+            <Ionicons name="copy-outline" size={18} color={theme.subtext} />
           </TouchableOpacity>
         )}
       </View>
 
       <ScrollView
-        style={styles.scroll}
+        style={[styles.scroll, { backgroundColor: theme.bg }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 60 }}
@@ -387,43 +733,43 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
               {/* Subject Tag & Meta Stats Bar */}
               <View style={styles.readerMetaRow}>
-                <View style={styles.readerSubjectBadge}>
-                  <Ionicons name="school" size={12} color="#60A5FA" />
-                  <Text style={styles.readerSubjectText}>{subject || 'Kuliah Umum'}</Text>
+                <View style={[styles.readerSubjectBadge, { backgroundColor: theme.accentBg }]}>
+                  <Ionicons name="school" size={12} color={theme.accentLight} />
+                  <Text style={[styles.readerSubjectText, { color: theme.accentLight }]}>{subject || 'Kuliah Umum'}</Text>
                 </View>
 
                 <View style={styles.readerStatsPills}>
-                  <View style={styles.statPill}>
-                    <Ionicons name="time-outline" size={11} color="#9CA3AF" />
-                    <Text style={styles.statPillText}>{readingTimeMin} mnt baca</Text>
+                  <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <Ionicons name="time-outline" size={11} color={theme.muted} />
+                    <Text style={[styles.statPillText, { color: theme.subtext }]}>{readingTimeMin} mnt baca</Text>
                   </View>
-                  <View style={styles.statPill}>
-                    <Ionicons name="document-text-outline" size={11} color="#9CA3AF" />
-                    <Text style={styles.statPillText}>{wordCount} kata</Text>
+                  <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <Ionicons name="document-text-outline" size={11} color={theme.muted} />
+                    <Text style={[styles.statPillText, { color: theme.subtext }]}>{wordCount} kata</Text>
                   </View>
                 </View>
               </View>
 
               {/* Title */}
-              <Text style={styles.readerTitle}>{title || 'Materi Catatan Tanpa Judul'}</Text>
+              <Text style={[styles.readerTitle, { color: theme.text }]}>{title || 'Materi Catatan Tanpa Judul'}</Text>
 
               {/* Timestamp & Author Bar */}
               <View style={styles.readerDateRow}>
-                <Ionicons name="calendar-outline" size={13} color="#6B7280" />
-                <Text style={styles.readerDateText}>
+                <Ionicons name="calendar-outline" size={13} color={theme.muted} />
+                <Text style={[styles.readerDateText, { color: theme.muted }]}>
                   {createdAt ? new Date(createdAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Catatan Baru'}
                 </Text>
               </View>
 
               {/* Quick Action Floating Bar */}
-              <View style={styles.readerActionBar}>
-                <TouchableOpacity style={styles.readerActionBtn} onPress={() => setViewMode('edit')}>
-                  <Ionicons name="create" size={14} color="#60A5FA" />
-                  <Text style={styles.readerActionBtnText}>Edit</Text>
+              <View style={[styles.readerActionBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <TouchableOpacity style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={() => setViewMode('edit')}>
+                  <Ionicons name="create" size={14} color={theme.accentLight} />
+                  <Text style={[styles.readerActionBtnText, { color: theme.accentLight }]}>Edit</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.readerActionBtn, generatingSummary && { opacity: 0.6 }]}
+                  style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingSummary && { opacity: 0.6 }]}
                   onPress={handleGenerateSummary}
                   disabled={generatingSummary}
                 >
@@ -440,7 +786,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.readerActionBtn, generatingQuiz && { opacity: 0.6 }]}
+                  style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingQuiz && { opacity: 0.6 }]}
                   onPress={handleGenerateQuiz}
                   disabled={generatingQuiz}
                 >
@@ -457,30 +803,30 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                 </TouchableOpacity>
 
                 {noteId ? (
-                  <TouchableOpacity style={styles.readerActionDeleteBtn} onPress={handleDeleteCurrentNote}>
+                  <TouchableOpacity style={[styles.readerActionDeleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418', borderColor: isLightMode ? '#FECACA' : '#5C1D24' }]} onPress={handleDeleteCurrentNote}>
                     <Ionicons name="trash-outline" size={14} color="#EF4444" />
                   </TouchableOpacity>
                 ) : null}
               </View>
 
               {/* Main Content Article Body */}
-              <View style={styles.readerArticleCard}>
-                <Text style={styles.readerArticleContent}>{content || 'Belum ada isi materi catatan.'}</Text>
+              <View style={[styles.readerArticleCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <MarkdownRenderer content={content || 'Belum ada isi materi catatan.'} fontSize={15} textColor={theme.text} />
               </View>
 
               {/* Summary Section (If Generated) */}
               {summary ? (
-                <View style={styles.readerSummaryCard}>
+                <View style={[styles.readerSummaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <View style={styles.summaryTopRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="sparkles" size={16} color="#60A5FA" />
-                      <Text style={styles.summaryTitle}>📌 Intisari & Rangkuman AI</Text>
+                      <Ionicons name="sparkles" size={16} color={theme.accentLight} />
+                      <Text style={[styles.summaryTitle, { color: theme.text }]}>📌 Intisari & Rangkuman AI</Text>
                     </View>
-                    <TouchableOpacity onPress={handleAppendSummaryToContent} style={styles.appendBtn}>
-                      <Text style={styles.appendBtnText}>+ Sisipkan</Text>
+                    <TouchableOpacity onPress={handleAppendSummaryToContent} style={[styles.appendBtn, { backgroundColor: theme.accentBg }]}>
+                      <Text style={[styles.appendBtnText, { color: theme.accentLight }]}>+ Sisipkan</Text>
                     </TouchableOpacity>
                   </View>
-                  <Text style={styles.summaryContent}>{summary}</Text>
+                  <MarkdownRenderer content={summary} fontSize={14} textColor={theme.text} />
                 </View>
               ) : null}
 
@@ -496,24 +842,24 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                       <TouchableOpacity onPress={handleResetQuizAnswers} style={styles.miniBtn}>
                         <Text style={styles.miniBtnText}>Reset</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity onPress={handleClearQuiz} style={styles.miniBtnDanger}>
-                        <Text style={styles.miniBtnDangerText}>Hapus</Text>
+                      <TouchableOpacity onPress={handleClearQuiz} style={[styles.miniBtnDanger, { backgroundColor: isLightMode ? '#FEE2E2' : '#331215', borderColor: isLightMode ? '#FECACA' : '#591D24' }]}>
+                        <Text style={[styles.miniBtnDangerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
 
                   {/* Score Progress Bar */}
-                  <View style={styles.scoreBarCard}>
+                  <View style={[styles.scoreBarCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                     <View style={styles.scoreTopInfo}>
-                      <Text style={styles.scoreLabel}>
+                      <Text style={[styles.scoreLabel, { color: theme.subtext }]}>
                         Progres: {answeredCount} dari {quizData.length} Soal Dijawab
                       </Text>
-                      <Text style={styles.scoreValueText}>
+                      <Text style={[styles.scoreValueText, { color: theme.accentLight }]}>
                         Skor: {correctCount}/{quizData.length} ({scorePercent}%)
                       </Text>
                     </View>
-                    <View style={styles.progressTrack}>
-                      <View style={[styles.progressFill, { width: `${(answeredCount / quizData.length) * 100}%` }]} />
+                    <View style={[styles.progressTrack, { backgroundColor: theme.border }]}>
+                      <View style={[styles.progressFill, { backgroundColor: theme.primary, width: `${(answeredCount / quizData.length) * 100}%` }]} />
                     </View>
                   </View>
 
@@ -524,9 +870,9 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     const isCorrect = chosenIndex === q.correctIndex;
 
                     return (
-                      <View key={qIndex} style={styles.questionBlock}>
-                        <Text style={styles.questionNum}>Soal {qIndex + 1}:</Text>
-                        <Text style={styles.questionText}>{q.question}</Text>
+                      <View key={qIndex} style={[styles.questionBlock, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <Text style={[styles.questionNum, { color: theme.accentLight }]}>Soal {qIndex + 1}:</Text>
+                        <Text style={[styles.questionText, { color: theme.text }]}>{q.question}</Text>
 
                         <View style={styles.optionsList}>
                           {q.options.map((opt, optIndex) => {
@@ -538,21 +884,23 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                                 key={optIndex}
                                 style={[
                                   styles.optionBtn,
-                                  isChosen && styles.optionBtnSelected,
+                                  { backgroundColor: theme.card, borderColor: theme.border },
+                                  isChosen && [styles.optionBtnSelected, { backgroundColor: theme.accentBg, borderColor: theme.accent }],
                                   isAnswered && isTheRightAnswer && styles.optionBtnCorrect,
                                   isAnswered && isChosen && !isTheRightAnswer && styles.optionBtnWrong,
                                 ]}
                                 onPress={() => handleSelectQuizOption(qIndex, optIndex)}
                                 activeOpacity={0.7}
                               >
-                                <View style={styles.optionIndexBadge}>
-                                  <Text style={styles.optionIndexText}>
+                                <View style={[styles.optionIndexBadge, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                                  <Text style={[styles.optionIndexText, { color: theme.text }]}>
                                     {String.fromCharCode(65 + optIndex)}
                                   </Text>
                                 </View>
                                 <Text
                                   style={[
                                     styles.optionText,
+                                    { color: theme.text },
                                     isAnswered && isTheRightAnswer && styles.optionTextCorrect,
                                     isAnswered && isChosen && !isTheRightAnswer && styles.optionTextWrong,
                                   ]}
@@ -596,67 +944,228 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
             /* ========================================================================= */
             <View style={styles.editContainer}>
 
+              {/* Draft Status Banner (Auto-Save Indicator & Discard Option) */}
+              {!noteId && (draftSavedTime || hasRestoredDraft) ? (
+                <View style={styles.draftBannerRow}>
+                  <View style={[styles.draftStatusPill, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
+                    <Ionicons name="cloud-done" size={13} color="#10B981" />
+                    <Text style={[styles.draftStatusText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                      {draftSavedTime ? `Draf tersimpan otomatis (${draftSavedTime})` : 'Draf dipulihkan'}
+                    </Text>
+                  </View>
+                  <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2B1215', borderColor: isLightMode ? '#FECACA' : '#571F26' }]}>
+                    <Ionicons name="trash-outline" size={12} color="#EF4444" />
+                    <Text style={[styles.discardDraftText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus Draf</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
+
               {/* Title Input */}
-              <Text style={styles.inputLabel}>Judul Materi Kuliah:</Text>
+              <Text style={[styles.inputLabel, { color: theme.text }]}>Judul Materi Kuliah:</Text>
               <TextInput
-                style={styles.titleInput}
+                style={[styles.titleInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
                 placeholder="Misal: Struktur Data & Algoritma Tree..."
-                placeholderTextColor="#4B5565"
+                placeholderTextColor={theme.muted}
                 value={title}
                 onChangeText={setTitle}
               />
 
               {/* Course / Subject Picker */}
               <View style={styles.subjectHeaderRow}>
-                <Text style={styles.inputLabel}>Pilih Mata Kuliah:</Text>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Pilih Mata Kuliah:</Text>
                 <TouchableOpacity
-                  style={styles.manageSubjBtn}
+                  style={[styles.manageSubjBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
                   onPress={() => setShowSubjectModal(true)}
                 >
-                  <Ionicons name="settings-outline" size={13} color="#60A5FA" />
-                  <Text style={styles.manageSubjBtnText}>Kelola Matkul</Text>
+                  <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
+                  <Text style={[styles.manageSubjBtnText, { color: theme.accentLight }]}>Kelola Matkul</Text>
                 </TouchableOpacity>
               </View>
 
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
-                {subjects.map(s => (
-                  <TouchableOpacity
-                    key={s.id}
-                    style={[styles.subjectChip, subject.toLowerCase() === s.name.toLowerCase() && styles.subjectChipActive]}
-                    onPress={() => setSubject(s.name)}
-                  >
-                    <Text style={[styles.subjectChipText, subject.toLowerCase() === s.name.toLowerCase() && styles.subjectChipTextActive]}>
-                      {s.name}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                {subjects.map(s => {
+                  const isSel = subject.toLowerCase() === s.name.toLowerCase();
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[
+                        styles.subjectChip,
+                        { backgroundColor: theme.card, borderColor: theme.border },
+                        isSel && [styles.subjectChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                      ]}
+                      onPress={() => setSubject(s.name)}
+                    >
+                      <Text style={[styles.subjectChipText, { color: theme.subtext }, isSel && [styles.subjectChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                        {s.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </ScrollView>
 
-              {/* Main Content Input */}
-              <Text style={styles.inputLabel}>Isi Catatan Materi Lengkap:</Text>
-              <TextInput
-                style={styles.contentInput}
-                placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
-                placeholderTextColor="#4B5565"
-                value={content}
-                onChangeText={setContent}
-                multiline
-                textAlignVertical="top"
-              />
+              {/* Main Content Input Header with Live Preview Switch */}
+              <View style={styles.contentHeaderRow}>
+                <Text style={[styles.inputLabel, { color: theme.text }]}>Isi Catatan Materi:</Text>
+                
+                {/* Write vs Live Preview Toggle */}
+                <View style={[styles.editModeToggleWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                  <TouchableOpacity
+                    style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
+                    onPress={() => setEditTab('write')}
+                  >
+                    <Ionicons name="create-outline" size={13} color={editTab === 'write' ? theme.accentLight : theme.subtext} />
+                    <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'write' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                      Tulis
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
+                    onPress={() => setEditTab('preview')}
+                  >
+                    <Ionicons name="eye-outline" size={13} color={editTab === 'preview' ? theme.accentLight : theme.subtext} />
+                    <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'preview' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                      Pratinjau Rapi
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {editTab === 'write' ? (
+                <>
+                  {/* Formatting Toolbar */}
+                  <View
+                    style={[styles.toolbarWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    {...(Platform.OS === 'web' ? { onMouseDown: (e: any) => e.preventDefault() } : {})}
+                  >
+                    <View style={styles.toolbarRow}>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
+                        <Text style={styles.toolBtnBold}>B</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('*', '*', 'teks miring')}>
+                        <Text style={styles.toolBtnItalic}>I</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('__', '__', 'teks garis bawah')}>
+                        <Text style={styles.toolBtnUnderline}>U</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('~~', '~~', 'teks coret')}>
+                        <Text style={[styles.toolBtnUnderline, { textDecorationLine: 'line-through' }]}>S</Text>
+                      </TouchableOpacity>
+                      <View style={styles.toolDivider} />
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('## ', 'Judul Bagian')}>
+                        <Text style={styles.toolBtnH3}>H2</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('### ', 'Judul Sub Bagian')}>
+                        <Text style={styles.toolBtnH3}>H3</Text>
+                      </TouchableOpacity>
+                      <View style={styles.toolDivider} />
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('- ', 'Item list')}>
+                        <Ionicons name="list" size={15} color="#9CA3AF" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('1. ', 'Item numerik')}>
+                        <Text style={styles.toolBtnH3}>1.</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('> ', 'Kutipan')}>
+                        <Ionicons name="chatbubble-outline" size={14} color="#9CA3AF" />
+                      </TouchableOpacity>
+                      <View style={styles.toolDivider} />
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('`', '`', 'kode')}>
+                        <Ionicons name="code-slash" size={15} color="#9CA3AF" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('```\n', '\n```', 'blok kode')}>
+                        <Ionicons name="terminal-outline" size={15} color="#9CA3AF" />
+                      </TouchableOpacity>
+                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('---\n', '')}>
+                        <Ionicons name="remove-outline" size={15} color="#9CA3AF" />
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Font Size Selector */}
+                    <View style={styles.fontSizeRow}>
+                      <Ionicons name="text-outline" size={13} color="#6B7280" />
+                      {FONT_SIZES.map(size => (
+                        <TouchableOpacity
+                          key={size}
+                          style={[styles.fontSizeChip, editorFontSize === size && styles.fontSizeChipActive]}
+                          onPress={() => setEditorFontSize(size)}
+                        >
+                          <Text style={[styles.fontSizeChipText, editorFontSize === size && styles.fontSizeChipTextActive]}>
+                            {size}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  <TextInput
+                    ref={contentInputRef}
+                    style={[styles.contentInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: editorFontSize + 8, minHeight: contentHeight }]}
+                    placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
+                    placeholderTextColor={theme.muted}
+                    value={content}
+                    onChangeText={setContent}
+                    multiline
+                    textAlignVertical="top"
+                    selection={selection}
+                    onSelectionChange={(e) => {
+                      const sel = e.nativeEvent.selection;
+                      if (sel) {
+                        lastSelectionRef.current = sel;
+                        setSelection(sel);
+                      }
+                    }}
+                    onContentSizeChange={(e) => {
+                      const h = e.nativeEvent.contentSize.height;
+                      if (h > 260) setContentHeight(Math.min(h + 20, 600));
+                      else setContentHeight(260);
+                    }}
+                  />
+                </>
+              ) : (
+                <View style={[styles.livePreviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.livePreviewHeader}>
+                    <Ionicons name="sparkles" size={14} color={theme.accentLight} />
+                    <Text style={[styles.livePreviewTitle, { color: theme.text }]}>Pratinjau Hasil Format:</Text>
+                  </View>
+                  {content.trim() ? (
+                    <MarkdownRenderer content={content} fontSize={editorFontSize} textColor={theme.text} />
+                  ) : (
+                    <Text style={[styles.livePreviewEmpty, { color: theme.subtext }]}>
+                      Belum ada teks materi. Ketik catatan di tab "Tulis" untuk melihat hasil formatnya di sini.
+                    </Text>
+                  )}
+                </View>
+              )}
+
+              {/* Word & Char Count */}
+              <View style={styles.statsRow}>
+                <View style={styles.statItem}>
+                  <Ionicons name="document-text-outline" size={12} color={theme.muted} />
+                  <Text style={[styles.statText, { color: theme.muted }]}>{wordCount} kata</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="text-outline" size={12} color={theme.muted} />
+                  <Text style={[styles.statText, { color: theme.muted }]}>{charCount} karakter</Text>
+                </View>
+                <View style={styles.statItem}>
+                  <Ionicons name="time-outline" size={12} color={theme.muted} />
+                  <Text style={[styles.statText, { color: theme.muted }]}>~{Math.max(1, Math.ceil(wordCount / 160))} mnt baca</Text>
+                </View>
+              </View>
 
               {/* AI Study Tools in Edit Mode */}
-              <View style={styles.aiStudioCard}>
+              <View style={[styles.aiStudioCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                  <Ionicons name="sparkles" size={16} color="#60A5FA" />
-                  <Text style={styles.aiStudioTitle}>Studio Fitur AI Pintar</Text>
+                  <Ionicons name="sparkles" size={16} color={theme.accentLight} />
+                  <Text style={[styles.aiStudioTitle, { color: theme.text }]}>Studio Fitur AI Pintar</Text>
                 </View>
-                <Text style={styles.aiStudioSub}>
+                <Text style={[styles.aiStudioSub, { color: theme.subtext }]}>
                   Otomatisasi perangkuman intisari ujian & kuis latihan interaktif dengan AI Gemini.
                 </Text>
 
                 <View style={styles.aiBtnRow}>
                   <TouchableOpacity
-                    style={[styles.aiToolBtn, generatingSummary && { opacity: 0.7 }]}
+                    style={[styles.aiToolBtn, { backgroundColor: theme.primary }, generatingSummary && { opacity: 0.7 }]}
                     onPress={handleGenerateSummary}
                     disabled={generatingSummary}
                   >
@@ -671,14 +1180,18 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                   </TouchableOpacity>
 
                   {/* Quiz Count Selector */}
-                  <View style={styles.quizCountSelector}>
+                  <View style={[styles.quizCountSelector, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                     {QUIZ_COUNT_OPTIONS.map(cnt => (
                       <TouchableOpacity
                         key={cnt}
-                        style={[styles.cntChip, quizCount === cnt && styles.cntChipActive]}
+                        style={[
+                          styles.cntChip,
+                          { backgroundColor: theme.cardInner },
+                          quizCount === cnt && [styles.cntChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                        ]}
                         onPress={() => setQuizCount(cnt)}
                       >
-                        <Text style={[styles.cntChipText, quizCount === cnt && styles.cntChipTextActive]}>
+                        <Text style={[styles.cntChipText, { color: theme.subtext }, quizCount === cnt && [styles.cntChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                           {cnt} Soal
                         </Text>
                       </TouchableOpacity>
@@ -686,7 +1199,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                   </View>
 
                   <TouchableOpacity
-                    style={[styles.aiToolBtnQuiz, generatingQuiz && { opacity: 0.7 }]}
+                    style={[styles.aiToolBtnQuiz, { backgroundColor: isLightMode ? '#059669' : '#065F46' }, generatingQuiz && { opacity: 0.7 }]}
                     onPress={handleGenerateQuiz}
                     disabled={generatingQuiz}
                   >
@@ -704,7 +1217,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
               {/* Bottom Save Action Button */}
               <TouchableOpacity
-                style={[styles.saveBtnFull, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
+                style={[styles.saveBtnFull, { backgroundColor: theme.primary }, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
                 onPress={handleSave}
                 disabled={loading || !title.trim() || !content.trim()}
               >
@@ -976,6 +1489,44 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginBottom: 4,
   },
+  draftBannerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#0F1E19',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderWidth: 1,
+    borderColor: '#1D4537',
+    marginBottom: 10,
+  },
+  draftStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  draftStatusText: {
+    color: '#6EE7B7',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  discardDraftBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: '#2D1518',
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+    borderWidth: 1,
+    borderColor: '#4E1D24',
+  },
+  discardDraftText: {
+    color: '#F87171',
+    fontSize: 10,
+    fontWeight: '600',
+  },
   titleInput: {
     backgroundColor: '#0E1117',
     borderRadius: 10,
@@ -1032,17 +1583,178 @@ const styles = StyleSheet.create({
     color: '#60A5FA',
     fontWeight: '700',
   },
+  contentHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  editModeToggleWrap: {
+    flexDirection: 'row',
+    backgroundColor: '#141822',
+    borderRadius: 8,
+    padding: 2,
+    borderWidth: 1,
+    borderColor: '#202634',
+  },
+  editToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  editToggleBtnActive: {
+    backgroundColor: '#1E293B',
+  },
+  editToggleText: {
+    fontSize: 11,
+    color: '#9CA3AF',
+    fontWeight: '500',
+  },
+  editToggleTextActive: {
+    color: '#60A5FA',
+    fontWeight: '700',
+  },
+  livePreviewCard: {
+    backgroundColor: '#0E1117',
+    borderRadius: 12,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: '#202634',
+    marginBottom: 8,
+    minHeight: 200,
+  },
+  livePreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingBottom: 8,
+    marginBottom: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: '#1A2130',
+  },
+  livePreviewTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: '#60A5FA',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  livePreviewEmpty: {
+    color: '#6B7280',
+    fontStyle: 'italic',
+    fontSize: 13,
+    lineHeight: 20,
+    paddingVertical: 20,
+    textAlign: 'center',
+  },
   contentInput: {
     backgroundColor: '#0E1117',
     borderRadius: 12,
     padding: 14,
     color: '#F3F4F6',
-    fontSize: 14,
     lineHeight: 22,
-    minHeight: 220,
     borderWidth: 1,
     borderColor: '#202634',
-    marginBottom: 12,
+    marginBottom: 6,
+  },
+  toolbarWrap: {
+    backgroundColor: '#141822',
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: '#202634',
+    marginBottom: 8,
+    overflow: 'hidden',
+  },
+  toolbarRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+    gap: 2,
+    flexWrap: 'wrap',
+  },
+  toolBtn: {
+    width: 32,
+    height: 30,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: '#1A1F2E',
+  },
+  toolBtnBold: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  toolBtnItalic: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    fontStyle: 'italic',
+    fontWeight: '600',
+  },
+  toolBtnUnderline: {
+    color: '#E5E7EB',
+    fontSize: 14,
+    textDecorationLine: 'underline',
+    fontWeight: '600',
+  },
+  toolBtnH3: {
+    color: '#E5E7EB',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  toolDivider: {
+    width: 1,
+    height: 18,
+    backgroundColor: '#2A3040',
+    marginHorizontal: 3,
+  },
+  fontSizeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderTopWidth: 1,
+    borderTopColor: '#1E2430',
+  },
+  fontSizeChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 5,
+    backgroundColor: '#1A1F2E',
+  },
+  fontSizeChipActive: {
+    backgroundColor: '#1E293B',
+    borderWidth: 1,
+    borderColor: '#3B82F6',
+  },
+  fontSizeChipText: {
+    color: '#6B7280',
+    fontSize: 10,
+    fontWeight: '600',
+  },
+  fontSizeChipTextActive: {
+    color: '#60A5FA',
+  },
+  statsRow: {
+    flexDirection: 'row',
+    gap: 14,
+    marginBottom: 14,
+    paddingHorizontal: 2,
+  },
+  statItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  statText: {
+    color: '#6B7280',
+    fontSize: 10.5,
+    fontWeight: '500',
   },
   aiStudioCard: {
     backgroundColor: '#0E1117',
