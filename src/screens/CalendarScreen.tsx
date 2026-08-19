@@ -74,7 +74,20 @@ export default function CalendarScreen() {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+
+    if (!user) return;
+
+    const channel = supabase
+      .channel('calendar_multi_realtime_' + user.id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_notes', filter: `user_id=eq.${user.id}` }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_tasks', filter: `user_id=eq.${user.id}` }, () => fetchData())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchData]);
 
   useFocusEffect(
     useCallback(() => {
@@ -189,7 +202,7 @@ export default function CalendarScreen() {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: 40 }}
       >
-        
+
         {/* Top Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Statistik & Kalender</Text>
@@ -280,12 +293,12 @@ export default function CalendarScreen() {
 
         {/* Dual Column Layout (Desktop / Tablet / Mobile) */}
         <View style={[styles.mainLayout, isWide && styles.mainLayoutWide]}>
-          
+
           {/* ========================================================================= */}
           {/* LEFT COLUMN: 30-Day Grid & Activity Inspector */}
           {/* ========================================================================= */}
           <View style={[styles.column, isWide && { flex: 1.2 }]}>
-            
+
             {/* 30-Day Activity Calendar Grid */}
             <View style={styles.card}>
               <View style={styles.cardHeaderBetween}>
@@ -326,7 +339,7 @@ export default function CalendarScreen() {
                       <Text style={[styles.gridDay, isSelected && styles.gridDaySelected]}>
                         {d.dayNum}
                       </Text>
-                      
+
                       {/* Activity Indicator Badges */}
                       <View style={styles.dotRow}>
                         {d.noteCount > 0 && <View style={[styles.activityDot, { backgroundColor: '#3B82F6' }]} />}
@@ -368,7 +381,7 @@ export default function CalendarScreen() {
                 </View>
               ) : (
                 <View style={styles.dayEventList}>
-                  
+
                   {/* Study Notes on Selected Day */}
                   {selectedDayNotes.map(n => (
                     <TouchableOpacity
@@ -454,7 +467,7 @@ export default function CalendarScreen() {
           {/* RIGHT COLUMN: Productivity & Breakdown Charts */}
           {/* ========================================================================= */}
           <View style={[styles.column, isWide && { flex: 1 }]}>
-            
+
             {/* 7-Day Activity Trend Bar Chart */}
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Tren Aktivitas 7 Hari Terakhir</Text>

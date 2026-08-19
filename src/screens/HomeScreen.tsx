@@ -95,7 +95,7 @@ export default function HomeScreen() {
               return found ? { ...def, completed: !!found.completed } : def;
             });
           }
-        } catch (e) {}
+        } catch (e) { }
       } else if (user?.user_metadata?.[`quests_${today}`]) {
         const cloudQuests = user.user_metadata[`quests_${today}`];
         if (Array.isArray(cloudQuests)) {
@@ -130,7 +130,12 @@ export default function HomeScreen() {
     setQuests(updated);
     try {
       await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
-    } catch (e) {}
+      if (user) {
+        await supabase.auth.updateUser({
+          data: { [`quests_${today}`]: updated },
+        });
+      }
+    } catch (e) { }
   };
 
   const fetchData = useCallback(async () => {
@@ -148,7 +153,7 @@ export default function HomeScreen() {
     ]);
 
     if (profileRes.data) setUsername(profileRes.data.username || 'Kamu');
-    
+
     let hasTodayJournal = false;
     let hasTodayChat = false;
 
@@ -179,7 +184,20 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+
+    if (!user) return;
+
+    const channel = supabase
+      .channel('home_realtime_' + user.id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${user.id}` }, () => fetchData())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'profiles', filter: `id=eq.${user.id}` }, () => fetchData())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchData]);
 
   useFocusEffect(
     useCallback(() => {
@@ -350,7 +368,7 @@ export default function HomeScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <ScrollView style={styles.scroll} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-        
+
         {/* Top Header */}
         <View style={styles.topBar}>
           <View>
@@ -399,12 +417,12 @@ export default function HomeScreen() {
 
         {/* Main Grid Layout (Desktop Dual-Column / Mobile Stack) */}
         <View style={[styles.mainLayout, isWide && styles.mainLayoutWide]}>
-          
+
           {/* ========================================================================= */}
           {/* LEFT / MAIN COLUMN */}
           {/* ========================================================================= */}
           <View style={[styles.column, isWide && { flex: 1.2 }]}>
-            
+
             {/* 1. Daily Mood Check-In Card */}
             <View style={styles.card}>
               <View style={styles.cardHeaderRow}>
@@ -520,7 +538,7 @@ export default function HomeScreen() {
           {/* RIGHT COLUMN */}
           {/* ========================================================================= */}
           <View style={[styles.column, isWide && { flex: 1 }]}>
-            
+
             {/* 4. Misi Ketenangan Harian (Daily Mindfulness Quests) */}
             <View style={styles.card}>
               <View style={styles.cardHeaderRow}>
@@ -559,7 +577,7 @@ export default function HomeScreen() {
                 <Ionicons name="heart" size={14} color="#EC4899" />
               </View>
               <Text style={styles.gratitudePrompt}>Apa 1 hal baik atau kecil yang kamu syukuri hari ini?</Text>
-              
+
               <View style={styles.gratitudeInputRow}>
                 <TextInput
                   style={styles.gratitudeInput}

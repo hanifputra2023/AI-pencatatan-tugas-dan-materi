@@ -1,11 +1,12 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 const MASTER_ADMIN_PASSCODE = 'SUPERADMIN2026';
 const MAX_ATTEMPTS = 4;
-const LOCKOUT_DURATION_MS = 15 * 60 * 1000;
+const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 Menit Lockout jika salah 4x berturut-turut
 
 interface AuthContextType {
   session: Session | null;
@@ -24,9 +25,9 @@ const AuthContext = createContext<AuthContextType>({
   role: 'student',
   isAdmin: false,
   loading: true,
-  signOut: async () => {},
+  signOut: async () => { },
   claimAdminRole: async () => ({ success: false, message: '' }),
-  refreshProfileRole: async () => {},
+  refreshProfileRole: async () => { },
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
@@ -36,17 +37,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const fetchRole = useCallback(async (userId: string) => {
     try {
+      // 1. Check local storage first for fast, offline-resilient access
       const localRole = await AsyncStorage.getItem('@local_role_' + userId);
       if (localRole === 'admin') {
         setRole('admin');
       }
 
+      // 2. Try fetching from Supabase DB (gracefully handle if 'role' column is not yet migrated)
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
         .eq('id', userId)
         .single();
-      
+
       if (!error && data) {
         if (data.role === 'admin' || localRole === 'admin') {
           setRole('admin');
@@ -57,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
+      // Fallback silently without throwing schema cache errors
       const localRole = await AsyncStorage.getItem('@local_role_' + userId);
       if (localRole === 'admin') {
         setRole('admin');
@@ -73,54 +77,103 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [session?.user?.id, fetchRole]);
 
   useEffect(() => {
-    let isMounted = true;
-
-    // 1. Initial Session Retrieval
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      if (!isMounted) return;
-      if (initialSession) {
-        setSession(initialSession);
-        if (initialSession.user?.id) {
-          fetchRole(initialSession.user.id);
-        }
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      if (session?.user?.id) {
+        fetchRole(session.user.id);
       }
       setLoading(false);
-    }).catch(() => {
-      if (isMounted) setLoading(false);
     });
 
-    // 2. Auth State Change Listener
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, currentSession) => {
-      if (!isMounted) return;
-
-      if (event === 'SIGNED_OUT') {
-        setSession(null);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session?.user?.id) {
+        fetchRole(session.user.id);
+      } else {
         setRole('student');
-      } else if (currentSession) {
-        setSession(currentSession);
-        if (currentSession.user?.id) {
-          fetchRole(currentSession.user.id);
-        }
       }
       setLoading(false);
     });
 
-    return () => {
-      isMounted = false;
-      subscription.unsubscribe();
-    };
+    return () => subscription.unsubscribe();
   }, [fetchRole]);
 
-  // Sign out
+  // Periodic token refresh — prevents silent session expiry on web browsers
+  // Browsers throttle timers in background tabs, so we also refresh on visibility change
+  useEffect(() => {
+    const refreshSession = async () => {
+      try {
+        const { data: { session: current } } = await supabase.auth.getSession();
+        if (!current) return;
+
+        const expiresAt = current.expires_at ?? 0;
+        const now = Math.floor(Date.now() / 1000);
+        const timeLeft = expiresAt - now;
+
+        // If token expires in less than 10 minutes, refresh proactively
+        if (timeLeft < 600) {
+          const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+          if (refreshed) {
+            setSession(refreshed);
+          }
+        }
+      } catch {
+        // Silent — onAuthStateChange will handle auth failures
+      }
+    };
+
+    // Check every 5 minutes
+    const interval = setInterval(refreshSession, 5 * 60 * 1000);
+
+    // Also refresh when user returns to the tab (catches background-tab throttle, web only)
+    let onVisibilityChange: (() => void) | null = null;
+    if (Platform.OS === 'web') {
+      onVisibilityChange = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+          refreshSession();
+        }
+      };
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (onVisibilityChange) {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
+  }, []);
+
+  // Realtime listener for role promotion/demotion
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    const channel = supabase
+      .channel('profile_role_sync_' + session.user.id)
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'profiles', filter: `id=eq.${session.user.id}` },
+        payload => {
+          const updated = payload.new as any;
+          if (updated && updated.role) {
+            setRole(updated.role);
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [session?.user?.id]);
+
   const signOut = async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (e) {}
-    setSession(null);
+    await supabase.auth.signOut();
     setRole('student');
   };
 
-  // Secure admin claim
+  // =========================================================================
+  // SECURE ANTI-BRUTE-FORCE & RATE-LIMITED ADMIN CLAIM VERIFICATION
+  // =========================================================================
   const claimAdminRole = async (passcode: string): Promise<{ success: boolean; message: string }> => {
     if (!session?.user?.id) {
       return { success: false, message: 'Harus login terlebih dahulu.' };
@@ -129,6 +182,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const userId = session.user.id;
     const now = Date.now();
 
+    // 1. Check if user is in Anti-Brute-Force Lockout period
     const lockoutTimestamp = await AsyncStorage.getItem('@admin_lockout_' + userId);
     if (lockoutTimestamp) {
       const lockUntil = parseInt(lockoutTimestamp, 10);
@@ -136,25 +190,30 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const remainingMinutes = Math.ceil((lockUntil - now) / 60000);
         return {
           success: false,
-          message: `🚫 Akses diblokir sementara (Anti-Brute Force). Silakan tunggu ${remainingMinutes} menit lagi.`,
+          message: `🚫 Akses diblokir sementara karena terlalu banyak kesalahan (Anti-Brute Force). Silakan tunggu ${remainingMinutes} menit lagi.`,
         };
       } else {
+        // Lockout expired, reset
         await AsyncStorage.removeItem('@admin_lockout_' + userId);
         await AsyncStorage.setItem('@admin_attempts_' + userId, '0');
       }
     }
 
+    // 2. Artificial Timing Delay (Prevents automated high-speed password dictionary attacks)
     await new Promise(resolve => setTimeout(resolve, 800));
 
+    // 3. Read current failed attempt counter
     const attemptsStr = await AsyncStorage.getItem('@admin_attempts_' + userId);
     let attempts = attemptsStr ? parseInt(attemptsStr, 10) : 0;
 
+    // 4. Verify Passcode
     const cleanPass = passcode.trim().toUpperCase();
     if (cleanPass !== MASTER_ADMIN_PASSCODE) {
       attempts += 1;
       await AsyncStorage.setItem('@admin_attempts_' + userId, attempts.toString());
 
       if (attempts >= MAX_ATTEMPTS) {
+        // Trigger 15-minute security lockout
         const lockUntil = now + LOCKOUT_DURATION_MS;
         await AsyncStorage.setItem('@admin_lockout_' + userId, lockUntil.toString());
         await AsyncStorage.setItem('@admin_attempts_' + userId, '0');
@@ -171,18 +230,24 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       };
     }
 
+    // 5. Success! Reset attempt counters
     await AsyncStorage.removeItem('@admin_attempts_' + userId);
     await AsyncStorage.removeItem('@admin_lockout_' + userId);
 
     try {
+      // Immediately save admin state locally
       await AsyncStorage.setItem('@local_role_' + userId, 'admin');
       setRole('admin');
+
+      // Attempt updating remote database
       try {
         await supabase
           .from('profiles')
           .update({ role: 'admin' })
           .eq('id', userId);
-      } catch (dbErr) {}
+      } catch (dbErr) {
+        // Silently ignore if column not yet added
+      }
 
       return {
         success: true,

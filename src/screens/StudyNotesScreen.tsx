@@ -93,7 +93,19 @@ export default function StudyNotesScreen() {
   useEffect(() => {
     fetchNotes();
     fetchTasks();
-  }, [fetchNotes, fetchTasks]);
+
+    if (!user) return;
+
+    const channel = supabase
+      .channel('study_realtime_' + user.id)
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_notes', filter: `user_id=eq.${user.id}` }, () => fetchNotes())
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_tasks', filter: `user_id=eq.${user.id}` }, () => fetchTasks())
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, [user, fetchNotes, fetchTasks]);
 
   useFocusEffect(
     useCallback(() => {
@@ -222,14 +234,14 @@ export default function StudyNotesScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      
+
       {/* Top Header */}
       <View style={styles.header}>
         <View>
           <Text style={styles.title}>Belajar & Kuliah</Text>
           <Text style={styles.subtitle}>Catatan pintar AI, manajemen tugas & fokus nugas</Text>
         </View>
-        
+
         {activeTab === 'notes' && (
           <TouchableOpacity
             style={styles.addBtn}
@@ -289,10 +301,10 @@ export default function StudyNotesScreen() {
       {/* ========================================================================= */}
       {activeTab === 'notes' && (
         <View style={{ flex: 1 }}>
-          
+
           {/* Controls Area (Clean Search Bar + Filter Pills) */}
           <View style={styles.controlsArea}>
-            
+
             {/* Dedicated Search Input Bar */}
             <View style={styles.searchBar}>
               <Ionicons name="search-outline" size={16} color="#9CA3AF" />
@@ -335,7 +347,7 @@ export default function StudyNotesScreen() {
                   </Text>
                 </TouchableOpacity>
               ))}
-              
+
               <TouchableOpacity
                 style={styles.manageSubjFilterBtn}
                 onPress={() => setShowSubjectModal(true)}
@@ -432,9 +444,9 @@ export default function StudyNotesScreen() {
       {/* ========================================================================= */}
       {activeTab === 'tasks' && (
         <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
-          
+
           <View style={[styles.taskLayout, isWide && styles.taskLayoutWide]}>
-            
+
             {/* Left Column (Create Task Form - Permanent on Desktop, Collapsible on Mobile) */}
             {(isWide || showTaskForm) && (
               <View style={[styles.taskFormColumn, isWide && styles.taskFormColumnWide]}>
@@ -510,7 +522,7 @@ export default function StudyNotesScreen() {
 
             {/* Right Column (Tasks Filter & Lists) */}
             <View style={[styles.taskListColumn, isWide && styles.taskListColumnWide]}>
-              
+
               {/* Filter Tabs */}
               <View style={styles.taskFilterRow}>
                 <TouchableOpacity
@@ -601,7 +613,7 @@ export default function StudyNotesScreen() {
       {activeTab === 'pomodoro' && (
         <ScrollView contentContainerStyle={styles.pomodoroContainer} showsVerticalScrollIndicator={false}>
           <View style={styles.pomodoroCenterBox}>
-            
+
             <Text style={styles.pomoHeader}>Studio Fokus Belajar</Text>
             <Text style={styles.pomoSub}>Tingkatkan konsentrasi belajar dengan teknik Pomodoro teruji.</Text>
 

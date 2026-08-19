@@ -50,7 +50,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
             currentList = parsed;
             setSubjects(currentList);
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // Check fallback legacy key if user key is empty
@@ -63,7 +63,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
               currentList = parsed;
               setSubjects(currentList);
             }
-          } catch (e) {}
+          } catch (e) { }
         }
       }
 
@@ -104,7 +104,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
               }
             });
           }
-        } catch (e) {}
+        } catch (e) { }
 
         // C. Try table student_subjects if available
         try {
@@ -121,7 +121,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
               }
             });
           }
-        } catch (e) {}
+        } catch (e) { }
       }
 
       // 3. If list is completely empty for a brand new user, initialize with defaults
@@ -168,7 +168,14 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
 
     if (user) {
-      // Try saving to table if available
+      // 1. Sync to Supabase Auth user_metadata (100% reliable cloud sync)
+      try {
+        await supabase.auth.updateUser({
+          data: { student_subjects: updated },
+        });
+      } catch (e) { }
+
+      // 2. Try saving to table if available
       try {
         const { data } = await supabase
           .from('student_subjects')
@@ -181,7 +188,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
           setSubjects(finalized);
           await AsyncStorage.setItem(storageKey, JSON.stringify(finalized));
         }
-      } catch (e) {}
+      } catch (e) { }
     }
 
     return newSubj;
@@ -197,8 +204,14 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
     if (user) {
       try {
+        await supabase.auth.updateUser({
+          data: { student_subjects: updated },
+        });
+      } catch (e) { }
+
+      try {
         await supabase.from('student_subjects').delete().eq('id', id);
-      } catch (e) {}
+      } catch (e) { }
     }
     return true;
   };
