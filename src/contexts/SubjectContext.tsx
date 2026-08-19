@@ -28,81 +28,114 @@ interface SubjectContextType {
 
 const SubjectContext = createContext<SubjectContextType | null>(null);
 
-const STORAGE_KEY = '@my_student_subjects';
+const getStorageKey = (userId?: string) => `@my_student_subjects_${userId || 'guest'}`;
 
 export function SubjectProvider({ children }: { children: ReactNode }) {
   const { user } = useAuth();
   const [subjects, setSubjects] = useState<StudentSubject[]>([]);
   const [loading, setLoading] = useState(true);
 
-  // Load from local storage and supabase
+  // Load and merge subjects from all available persistent sources
   const refreshSubjects = useCallback(async () => {
     try {
-      // 1. Try local cache first
-      const cached = await AsyncStorage.getItem(STORAGE_KEY);
+      const storageKey = getStorageKey(user?.id);
+
+      // 1. Read existing local subjects for this user
+      let currentList: StudentSubject[] = [];
+      const cached = await AsyncStorage.getItem(storageKey);
       if (cached) {
-        setSubjects(JSON.parse(cached));
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            currentList = parsed;
+            setSubjects(currentList);
+          }
+        } catch (e) {}
       }
 
-      if (!user) {
-        if (!cached) {
-          const defaultItems = DEFAULT_SUBJECT_NAMES.map((name, i) => ({
-            id: 'local_' + i,
-            name,
-          }));
-          setSubjects(defaultItems);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(defaultItems));
+      // Check fallback legacy key if user key is empty
+      if (currentList.length === 0) {
+        const legacyCached = await AsyncStorage.getItem('@my_student_subjects');
+        if (legacyCached) {
+          try {
+            const parsed = JSON.parse(legacyCached);
+            if (Array.isArray(parsed) && parsed.length > 0) {
+              currentList = parsed;
+              setSubjects(currentList);
+            }
+          } catch (e) {}
         }
-        setLoading(false);
-        return;
       }
 
-      // 2. Fetch from Supabase
-      const { data, error } = await supabase
-        .from('student_subjects')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: true });
+      // 2. If logged in, fetch from Cloud (User Metadata + Study Notes + Student Subjects table)
+      if (user) {
+        const existingNames = new Set(currentList.map(s => s.name.toLowerCase().trim()));
 
-      if (data && data.length > 0) {
-        const mapped = data.map((d: any) => ({
-          id: d.id,
-          name: d.name,
-          color: d.color,
-        }));
-        setSubjects(mapped);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
-      } else if (!data || data.length === 0) {
-        // Seed default subjects for new user
-        const seedItems = DEFAULT_SUBJECT_NAMES.map(name => ({
-          user_id: user.id,
+        // A. From Supabase Auth user_metadata
+        const cloudMetaSubjects = user.user_metadata?.student_subjects;
+        if (Array.isArray(cloudMetaSubjects) && cloudMetaSubjects.length > 0) {
+          cloudMetaSubjects.forEach((s: any) => {
+            const name = typeof s === 'string' ? s : s.name;
+            if (name && !existingNames.has(name.toLowerCase().trim())) {
+              existingNames.add(name.toLowerCase().trim());
+              currentList.push({
+                id: (typeof s === 'object' && s.id) ? s.id : 'cloud_' + Math.random().toString(36).substring(2, 8),
+                name: name.trim(),
+              });
+            }
+          });
+        }
+
+        // B. From user's existing study notes in Supabase
+        try {
+          const { data: noteSubjects } = await supabase
+            .from('study_notes')
+            .select('subject')
+            .eq('user_id', user.id);
+
+          if (noteSubjects && noteSubjects.length > 0) {
+            noteSubjects.forEach((n: any) => {
+              if (n.subject && n.subject.trim() && !existingNames.has(n.subject.toLowerCase().trim())) {
+                existingNames.add(n.subject.toLowerCase().trim());
+                currentList.push({
+                  id: 'note_subj_' + Math.random().toString(36).substring(2, 8),
+                  name: n.subject.trim(),
+                });
+              }
+            });
+          }
+        } catch (e) {}
+
+        // C. Try table student_subjects if available
+        try {
+          const { data: tableData } = await supabase
+            .from('student_subjects')
+            .select('*')
+            .eq('user_id', user.id);
+
+          if (tableData && tableData.length > 0) {
+            tableData.forEach((t: any) => {
+              if (t.name && !existingNames.has(t.name.toLowerCase().trim())) {
+                existingNames.add(t.name.toLowerCase().trim());
+                currentList.push({ id: t.id, name: t.name.trim() });
+              }
+            });
+          }
+        } catch (e) {}
+      }
+
+      // 3. If list is completely empty for a brand new user, initialize with defaults
+      if (currentList.length === 0) {
+        currentList = DEFAULT_SUBJECT_NAMES.map((name, i) => ({
+          id: 'def_' + i,
           name,
         }));
-        const { data: inserted } = await supabase
-          .from('student_subjects')
-          .insert(seedItems)
-          .select();
-
-        if (inserted) {
-          const mapped = inserted.map((d: any) => ({
-            id: d.id,
-            name: d.name,
-            color: d.color,
-          }));
-          setSubjects(mapped);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(mapped));
-        } else {
-          // If table not created yet in Supabase, fallback to local defaults
-          const defaultItems = DEFAULT_SUBJECT_NAMES.map((name, i) => ({
-            id: 'local_' + i,
-            name,
-          }));
-          setSubjects(defaultItems);
-          await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(defaultItems));
-        }
       }
+
+      setSubjects(currentList);
+      await AsyncStorage.setItem(storageKey, JSON.stringify(currentList));
     } catch (e) {
-      console.log('Subject load error:', e);
+      console.log('Subject refresh error:', e);
     } finally {
       setLoading(false);
     }
@@ -110,19 +143,6 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
   useEffect(() => {
     refreshSubjects();
-
-    if (!user) return;
-
-    const channel = supabase
-      .channel('subjects_realtime_' + user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_subjects', filter: `user_id=eq.${user.id}` }, () => {
-        refreshSubjects();
-      })
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user, refreshSubjects]);
 
   // Add new Subject
@@ -133,7 +153,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
       return null;
     }
 
-    if (subjects.some(s => s.name.toLowerCase() === trimmed.toLowerCase())) {
+    if (subjects.some(s => s.name.toLowerCase().trim() === trimmed.toLowerCase())) {
       showAlert('Sudah Ada', `Mata kuliah "${trimmed}" sudah ada di daftarmu.`);
       return null;
     }
@@ -143,20 +163,32 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
     const updated = [...subjects, newSubj];
     setSubjects(updated);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+
+    const storageKey = getStorageKey(user?.id);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
 
     if (user) {
-      const { data } = await supabase
-        .from('student_subjects')
-        .insert({ user_id: user.id, name: trimmed })
-        .select()
-        .single();
-      if (data) {
-        newSubj.id = data.id;
-        const finalized = updated.map(s => s.id === tempId ? { ...s, id: data.id } : s);
-        setSubjects(finalized);
-        await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(finalized));
-      }
+      // 1. Sync to Supabase Auth user_metadata (100% reliable cloud sync)
+      try {
+        await supabase.auth.updateUser({
+          data: { student_subjects: updated },
+        });
+      } catch (e) {}
+
+      // 2. Try saving to table if available
+      try {
+        const { data } = await supabase
+          .from('student_subjects')
+          .insert({ user_id: user.id, name: trimmed })
+          .select()
+          .single();
+        if (data) {
+          newSubj.id = data.id;
+          const finalized = updated.map(s => s.id === tempId ? { ...s, id: data.id } : s);
+          setSubjects(finalized);
+          await AsyncStorage.setItem(storageKey, JSON.stringify(finalized));
+        }
+      } catch (e) {}
     }
 
     return newSubj;
@@ -166,10 +198,20 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
   const deleteSubject = async (id: string): Promise<boolean> => {
     const updated = subjects.filter(s => s.id !== id);
     setSubjects(updated);
-    await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
 
-    if (user && !id.startsWith('local_') && !id.startsWith('subj_')) {
-      await supabase.from('student_subjects').delete().eq('id', id);
+    const storageKey = getStorageKey(user?.id);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+
+    if (user) {
+      try {
+        await supabase.auth.updateUser({
+          data: { student_subjects: updated },
+        });
+      } catch (e) {}
+
+      try {
+        await supabase.from('student_subjects').delete().eq('id', id);
+      } catch (e) {}
     }
     return true;
   };

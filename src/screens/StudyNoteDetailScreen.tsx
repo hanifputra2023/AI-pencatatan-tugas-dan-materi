@@ -21,7 +21,7 @@ const QUIZ_COUNT_OPTIONS = [3, 5, 10];
 
 export default function StudyNoteDetailScreen() {
   const { user } = useAuth();
-  const { subjects } = useSubjects();
+  const { subjects, addSubject } = useSubjects();
   const route = useRoute<StudyNoteRouteProp>();
   const navigation = useNavigation();
   const { isDesktop, isTablet } = useResponsive();
@@ -242,6 +242,9 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
       return;
     }
     const finalSubject = subject.trim() || (subjects.length > 0 ? subjects[0].name : 'Umum');
+    if (finalSubject && !subjects.some(s => s.name.toLowerCase().trim() === finalSubject.toLowerCase())) {
+      addSubject(finalSubject);
+    }
     setLoading(true);
 
     const payload = {
