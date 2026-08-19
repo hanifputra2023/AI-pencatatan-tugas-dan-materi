@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import { Session, User } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { supabase } from '../lib/supabase';
 
 const MASTER_ADMIN_PASSCODE = 'SUPERADMIN2026';
@@ -96,6 +97,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
     return () => subscription.unsubscribe();
   }, [fetchRole]);
+
+  // Periodic token refresh — prevents silent session expiry on web browsers
+  // Browsers throttle timers in background tabs, so we also refresh on visibility change
+  useEffect(() => {
+    const refreshSession = async () => {
+      try {
+        const { data: { session: current } } = await supabase.auth.getSession();
+        if (!current) return;
+
+        const expiresAt = current.expires_at ?? 0;
+        const now = Math.floor(Date.now() / 1000);
+        const timeLeft = expiresAt - now;
+
+        // If token expires in less than 10 minutes, refresh proactively
+        if (timeLeft < 600) {
+          const { data: { session: refreshed } } = await supabase.auth.refreshSession();
+          if (refreshed) {
+            setSession(refreshed);
+          }
+        }
+      } catch {
+        // Silent — onAuthStateChange will handle auth failures
+      }
+    };
+
+    // Check every 5 minutes
+    const interval = setInterval(refreshSession, 5 * 60 * 1000);
+
+    // Also refresh when user returns to the tab (catches background-tab throttle, web only)
+    let onVisibilityChange: (() => void) | null = null;
+    if (Platform.OS === 'web') {
+      onVisibilityChange = () => {
+        if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+          refreshSession();
+        }
+      };
+      document.addEventListener('visibilitychange', onVisibilityChange);
+    }
+
+    return () => {
+      clearInterval(interval);
+      if (onVisibilityChange) {
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+      }
+    };
+  }, []);
 
   // Realtime listener for role promotion/demotion
   useEffect(() => {
