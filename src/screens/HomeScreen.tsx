@@ -4,6 +4,7 @@ import {
   StyleSheet, SafeAreaView, ActivityIndicator, Animated, Easing
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
@@ -16,7 +17,7 @@ import { useResponsive } from '../hooks/useResponsive';
 import { showAlert } from '../lib/alert';
 
 const DEFAULT_DAILY_QUESTS = [
-  { id: '1', title: 'Curhat atau refleksi sejenak ke Ara', completed: false, icon: 'chatbubble-ellipses-outline' },
+  { id: '1', title: 'Curhat atau refleksi sejenak ke AI', completed: false, icon: 'chatbubble-ellipses-outline' },
   { id: '2', title: 'Minum 2 gelas air putih', completed: false, icon: 'water-outline' },
   { id: '3', title: 'Latihan pernapasan 1 menit', completed: false, icon: 'leaf-outline' },
   { id: '4', title: 'Tulis 1 hal kecil yang kamu syukuri', completed: false, icon: 'heart-outline' },
@@ -28,6 +29,14 @@ const WISDOM_PRESETS = [
   '“Tarik napas dalam-dalam. Hal-hal besar butuh waktu untuk tumbuh.”',
   '“Perasaanmu valid. Beri dirimu izin untuk beristirahat tanpa rasa bersalah.”',
 ];
+
+const getTodayDateString = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const getQuestStorageKey = (userId?: string, dateStr?: string) =>
+  `@daily_quests_${userId || 'guest'}_${dateStr || getTodayDateString()}`;
 
 export default function HomeScreen() {
   const { user } = useAuth();
@@ -46,7 +55,7 @@ export default function HomeScreen() {
   const [wisdom, setWisdom] = useState(WISDOM_PRESETS[0]);
   const [loadingWisdom, setLoadingWisdom] = useState(false);
 
-  // Daily Quests State
+  // Daily Quests State (Persistent per-date)
   const [quests, setQuests] = useState(DEFAULT_DAILY_QUESTS);
 
   // Quick Gratitude Note State
@@ -63,9 +72,76 @@ export default function HomeScreen() {
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Selamat Pagi' : hour < 15 ? 'Selamat Siang' : hour < 18 ? 'Selamat Sore' : 'Selamat Malam';
 
+  // -------------------------------------------------------------
+  // Load and refresh Daily Quests (Resets automatically every day)
+  // -------------------------------------------------------------
+  const loadDailyQuests = useCallback(async (hasChatToday = false, hasJournalToday = false) => {
+    const today = getTodayDateString();
+    const storageKey = getQuestStorageKey(user?.id, today);
+
+    let currentQuests = DEFAULT_DAILY_QUESTS.map(q => ({
+      ...q,
+      title: q.id === '1' ? `Curhat atau refleksi sejenak ke ${aiBotName || 'Ara'}` : q.title,
+    }));
+
+    try {
+      const cached = await AsyncStorage.getItem(storageKey);
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            currentQuests = currentQuests.map(def => {
+              const found = parsed.find((p: any) => p.id === def.id);
+              return found ? { ...def, completed: !!found.completed } : def;
+            });
+          }
+        } catch (e) {}
+      } else if (user?.user_metadata?.[`quests_${today}`]) {
+        const cloudQuests = user.user_metadata[`quests_${today}`];
+        if (Array.isArray(cloudQuests)) {
+          currentQuests = currentQuests.map(def => {
+            const found = cloudQuests.find((p: any) => p.id === def.id);
+            return found ? { ...def, completed: !!found.completed } : def;
+          });
+        }
+      }
+
+      // Auto-mark completed if student performed actions today
+      if (hasChatToday) {
+        currentQuests = currentQuests.map(q => q.id === '1' ? { ...q, completed: true } : q);
+      }
+      if (hasJournalToday) {
+        currentQuests = currentQuests.map(q => q.id === '4' ? { ...q, completed: true } : q);
+      }
+
+      setQuests(currentQuests);
+      await AsyncStorage.setItem(storageKey, JSON.stringify(currentQuests));
+    } catch (e) {
+      console.log('Error loading daily quests:', e);
+    }
+  }, [user, aiBotName]);
+
+  // -------------------------------------------------------------
+  // Save Daily Quests to Local Storage & Supabase Cloud
+  // -------------------------------------------------------------
+  const saveDailyQuests = async (updated: typeof DEFAULT_DAILY_QUESTS) => {
+    const today = getTodayDateString();
+    const storageKey = getQuestStorageKey(user?.id, today);
+    setQuests(updated);
+    try {
+      await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+      if (user) {
+        await supabase.auth.updateUser({
+          data: { [`quests_${today}`]: updated },
+        });
+      }
+    } catch (e) {}
+  };
+
   const fetchData = useCallback(async () => {
     if (!user) {
       setUsername('Sobat');
+      loadDailyQuests();
       setLoading(false);
       return;
     }
@@ -77,12 +153,22 @@ export default function HomeScreen() {
     ]);
 
     if (profileRes.data) setUsername(profileRes.data.username || 'Kamu');
+    
+    let hasTodayJournal = false;
+    let hasTodayChat = false;
+
     if (recentRes.data) {
       const entries = recentRes.data as JournalEntry[];
       setRecentEntries(entries);
       const todayStr = new Date().toDateString();
       const todayEntry = entries.find(e => new Date(e.created_at).toDateString() === todayStr);
       setTodayMood(todayEntry ? todayEntry.mood : null);
+      hasTodayJournal = !!todayEntry;
+    }
+
+    if (chatDatesRes.data) {
+      const todayStr = new Date().toDateString();
+      hasTodayChat = chatDatesRes.data.some(c => new Date(c.created_at).toDateString() === todayStr);
     }
 
     // Combine all active dates from journals + chat messages
@@ -92,8 +178,9 @@ export default function HomeScreen() {
     ];
     calculateRealStreak(allTimestamps);
 
+    loadDailyQuests(hasTodayChat, hasTodayJournal);
     setLoading(false);
-  }, [user]);
+  }, [user, loadDailyQuests]);
 
   useEffect(() => {
     fetchData();
@@ -157,9 +244,10 @@ export default function HomeScreen() {
     setStreak(currentStreak);
   };
 
-  // Toggle Quest
+  // Toggle Quest (Persists immediately to storage & cloud)
   const toggleQuest = (id: string) => {
-    setQuests(prev => prev.map(q => q.id === id ? { ...q, completed: !q.completed } : q));
+    const updated = quests.map(q => q.id === id ? { ...q, completed: !q.completed } : q);
+    saveDailyQuests(updated);
   };
 
   const completedQuestsCount = quests.filter(q => q.completed).length;
@@ -196,7 +284,8 @@ export default function HomeScreen() {
       }
       setGratitudeText('');
       showAlert('Tersimpan 🤍', 'Catatan rasa syukur kamu berhasil disimpan ke Jurnal.');
-      setQuests(prev => prev.map(q => q.id === '4' ? { ...q, completed: true } : q));
+      const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
+      saveDailyQuests(updated);
     } catch (e: any) {
       showAlert('Gagal Menyimpan', e.message || 'Terjadi kesalahan.');
     } finally {
@@ -212,6 +301,10 @@ export default function HomeScreen() {
       Animated.timing(breathAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
       return;
     }
+
+    // Auto mark quest 3 (Latihan pernapasan 1 menit) as completed!
+    const updated = quests.map(q => q.id === '3' ? { ...q, completed: true } : q);
+    saveDailyQuests(updated);
 
     setIsBreathing(true);
     let step = 0; // 0: inhale, 1: hold, 2: exhale
@@ -250,8 +343,9 @@ export default function HomeScreen() {
             useNativeDriver: true,
           }).start();
         }
+      } else {
+        setBreathSeconds(count);
       }
-      setBreathSeconds(count);
     }, 1000);
   };
 
