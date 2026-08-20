@@ -413,9 +413,11 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loaderCenter}>
-        <ActivityIndicator size="small" color="#9CA3AF" />
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+        <View style={styles.loaderCenter}>
+          <ActivityIndicator size="small" color={theme.accentLight} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -559,21 +561,34 @@ export default function HomeScreen() {
                             ) : null}
                           </View>
                         </View>
-
-                        <View
+                          <View
                           style={[
                             styles.priorityBadge,
-                            { backgroundColor: theme.cardInner, borderColor: theme.border },
-                            isHigh && styles.priorityBadgeHigh,
-                            isLow && styles.priorityBadgeLow,
+                            {
+                              backgroundColor: isHigh
+                                ? (isLightMode ? '#FEE2E2' : '#2D1418')
+                                : isLow
+                                ? (isLightMode ? '#E0F2FE' : '#101B2E')
+                                : (isLightMode ? '#FEF3C7' : '#261C08'),
+                              borderColor: isHigh
+                                ? (isLightMode ? '#FECACA' : '#451A20')
+                                : isLow
+                                ? (isLightMode ? '#BAE6FD' : '#1E2D4A')
+                                : (isLightMode ? '#FDE68A' : '#3E2E10'),
+                              borderWidth: 1,
+                            },
                           ]}
                         >
                           <Text
                             style={[
                               styles.priorityBadgeText,
-                              isHigh && { color: '#F87171' },
-                              isLow && { color: '#60A5FA' },
-                              !isHigh && !isLow && { color: theme.subtext },
+                              {
+                                color: isHigh
+                                  ? (isLightMode ? '#DC2626' : '#F87171')
+                                  : isLow
+                                  ? (isLightMode ? '#0284C7' : '#60A5FA')
+                                  : (isLightMode ? '#D97706' : '#FBBF24'),
+                              },
                             ]}
                           >
                             {isHigh ? 'Tinggi' : isLow ? 'Santai' : 'Sedang'}
@@ -586,41 +601,40 @@ export default function HomeScreen() {
               )}
             </View>
 
-            {/* 2. Widget: Recent Study Notes & Active Draft */}
+            {/* 2. Catatan Kuliah & Draf Terkini */}
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <View style={styles.cardHeaderRow}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                  <Ionicons name="book-outline" size={14} color="#818CF8" />
+                  <Ionicons name="book-outline" size={14} color={theme.accentLight} />
                   <Text style={[styles.cardCategory, { color: theme.subtext }]}>CATATAN KULIAH & DRAF</Text>
                 </View>
-                <TouchableOpacity onPress={() => navigation.navigate('StudyNoteDetail', {})}>
-                  <Text style={[styles.cardActionLink, { color: '#818CF8' }]}>+ Buat Catatan</Text>
+                <TouchableOpacity onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'notes' })}>
+                  <Text style={[styles.cardActionLink, { color: theme.accentLight }]}>+ Buat Catatan</Text>
                 </TouchableOpacity>
               </View>
 
-              {/* Active Draft Banner */}
+              {/* Draft Note Banner if exists */}
               {activeDraft ? (
                 <TouchableOpacity
-                  style={[styles.homeDraftCard, { backgroundColor: isLightMode ? '#FFFBEB' : '#1C1608', borderColor: isLightMode ? '#FCD34D' : '#78350F' }]}
                   onPress={() => navigation.navigate('StudyNoteDetail', {})}
+                  style={[styles.homeDraftCard, { backgroundColor: isLightMode ? '#FFFBEB' : '#1C1608', borderColor: isLightMode ? '#FCD34D' : '#78350F' }]}
                 >
                   <View style={styles.homeDraftTop}>
                     <View style={[styles.homeDraftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#3E2A0A' }]}>
                       <Ionicons name="create-outline" size={12} color="#FBBF24" />
-                      <Text style={[styles.homeDraftBadgeText, { color: isLightMode ? '#D97706' : '#FBBF24' }]}>DRAF BELUM TERSIMPAN</Text>
+                      <Text style={[styles.homeDraftBadgeText, { color: isLightMode ? '#B45309' : '#FBBF24' }]}>DRAF BELUM TERSIMPAN</Text>
                     </View>
-                    <Text style={[styles.homeDraftTimeText, { color: theme.subtext }]}>Klik untuk lanjut ➔</Text>
+                    <Text style={[styles.homeDraftTimeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Klik untuk lanjut ➔</Text>
                   </View>
-                  <Text style={[styles.homeDraftTitle, { color: theme.text }]} numberOfLines={1}>
+                  <Text style={[styles.homeDraftTitle, { color: isLightMode ? '#78350F' : '#FEF3C7' }]} numberOfLines={1}>
                     {activeDraft.title || 'Catatan Baru (Tanpa Judul)'}
                   </Text>
                   <Text style={[styles.homeDraftSnippet, { color: theme.subtext }]} numberOfLines={1}>
-                    {activeDraft.content || 'Lanjutkan ketikan materi kuliahmu...'}
+                    {activeDraft.content || 'Belum ada isi catatan...'}
                   </Text>
                 </TouchableOpacity>
               ) : null}
 
-              {/* Recent Saved Notes */}
               {recentStudyNotes.length === 0 && !activeDraft ? (
                 <View style={styles.emptyInlineBox}>
                   <Ionicons name="reader-outline" size={24} color={theme.subtext} />
@@ -629,7 +643,7 @@ export default function HomeScreen() {
                 </View>
               ) : (
                 <View style={styles.notesMiniList}>
-                  {recentStudyNotes.map(note => (
+                  {recentStudyNotes.slice(0, 3).map((note: StudyNote) => (
                     <TouchableOpacity
                       key={note.id}
                       style={[styles.noteMiniCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
@@ -644,6 +658,7 @@ export default function HomeScreen() {
                         </Text>
                       </View>
                       <Text style={[styles.noteMiniTitle, { color: theme.text }]} numberOfLines={1}>{note.title}</Text>
+                      
                       <View style={styles.noteMiniBadges}>
                         {note.summary ? (
                           <View style={[styles.miniAiBadge, { backgroundColor: theme.accentBg }]}>
@@ -655,7 +670,7 @@ export default function HomeScreen() {
                           <View style={[styles.miniAiBadge, { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B' }]}>
                             <Ionicons name="school" size={10} color={isLightMode ? '#16A34A' : '#34D399'} />
                             <Text style={[styles.miniAiBadgeText, { color: isLightMode ? '#16A34A' : '#34D399' }]}>
-                              {note.quiz_data.length} Kuis
+                              {note.quiz_data.length} Soal
                             </Text>
                           </View>
                         ) : null}
@@ -786,7 +801,14 @@ export default function HomeScreen() {
                 {quests.map(q => (
                   <TouchableOpacity
                     key={q.id}
-                    style={[styles.questItem, { backgroundColor: theme.cardInner, borderColor: theme.border }, q.completed && styles.questItemCompleted]}
+                    style={[
+                      styles.questItem,
+                      { backgroundColor: theme.cardInner, borderColor: theme.border },
+                      q.completed && {
+                        backgroundColor: isLightMode ? '#F0FDF4' : '#0D1A16',
+                        borderColor: isLightMode ? '#BBF7D0' : '#192823',
+                      }
+                    ]}
                     onPress={() => toggleQuest(q.id)}
                   >
                     <View style={[styles.questCheckCircle, { borderColor: theme.border }, q.completed && [styles.questCheckCircleActive, { backgroundColor: theme.primary, borderColor: theme.primary }]]}>
@@ -818,14 +840,18 @@ export default function HomeScreen() {
                   onChangeText={setGratitudeText}
                 />
                 <TouchableOpacity
-                  style={[styles.gratitudeSaveBtn, { backgroundColor: theme.primary }, !gratitudeText.trim() && styles.gratitudeSaveDisabled]}
+                  style={[
+                    styles.gratitudeSaveBtn,
+                    { backgroundColor: theme.primary },
+                    !gratitudeText.trim() && { backgroundColor: isLightMode ? '#E2E8F0' : '#261F2C' }
+                  ]}
                   onPress={handleSaveGratitude}
                   disabled={!gratitudeText.trim() || savingGratitude}
                 >
                   {savingGratitude ? (
                     <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
-                    <Ionicons name="send" size={14} color="#FFFFFF" />
+                    <Ionicons name="send" size={14} color={!gratitudeText.trim() ? theme.muted : '#FFFFFF'} />
                   )}
                 </TouchableOpacity>
               </View>
@@ -888,7 +914,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
   },
   scroll: {
     flex: 1,

@@ -844,22 +844,34 @@ export default function ChatScreen() {
 
         {/* Graceful Inline Error Toast */}
         {errorToast && (
-          <View style={styles.errorToastWrap}>
-            <Ionicons name="alert-circle-outline" size={15} color="#F87171" />
-            <Text style={styles.errorToastText}>{errorToast}</Text>
+          <View style={[
+            styles.errorToastWrap,
+            {
+              backgroundColor: isLightMode ? '#FEF2F2' : '#2D1418',
+              borderColor: isLightMode ? '#FECACA' : '#571F26',
+            }
+          ]}>
+            <Ionicons name="alert-circle-outline" size={15} color={isLightMode ? '#DC2626' : '#F87171'} />
+            <Text style={[styles.errorToastText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>{errorToast}</Text>
             <TouchableOpacity onPress={() => setErrorToast(null)} style={{ padding: 2 }}>
-              <Ionicons name="close" size={14} color="#9CA3AF" />
+              <Ionicons name="close" size={14} color={isLightMode ? '#DC2626' : '#9CA3AF'} />
             </TouchableOpacity>
           </View>
         )}
 
         {/* Editing Banner Mode */}
         {editingMsg && (
-          <View style={styles.editingBanner}>
-            <Ionicons name="pencil" size={13} color="#60A5FA" />
-            <Text style={styles.editingText}>Mengedit pesan sebelumnya</Text>
+          <View style={[
+            styles.editingBanner,
+            {
+              backgroundColor: isLightMode ? '#EFF6FF' : '#101C2E',
+              borderColor: isLightMode ? '#BFDBFE' : '#1E355B',
+            }
+          ]}>
+            <Ionicons name="pencil" size={13} color={isLightMode ? '#1D4ED8' : '#60A5FA'} />
+            <Text style={[styles.editingText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>Mengedit pesan sebelumnya</Text>
             <TouchableOpacity onPress={handleCancelEdit} style={styles.cancelEditBtn}>
-              <Ionicons name="close-circle" size={15} color="#9CA3AF" />
+              <Ionicons name="close-circle" size={15} color={isLightMode ? '#1D4ED8' : '#9CA3AF'} />
             </TouchableOpacity>
           </View>
         )}
@@ -867,15 +879,15 @@ export default function ChatScreen() {
         {/* Active Attachment Pill */}
         {attachment && (
           <View style={styles.attachmentBar}>
-            <View style={styles.attachmentPill}>
+            <View style={[styles.attachmentPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
               <Ionicons
                 name={attachment.type === 'image' ? 'image' : attachment.type === 'audio' ? 'musical-note' : 'document'}
                 size={13}
-                color="#60A5FA"
+                color={theme.accentLight}
               />
-              <Text style={styles.attachmentName} numberOfLines={1}>{attachment.name}</Text>
+              <Text style={[styles.attachmentName, { color: theme.text }]} numberOfLines={1}>{attachment.name}</Text>
               <TouchableOpacity onPress={() => setAttachment(null)} style={{ padding: 2 }}>
-                <Ionicons name="close-circle" size={14} color="#9CA3AF" />
+                <Ionicons name="close-circle" size={14} color={theme.subtext} />
               </TouchableOpacity>
             </View>
           </View>

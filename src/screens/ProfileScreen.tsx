@@ -208,9 +208,9 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
         <View style={styles.loaderCenter}>
-          <ActivityIndicator color="#60A5FA" size="small" />
+          <ActivityIndicator color={theme.accentLight} size="small" />
         </View>
       </SafeAreaView>
     );
@@ -253,13 +253,23 @@ export default function ProfileScreen() {
               </TouchableOpacity>
 
               {/* Role Badge */}
-              <View style={[styles.roleBadge, isAdmin ? styles.roleBadgeAdmin : styles.roleBadgeStudent]}>
+              <View style={[
+                styles.roleBadge,
+                isAdmin
+                  ? { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B', borderColor: isLightMode ? '#BFDBFE' : '#253856', borderWidth: 1 }
+                  : { backgroundColor: isLightMode ? '#F1F5F9' : '#161B26', borderColor: isLightMode ? '#E2E8F0' : '#202634', borderWidth: 1 }
+              ]}>
                 <Ionicons
                   name={isAdmin ? 'shield-checkmark' : 'school-outline'}
                   size={12}
-                  color={isAdmin ? '#60A5FA' : '#9CA3AF'}
+                  color={isAdmin ? (isLightMode ? '#1D4ED8' : '#60A5FA') : (isLightMode ? '#475569' : '#9CA3AF')}
                 />
-                <Text style={[styles.roleBadgeText, isAdmin ? styles.roleBadgeTextAdmin : styles.roleBadgeTextStudent]}>
+                <Text style={[
+                  styles.roleBadgeText,
+                  isAdmin
+                    ? { color: isLightMode ? '#1D4ED8' : '#60A5FA' }
+                    : { color: isLightMode ? '#475569' : '#6B7280' }
+                ]}>
                   {isAdmin ? 'ADMINISTRATOR' : 'MAHASISWA'}
                 </Text>
               </View>
@@ -671,41 +681,54 @@ export default function ProfileScreen() {
         onRequestClose={() => setShowClaimModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={styles.claimModalCard}>
+          <View style={[styles.claimModalCard, { backgroundColor: isLightMode ? '#FFFFFF' : '#11141C', borderColor: isLightMode ? '#E2E8F0' : '#253856' }]}>
             
             <View style={styles.claimModalHeader}>
-              <View style={styles.claimIconCircle}>
-                <Ionicons name="shield-checkmark" size={20} color="#60A5FA" />
+              <View style={[styles.claimIconCircle, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                <Ionicons name="shield-checkmark" size={20} color={theme.accentLight} />
               </View>
-              <Text style={styles.claimModalTitle}>Otorisasi Akses Sistem</Text>
-              <Text style={styles.claimModalDesc}>
+              <Text style={[styles.claimModalTitle, { color: theme.text }]}>Otorisasi Akses Sistem</Text>
+              <Text style={[styles.claimModalDesc, { color: theme.subtext }]}>
                 Masukkan kode otorisasi rahasia untuk memverifikasi hak akses Administrator pada akun ini:
               </Text>
             </View>
 
             <TextInput
-              style={styles.passcodeInput}
+              style={[
+                styles.passcodeInput,
+                {
+                  backgroundColor: isLightMode ? '#F1F5F9' : '#0E1117',
+                  borderColor: isLightMode ? '#CBD5E1' : '#202634',
+                  color: theme.text,
+                }
+              ]}
               value={passcodeInput}
               onChangeText={setPasscodeInput}
               placeholder="••••••••••••"
-              placeholderTextColor="#4B5565"
+              placeholderTextColor={theme.muted}
               secureTextEntry
               autoCapitalize="characters"
             />
 
             <View style={styles.claimBtnRow}>
               <TouchableOpacity
-                style={styles.claimCancelBtn}
+                style={[
+                  styles.claimCancelBtn,
+                  {
+                    backgroundColor: isLightMode ? '#F1F5F9' : '#141822',
+                    borderColor: isLightMode ? '#CBD5E1' : '#202634',
+                  }
+                ]}
                 onPress={() => {
                   setShowClaimModal(false);
                   setPasscodeInput('');
                 }}
               >
-                <Text style={styles.claimCancelText}>Batal</Text>
+                <Text style={[styles.claimCancelText, { color: theme.subtext }]}>Batal</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={styles.claimSubmitBtn}
+                style={[styles.claimSubmitBtn, { backgroundColor: theme.primary }]}
                 onPress={handleClaimAdmin}
                 disabled={claiming}
               >
@@ -734,7 +757,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
   },
   scroll: {
     flex: 1,

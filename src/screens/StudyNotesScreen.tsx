@@ -371,8 +371,17 @@ export default function StudyNotesScreen() {
 
             {/* Search feedback info badge when searching */}
             {searchQuery ? (
-              <View style={styles.searchFeedbackRow}>
-                <Text style={[styles.searchFeedbackText, { color: theme.accentLight }]}>
+              <View style={[
+                styles.searchFeedbackRow,
+                {
+                  backgroundColor: isLightMode ? '#EFF6FF' : '#101726',
+                  borderColor: isLightMode ? '#BFDBFE' : '#1D2A42',
+                }
+              ]}>
+                <Text style={[
+                  styles.searchFeedbackText,
+                  { color: isLightMode ? '#1D4ED8' : '#93C5FD' }
+                ]}>
                   Menemukan {filteredNotes.length} catatan untuk "{searchQuery}"
                 </Text>
                 <TouchableOpacity onPress={() => setSearchQuery('')}>
@@ -385,7 +394,7 @@ export default function StudyNotesScreen() {
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
               {draftNote ? (
                 <TouchableOpacity
-                  style={[styles.subjectChip, { backgroundColor: isLightMode ? '#FEF3C7' : '#261C08', borderColor: '#F59E0B' }]}
+                  style={[styles.subjectChip, { backgroundColor: isLightMode ? '#FEF3C7' : '#261C08', borderColor: isLightMode ? '#FCD34D' : '#F59E0B' }]}
                   onPress={() => navigation.navigate('StudyNoteDetail', {})}
                 >
                   <Text style={[styles.subjectChipText, { color: isLightMode ? '#B45309' : '#FBBF24', fontWeight: '700' }]}>
@@ -414,7 +423,7 @@ export default function StudyNotesScreen() {
               })}
 
               <TouchableOpacity
-                style={[styles.manageSubjFilterBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                style={[styles.manageSubjFilterBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
                 onPress={() => setShowSubjectModal(true)}
               >
                 <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
@@ -429,28 +438,28 @@ export default function StudyNotesScreen() {
             <View style={styles.emptyWrap}>
               {/* If draft exists, show draft card even if note list is empty */}
               {draftNote ? (
-                <View style={[styles.draftCard, { backgroundColor: theme.card, borderColor: '#F59E0B', width: '100%', marginBottom: 20 }]}>
+                <View style={[styles.draftCard, { backgroundColor: isLightMode ? '#FFFBEB' : '#1C1608', borderColor: isLightMode ? '#FCD34D' : '#B45309', width: '100%', marginBottom: 20 }]}>
                   <View style={styles.draftCardHeader}>
-                    <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#261C08' }]}>
+                    <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#382806', borderColor: isLightMode ? '#FDE68A' : '#78350F' }]}>
                       <Ionicons name="document-text" size={12} color="#FBBF24" />
                       <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FBBF24' }]}>DRAF BELUM TERSIMPAN</Text>
                     </View>
-                    <TouchableOpacity onPress={handleDiscardDraft} style={styles.draftDeleteBtn}>
-                      <Ionicons name="trash-outline" size={14} color="#F87171" />
+                    <TouchableOpacity onPress={handleDiscardDraft} style={[styles.draftDeleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418' }]}>
+                      <Ionicons name="trash-outline" size={14} color="#EF4444" />
                     </TouchableOpacity>
                   </View>
 
-                  <Text style={[styles.draftTitle, { color: theme.text }]} numberOfLines={1}>
+                  <Text style={[styles.draftTitle, { color: isLightMode ? '#78350F' : '#FEF3C7' }]} numberOfLines={1}>
                     {draftNote.title || 'Catatan Baru (Tanpa Judul)'}
                   </Text>
                   <Text style={[styles.draftSnippet, { color: theme.subtext }]} numberOfLines={2}>
                     {draftNote.content || 'Belum ada isi materi...'}
                   </Text>
 
-                  <View style={styles.draftFooter}>
+                  <View style={[styles.draftFooter, { borderTopColor: isLightMode ? '#FDE68A' : '#2C220E' }]}>
                     <View style={styles.draftMetaRow}>
-                      <Ionicons name="school-outline" size={12} color={theme.muted} />
-                      <Text style={[styles.draftSubjectText, { color: theme.muted }]}>{draftNote.subject || 'Umum'}</Text>
+                      <Ionicons name="school-outline" size={12} color={isLightMode ? '#B45309' : theme.muted} />
+                      <Text style={[styles.draftSubjectText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>{draftNote.subject || 'Umum'}</Text>
                       {draftNote.savedAt ? (
                         <Text style={[styles.draftTimeText, { color: theme.muted }]}>
                           • {new Date(draftNote.savedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
@@ -459,7 +468,7 @@ export default function StudyNotesScreen() {
                     </View>
 
                     <TouchableOpacity
-                      style={[styles.draftContinueBtn, { backgroundColor: theme.primary }]}
+                      style={[styles.draftContinueBtn, { backgroundColor: isLightMode ? '#D97706' : '#D97706' }]}
                       onPress={() => navigation.navigate('StudyNoteDetail', {})}
                     >
                       <Ionicons name="create" size={13} color="#FFFFFF" />
@@ -492,28 +501,28 @@ export default function StudyNotesScreen() {
               showsVerticalScrollIndicator={false}
               ListHeaderComponent={
                 draftNote ? (
-                  <View style={[styles.draftCard, { backgroundColor: theme.card, borderColor: '#F59E0B' }]}>
+                  <View style={[styles.draftCard, { backgroundColor: isLightMode ? '#FFFBEB' : '#1C1608', borderColor: isLightMode ? '#FCD34D' : '#B45309' }]}>
                     <View style={styles.draftCardHeader}>
-                      <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#261C08' }]}>
+                      <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#382806', borderColor: isLightMode ? '#FDE68A' : '#78350F' }]}>
                         <Ionicons name="document-text" size={12} color="#FBBF24" />
                         <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FBBF24' }]}>DRAF BELUM TERSIMPAN</Text>
                       </View>
-                      <TouchableOpacity onPress={handleDiscardDraft} style={styles.draftDeleteBtn}>
-                        <Ionicons name="trash-outline" size={14} color="#F87171" />
+                      <TouchableOpacity onPress={handleDiscardDraft} style={[styles.draftDeleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418' }]}>
+                        <Ionicons name="trash-outline" size={14} color="#EF4444" />
                       </TouchableOpacity>
                     </View>
 
-                    <Text style={[styles.draftTitle, { color: theme.text }]} numberOfLines={1}>
+                    <Text style={[styles.draftTitle, { color: isLightMode ? '#78350F' : '#FEF3C7' }]} numberOfLines={1}>
                       {draftNote.title || 'Catatan Baru (Tanpa Judul)'}
                     </Text>
                     <Text style={[styles.draftSnippet, { color: theme.subtext }]} numberOfLines={2}>
                       {draftNote.content || 'Belum ada isi materi...'}
                     </Text>
 
-                    <View style={styles.draftFooter}>
+                    <View style={[styles.draftFooter, { borderTopColor: isLightMode ? '#FDE68A' : '#2C220E' }]}>
                       <View style={styles.draftMetaRow}>
-                        <Ionicons name="school-outline" size={12} color={theme.muted} />
-                        <Text style={[styles.draftSubjectText, { color: theme.muted }]}>{draftNote.subject || 'Umum'}</Text>
+                        <Ionicons name="school-outline" size={12} color={isLightMode ? '#B45309' : theme.muted} />
+                        <Text style={[styles.draftSubjectText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>{draftNote.subject || 'Umum'}</Text>
                         {draftNote.savedAt ? (
                           <Text style={[styles.draftTimeText, { color: theme.muted }]}>
                             • {new Date(draftNote.savedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
@@ -522,7 +531,7 @@ export default function StudyNotesScreen() {
                       </View>
 
                       <TouchableOpacity
-                        style={[styles.draftContinueBtn, { backgroundColor: theme.primary }]}
+                        style={[styles.draftContinueBtn, { backgroundColor: '#D97706' }]}
                         onPress={() => navigation.navigate('StudyNoteDetail', {})}
                       >
                         <Ionicons name="create" size={13} color="#FFFFFF" />
@@ -748,9 +757,23 @@ export default function StudyNotesScreen() {
                               <Text style={[styles.taskSubjectText, { color: theme.accentLight }]}>{t.subject}</Text>
                             </View>
                             {t.due_date ? (
-                              <View style={[styles.dueBadge, { backgroundColor: theme.cardInner }, isHigh && styles.dueBadgeHigh]}>
-                                <Ionicons name="calendar-outline" size={11} color={isHigh ? '#EF4444' : theme.subtext} />
-                                <Text style={[styles.dueText, { color: theme.subtext }, isHigh && styles.dueTextHigh]}>{t.due_date}</Text>
+                              <View style={[
+                                styles.dueBadge,
+                                { backgroundColor: theme.cardInner },
+                                isHigh && {
+                                  backgroundColor: isLightMode ? '#FEE2E2' : '#2B1417',
+                                  borderColor: isLightMode ? '#FECACA' : '#451A20',
+                                  borderWidth: 1,
+                                }
+                              ]}>
+                                <Ionicons name="calendar-outline" size={11} color={isHigh ? (isLightMode ? '#DC2626' : '#EF4444') : theme.subtext} />
+                                <Text style={[
+                                  styles.dueText,
+                                  { color: theme.subtext },
+                                  isHigh && { color: isLightMode ? '#DC2626' : '#EF4444', fontWeight: '600' }
+                                ]}>
+                                  {t.due_date}
+                                </Text>
                               </View>
                             ) : null}
                           </View>
@@ -870,7 +893,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
     paddingVertical: 40,
   },
   header: {

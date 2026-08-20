@@ -339,6 +339,29 @@ interface ThemeContextType {
 
 const STORAGE_KEY = '@user_app_theme_v2';
 
+const getInitialThemeState = () => {
+  if (typeof window !== 'undefined' && window.localStorage) {
+    try {
+      const cached = window.localStorage.getItem(STORAGE_KEY);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        const mode = (parsed.mode as 'dark' | 'light' | 'custom') || 'dark';
+        const id = parsed.id || (mode === 'light' ? 'pure-white' : 'obsidian-blue');
+        return {
+          mode,
+          id,
+          custom: parsed.custom || null,
+        };
+      }
+    } catch (e) {}
+  }
+  return {
+    mode: 'dark' as const,
+    id: 'obsidian-blue',
+    custom: null,
+  };
+};
+
 const ThemeContext = createContext<ThemeContextType>({
   theme: DARK_THEMES[0],
   themeMode: 'dark',
@@ -360,9 +383,10 @@ export const useTheme = () => useContext(ThemeContext);
 export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const { user } = useAuth();
 
-  const [themeMode, setLocalThemeMode] = useState<'dark' | 'light' | 'custom'>('dark');
-  const [themeId, setLocalThemeId] = useState<string>('obsidian-blue');
-  const [customThemeData, setCustomThemeData] = useState<Partial<AppTheme> | null>(null);
+  const initial = getInitialThemeState();
+  const [themeMode, setLocalThemeMode] = useState<'dark' | 'light' | 'custom'>(initial.mode);
+  const [themeId, setLocalThemeId] = useState<string>(initial.id);
+  const [customThemeData, setCustomThemeData] = useState<Partial<AppTheme> | null>(initial.custom);
 
   // Sync to database
   const syncToDatabase = useCallback(async (
@@ -566,6 +590,15 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   }
 
   const isLightMode = isColorLight(computedTheme.bg) || computedTheme.mode === 'light';
+
+  useEffect(() => {
+    if (typeof document !== 'undefined') {
+      document.documentElement.style.backgroundColor = computedTheme.bg;
+      if (document.body) {
+        document.body.style.backgroundColor = computedTheme.bg;
+      }
+    }
+  }, [computedTheme.bg]);
 
   return (
     <ThemeContext.Provider

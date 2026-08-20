@@ -134,11 +134,12 @@ function MainTabs() {
 
 export default function AppNavigator() {
   const { session, loading } = useAuth();
+  const { theme } = useTheme();
 
   if (loading) {
     return (
-      <View style={styles.loader}>
-        <ActivityIndicator size="small" color="#FFFFFF" />
+      <View style={[styles.loader, { backgroundColor: theme.bg }]}>
+        <ActivityIndicator size="small" color={theme.accentLight} />
       </View>
     );
   }
@@ -169,6 +170,5 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
   },
 });

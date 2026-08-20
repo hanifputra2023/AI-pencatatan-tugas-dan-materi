@@ -9,7 +9,7 @@ import { AlertProvider } from './src/contexts/AlertContext';
 import { SubjectProvider } from './src/contexts/SubjectContext';
 import AppNavigator from './src/navigation/AppNavigator';
 
-// Eliminate default browser white focus rings and scrollbar styling on Web
+// Eliminate default browser white focus rings on Web
 if (Platform.OS === 'web' && typeof document !== 'undefined') {
   const styleId = 'antigravity-global-reset-styles';
   if (!document.getElementById(styleId)) {
@@ -28,31 +28,45 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
         outline: none !important;
         box-shadow: none !important;
       }
-      /* Custom Obsidian Dark Scrollbar */
-      ::-webkit-scrollbar {
-        width: 6px;
-        height: 6px;
-      }
-      ::-webkit-scrollbar-track {
-        background: #0E1117;
-      }
-      ::-webkit-scrollbar-thumb {
-        background: #1E2430;
-        border-radius: 3px;
-      }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #2D3748;
-      }
     `;
     document.head.appendChild(style);
   }
 }
 
 function MainAppContainer() {
-  const { theme } = useTheme();
+  const { theme, isLightMode } = useTheme();
+
+  useEffect(() => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const scrollbarStyleId = 'antigravity-scrollbar-styles';
+      let styleEl = document.getElementById(scrollbarStyleId);
+      if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = scrollbarStyleId;
+        document.head.appendChild(styleEl);
+      }
+      styleEl.innerHTML = `
+        ::-webkit-scrollbar {
+          width: 6px;
+          height: 6px;
+        }
+        ::-webkit-scrollbar-track {
+          background: ${isLightMode ? '#F1F5F9' : '#0E1117'};
+        }
+        ::-webkit-scrollbar-thumb {
+          background: ${isLightMode ? '#CBD5E1' : '#1E2430'};
+          border-radius: 3px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+          background: ${isLightMode ? '#94A3B8' : '#2D3748'};
+        }
+      `;
+    }
+  }, [isLightMode]);
 
   return (
     <View style={[styles.outerBackground, { backgroundColor: theme.bg }]}>
+      <StatusBar style={isLightMode ? 'dark' : 'light'} />
       <View style={[styles.appContainer, { backgroundColor: theme.bg }]}>
         <AppNavigator />
       </View>
@@ -67,7 +81,6 @@ export default function App() {
         <MoodProvider>
           <AlertProvider>
             <SubjectProvider>
-              <StatusBar style="light" />
               <MainAppContainer />
             </SubjectProvider>
           </AlertProvider>
@@ -80,11 +93,9 @@ export default function App() {
 const styles = StyleSheet.create({
   outerBackground: {
     flex: 1,
-    backgroundColor: '#090B0E',
   },
   appContainer: {
     flex: 1,
     width: '100%',
-    backgroundColor: '#0E1117',
   },
 });

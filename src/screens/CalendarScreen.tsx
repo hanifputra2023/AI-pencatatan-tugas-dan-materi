@@ -208,9 +208,11 @@ export default function CalendarScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loaderCenter}>
-        <ActivityIndicator size="small" color="#9CA3AF" />
-      </View>
+      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+        <View style={styles.loaderCenter}>
+          <ActivityIndicator size="small" color={theme.accentLight} />
+        </View>
+      </SafeAreaView>
     );
   }
 
@@ -219,7 +221,7 @@ export default function CalendarScreen() {
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={[styles.scrollContent, isWide && styles.scrollContentWide]}
+        contentContainerStyle={{ paddingBottom: 60 }}
       >
         <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
@@ -240,7 +242,7 @@ export default function CalendarScreen() {
             onPress={() => setFilter('all')}
           >
             <Ionicons name="sparkles" size={13} color={filter === 'all' ? theme.accentLight : theme.subtext} />
-            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'all' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'all' && [styles.filterChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
               Semua Aktivitas
             </Text>
           </TouchableOpacity>
@@ -254,7 +256,7 @@ export default function CalendarScreen() {
             onPress={() => setFilter('study')}
           >
             <Ionicons name="school" size={13} color={filter === 'study' ? theme.accentLight : theme.subtext} />
-            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'study' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'study' && [styles.filterChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
               Materi ({notes.length})
             </Text>
           </TouchableOpacity>
@@ -268,7 +270,7 @@ export default function CalendarScreen() {
             onPress={() => setFilter('journal')}
           >
             <Ionicons name="book" size={13} color={filter === 'journal' ? theme.accentLight : theme.subtext} />
-            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'journal' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'journal' && [styles.filterChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
               Jurnal ({journals.length})
             </Text>
           </TouchableOpacity>
@@ -282,7 +284,7 @@ export default function CalendarScreen() {
             onPress={() => setFilter('tasks')}
           >
             <Ionicons name="checkbox" size={13} color={filter === 'tasks' ? theme.accentLight : theme.subtext} />
-            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'tasks' && [styles.filterChipTextActive, { color: theme.accentLight }]]}>
+            <Text style={[styles.filterChipText, { color: theme.subtext }, filter === 'tasks' && [styles.filterChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
               Tugas ({tasks.length})
             </Text>
           </TouchableOpacity>
@@ -291,8 +293,8 @@ export default function CalendarScreen() {
         {/* 4 Summary Metric Cards */}
         <View style={styles.summaryGrid}>
           <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={[styles.summaryIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-              <Ionicons name="school-outline" size={15} color={theme.accentLight} />
+            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B', borderColor: isLightMode ? '#BFDBFE' : '#253856' }]}>
+              <Ionicons name="school-outline" size={15} color="#3B82F6" />
             </View>
             <Text style={[styles.summaryNum, { color: theme.text }]}>{notes.length}</Text>
             <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Materi Kuliah</Text>
@@ -300,8 +302,8 @@ export default function CalendarScreen() {
           </View>
 
           <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#F3E8FF' : '#2E1065', borderColor: isLightMode ? '#D8B4FE' : '#4C1D95' }]}>
-              <Ionicons name="checkbox-outline" size={15} color={isLightMode ? '#7E22CE' : '#C084FC'} />
+            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#FFFBEB' : '#2B2314', borderColor: isLightMode ? '#FCD34D' : '#593914' }]}>
+              <Ionicons name="checkbox-outline" size={15} color="#F59E0B" />
             </View>
             <Text style={[styles.summaryNum, { color: theme.text }]}>{completedTasksCount}/{tasks.length}</Text>
             <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Tugas Selesai</Text>
@@ -309,8 +311,8 @@ export default function CalendarScreen() {
           </View>
 
           <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#DCFCE7' : '#143825', borderColor: isLightMode ? '#86EFAC' : '#1F5A3B' }]}>
-              <Ionicons name="book-outline" size={15} color={isLightMode ? '#15803D' : '#4ADE80'} />
+            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#ECFDF5' : '#122B22', borderColor: isLightMode ? '#86EFAC' : '#194A35' }]}>
+              <Ionicons name="book-outline" size={15} color="#10B981" />
             </View>
             <Text style={[styles.summaryNum, { color: theme.text }]}>{journals.length}</Text>
             <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Total Jurnal</Text>
@@ -318,8 +320,8 @@ export default function CalendarScreen() {
           </View>
 
           <View style={[styles.summaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#FFEDD5' : '#3B1A16', borderColor: isLightMode ? '#FDBA74' : '#6B2C24' }]}>
-              <Ionicons name="flame-outline" size={15} color={isLightMode ? '#C2410C' : '#FB923C'} />
+            <View style={[styles.summaryIconBox, { backgroundColor: isLightMode ? '#FDF2F8' : '#2B1A24', borderColor: isLightMode ? '#FBCFE8' : '#4E203C' }]}>
+              <Ionicons name="flame-outline" size={15} color="#EC4899" />
             </View>
             <Text style={[styles.summaryNum, { color: theme.text }]}>{weekData.filter(d => d.hasActivity).length}/7</Text>
             <Text style={[styles.summaryLabel, { color: theme.subtext }]}>Aktif Minggu Ini</Text>
@@ -327,11 +329,11 @@ export default function CalendarScreen() {
           </View>
         </View>
 
-        {/* Dual Column Layout (Desktop / Tablet / Mobile) */}
+        {/* Main 2-Column Responsive Body */}
         <View style={[styles.mainLayout, isWide && styles.mainLayoutWide]}>
 
           {/* ========================================================================= */}
-          {/* LEFT COLUMN: 30-Day Grid & Activity Inspector */}
+          {/* LEFT COLUMN: 30-Day Activity Calendar & Selected Day Inspector */}
           {/* ========================================================================= */}
           <View style={[styles.column, isWide && { flex: 1.2 }]}>
 
@@ -366,14 +368,35 @@ export default function CalendarScreen() {
                       key={i}
                       style={[
                         styles.gridCell,
-                        { backgroundColor: theme.cardInner, borderColor: theme.border },
-                        d.hasActivity && [styles.gridCellActive, { borderColor: theme.accentLight }],
-                        isSelected && [styles.gridCellSelected, { backgroundColor: theme.primary, borderColor: theme.primary }],
+                        {
+                          backgroundColor: isSelected
+                            ? theme.primary
+                            : d.hasActivity
+                              ? (isLightMode ? '#EFF6FF' : '#141D2B')
+                              : theme.cardInner,
+                          borderColor: isSelected
+                            ? theme.primary
+                            : d.hasActivity
+                              ? (isLightMode ? '#BFDBFE' : '#2A3C59')
+                              : theme.border,
+                        },
                       ]}
                       onPress={() => setSelectedDateStr(d.dateStr)}
                       activeOpacity={0.7}
                     >
-                      <Text style={[styles.gridDay, { color: theme.subtext }, isSelected && [styles.gridDaySelected, { color: '#FFFFFF' }]]}>
+                      <Text
+                        style={[
+                          styles.gridDay,
+                          {
+                            color: isSelected
+                              ? '#FFFFFF'
+                              : d.hasActivity
+                                ? (isLightMode ? '#1D4ED8' : '#60A5FA')
+                                : theme.subtext,
+                            fontWeight: isSelected || d.hasActivity ? '700' : '500',
+                          }
+                        ]}
+                      >
                         {d.dayNum}
                       </Text>
 
@@ -599,7 +622,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
   },
   scroll: {
     flex: 1,

@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, StyleSheet, Platform } from 'react-native';
+import { useTheme, AppTheme } from '../contexts/ThemeContext';
 
 interface MarkdownRendererProps {
   content: string;
@@ -8,21 +9,18 @@ interface MarkdownRendererProps {
   style?: any;
 }
 
-interface InlineSpan {
-  text: string;
-  bold?: boolean;
-  italic?: boolean;
-  strike?: boolean;
-  underline?: boolean;
-  code?: boolean;
-}
-
 /**
  * Robust Multi-Pass Parser for Nested & Combined Inline Markdown
  */
-function parseInlineSpans(rawText: string, depth = 0): React.ReactNode {
+function parseInlineSpans(
+  rawText: string,
+  theme: AppTheme,
+  isLightMode: boolean,
+  defaultTextColor: string,
+  depth = 0
+): React.ReactNode {
   if (!rawText) return null;
-  if (depth > 4) return <Text>{rawText}</Text>;
+  if (depth > 4) return <Text style={{ color: defaultTextColor }}>{rawText}</Text>;
 
   // Tokenize regex for inline elements
   const tokenRegex = /(`[^`]+`|\*\*\*[^*]+\*\*\*|___[^_]+___|\*\*[^*]+\*\*|__[^_]+__|<u>.*?<\/u>|\*[^*]+\*|_[^_]+_|~~[^~]+~~)/g;
@@ -36,7 +34,17 @@ function parseInlineSpans(rawText: string, depth = 0): React.ReactNode {
     if (part.startsWith('`') && part.endsWith('`') && part.length >= 2) {
       const codeText = part.slice(1, -1);
       return (
-        <Text key={index} style={styles.inlineCode}>
+        <Text
+          key={index}
+          style={[
+            styles.inlineCode,
+            {
+              backgroundColor: isLightMode ? '#F1F5F9' : '#1E293B',
+              borderColor: isLightMode ? '#CBD5E1' : '#334155',
+              color: isLightMode ? '#0284C7' : '#38BDF8',
+            },
+          ]}
+        >
           {codeText}
         </Text>
       );
@@ -46,8 +54,8 @@ function parseInlineSpans(rawText: string, depth = 0): React.ReactNode {
     if ((part.startsWith('***') && part.endsWith('***')) || (part.startsWith('___') && part.endsWith('___'))) {
       const inner = part.slice(3, -3);
       return (
-        <Text key={index} style={[styles.bold, styles.italic]}>
-          {parseInlineSpans(inner, depth + 1)}
+        <Text key={index} style={[styles.bold, styles.italic, { color: defaultTextColor }]}>
+          {parseInlineSpans(inner, theme, isLightMode, defaultTextColor, depth + 1)}
         </Text>
       );
     }
@@ -56,8 +64,8 @@ function parseInlineSpans(rawText: string, depth = 0): React.ReactNode {
     if (part.startsWith('**') && part.endsWith('**') && part.length >= 4) {
       const inner = part.slice(2, -2);
       return (
-        <Text key={index} style={styles.bold}>
-          {parseInlineSpans(inner, depth + 1)}
+        <Text key={index} style={[styles.bold, { color: defaultTextColor }]}>
+          {parseInlineSpans(inner, theme, isLightMode, defaultTextColor, depth + 1)}
         </Text>
       );
     }
@@ -66,16 +74,16 @@ function parseInlineSpans(rawText: string, depth = 0): React.ReactNode {
     if (part.startsWith('__') && part.endsWith('__') && part.length >= 4) {
       const inner = part.slice(2, -2);
       return (
-        <Text key={index} style={styles.underline}>
-          {parseInlineSpans(inner, depth + 1)}
+        <Text key={index} style={[styles.underline, { color: defaultTextColor }]}>
+          {parseInlineSpans(inner, theme, isLightMode, defaultTextColor, depth + 1)}
         </Text>
       );
     }
     if (part.startsWith('<u>') && part.endsWith('</u>')) {
       const inner = part.slice(3, -4);
       return (
-        <Text key={index} style={styles.underline}>
-          {parseInlineSpans(inner, depth + 1)}
+        <Text key={index} style={[styles.underline, { color: defaultTextColor }]}>
+          {parseInlineSpans(inner, theme, isLightMode, defaultTextColor, depth + 1)}
         </Text>
       );
     }
@@ -85,8 +93,8 @@ function parseInlineSpans(rawText: string, depth = 0): React.ReactNode {
         (part.startsWith('_') && part.endsWith('_') && part.length >= 2)) {
       const inner = part.slice(1, -1);
       return (
-        <Text key={index} style={styles.italic}>
-          {parseInlineSpans(inner, depth + 1)}
+        <Text key={index} style={[styles.italic, { color: defaultTextColor }]}>
+          {parseInlineSpans(inner, theme, isLightMode, defaultTextColor, depth + 1)}
         </Text>
       );
     }
@@ -95,25 +103,31 @@ function parseInlineSpans(rawText: string, depth = 0): React.ReactNode {
     if (part.startsWith('~~') && part.endsWith('~~') && part.length >= 4) {
       const inner = part.slice(2, -2);
       return (
-        <Text key={index} style={styles.strikethrough}>
-          {parseInlineSpans(inner, depth + 1)}
+        <Text key={index} style={[styles.strikethrough, { color: theme.muted }]}>
+          {parseInlineSpans(inner, theme, isLightMode, defaultTextColor, depth + 1)}
         </Text>
       );
     }
 
     // Regular Plain Text
-    return <Text key={index}>{part}</Text>;
+    return (
+      <Text key={index} style={{ color: defaultTextColor }}>
+        {part}
+      </Text>
+    );
   });
 }
 
 export default function MarkdownRenderer({
   content,
   fontSize = 15,
-  textColor = '#E5E7EB',
+  textColor,
   style,
 }: MarkdownRendererProps) {
+  const { theme, isLightMode } = useTheme();
   if (!content) return null;
 
+  const effectiveTextColor = textColor || theme.text;
   const lines = content.split('\n');
   const renderedElements: React.ReactNode[] = [];
 
@@ -124,7 +138,7 @@ export default function MarkdownRenderer({
   const renderInline = (text: string, customStyle?: any) => {
     return (
       <Text style={customStyle}>
-        {parseInlineSpans(text)}
+        {parseInlineSpans(text, theme, isLightMode, effectiveTextColor)}
       </Text>
     );
   };
@@ -138,13 +152,42 @@ export default function MarkdownRenderer({
       if (inCodeBlock) {
         // End code block
         renderedElements.push(
-          <View key={`code-${i}`} style={styles.codeBlock}>
+          <View
+            key={`code-${i}`}
+            style={[
+              styles.codeBlock,
+              {
+                backgroundColor: isLightMode ? '#F8FAFC' : '#0F172A',
+                borderColor: isLightMode ? '#E2E8F0' : '#334155',
+              },
+            ]}
+          >
             {codeBlockLang ? (
-              <View style={styles.codeHeader}>
-                <Text style={styles.codeLangText}>{codeBlockLang.toUpperCase()}</Text>
+              <View
+                style={[
+                  styles.codeHeader,
+                  { borderBottomColor: isLightMode ? '#E2E8F0' : '#1E293B' },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.codeLangText,
+                    { color: isLightMode ? '#64748B' : '#94A3B8' },
+                  ]}
+                >
+                  {codeBlockLang.toUpperCase()}
+                </Text>
               </View>
             ) : null}
-            <Text style={styles.codeBlockText}>{codeBlockBuffer.join('\n')}</Text>
+            <Text
+              style={[
+                styles.codeBlockText,
+                { color: isLightMode ? '#0369A1' : '#38BDF8' },
+              ]}
+              selectable
+            >
+              {codeBlockBuffer.join('\n')}
+            </Text>
           </View>
         );
         inCodeBlock = false;
@@ -165,7 +208,9 @@ export default function MarkdownRenderer({
 
     // 2. Horizontal rule (--- or *** or ___)
     if (/^[-*_]{3,}$/.test(trimmedLine)) {
-      renderedElements.push(<View key={`hr-${i}`} style={styles.hr} />);
+      renderedElements.push(
+        <View key={`hr-${i}`} style={[styles.hr, { backgroundColor: theme.border }]} />
+      );
       continue;
     }
 
@@ -173,7 +218,7 @@ export default function MarkdownRenderer({
     if (/^#\s+/.test(trimmedLine)) {
       const headingText = trimmedLine.replace(/^#\s+/, '');
       renderedElements.push(
-        <Text key={`h1-${i}`} style={[styles.h1, { color: textColor }]}>
+        <Text key={`h1-${i}`} style={[styles.h1, { color: effectiveTextColor }]}>
           {renderInline(headingText)}
         </Text>
       );
@@ -182,7 +227,10 @@ export default function MarkdownRenderer({
     if (/^##\s+/.test(trimmedLine)) {
       const headingText = trimmedLine.replace(/^##\s+/, '');
       renderedElements.push(
-        <Text key={`h2-${i}`} style={[styles.h2, { color: '#93C5FD' }]}>
+        <Text
+          key={`h2-${i}`}
+          style={[styles.h2, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}
+        >
           {renderInline(headingText)}
         </Text>
       );
@@ -191,7 +239,10 @@ export default function MarkdownRenderer({
     if (/^###\s+/.test(trimmedLine)) {
       const headingText = trimmedLine.replace(/^###\s+/, '');
       renderedElements.push(
-        <Text key={`h3-${i}`} style={[styles.h3, { color: '#60A5FA' }]}>
+        <Text
+          key={`h3-${i}`}
+          style={[styles.h3, { color: isLightMode ? '#2563EB' : '#60A5FA' }]}
+        >
           {renderInline(headingText)}
         </Text>
       );
@@ -200,7 +251,10 @@ export default function MarkdownRenderer({
     if (/^####\s+/.test(trimmedLine)) {
       const headingText = trimmedLine.replace(/^####\s+/, '');
       renderedElements.push(
-        <Text key={`h4-${i}`} style={[styles.h4, { color: '#A5B4FC' }]}>
+        <Text
+          key={`h4-${i}`}
+          style={[styles.h4, { color: isLightMode ? '#4F46E5' : '#A5B4FC' }]}
+        >
           {renderInline(headingText)}
         </Text>
       );
@@ -211,8 +265,22 @@ export default function MarkdownRenderer({
     if (trimmedLine.startsWith('>')) {
       const quoteText = trimmedLine.replace(/^>\s*/, '');
       renderedElements.push(
-        <View key={`quote-${i}`} style={styles.blockquote}>
-          <Text style={[styles.blockquoteText, { fontSize, color: '#D1D5DB' }]}>
+        <View
+          key={`quote-${i}`}
+          style={[
+            styles.blockquote,
+            {
+              backgroundColor: isLightMode ? '#F8FAFC' : '#1E293B',
+              borderLeftColor: theme.primary,
+            },
+          ]}
+        >
+          <Text
+            style={[
+              styles.blockquoteText,
+              { fontSize, color: isLightMode ? '#475569' : '#D1D5DB' },
+            ]}
+          >
             {renderInline(quoteText)}
           </Text>
         </View>
@@ -225,8 +293,13 @@ export default function MarkdownRenderer({
     if (ulMatch) {
       renderedElements.push(
         <View key={`ul-${i}`} style={styles.listItemRow}>
-          <Text style={styles.bulletDot}>•</Text>
-          <Text style={[styles.listText, { fontSize, lineHeight: fontSize + 8, color: textColor }]}>
+          <Text style={[styles.bulletDot, { color: theme.accentLight }]}>•</Text>
+          <Text
+            style={[
+              styles.listText,
+              { fontSize, lineHeight: fontSize + 8, color: effectiveTextColor },
+            ]}
+          >
             {renderInline(ulMatch[1])}
           </Text>
         </View>
@@ -239,8 +312,13 @@ export default function MarkdownRenderer({
     if (olMatch) {
       renderedElements.push(
         <View key={`ol-${i}`} style={styles.listItemRow}>
-          <Text style={styles.orderedNum}>{olMatch[1]}.</Text>
-          <Text style={[styles.listText, { fontSize, lineHeight: fontSize + 8, color: textColor }]}>
+          <Text style={[styles.orderedNum, { color: theme.accentLight }]}>{olMatch[1]}.</Text>
+          <Text
+            style={[
+              styles.listText,
+              { fontSize, lineHeight: fontSize + 8, color: effectiveTextColor },
+            ]}
+          >
             {renderInline(olMatch[2])}
           </Text>
         </View>
@@ -258,7 +336,7 @@ export default function MarkdownRenderer({
     renderedElements.push(
       <Text
         key={`p-${i}`}
-        style={[styles.paragraph, { fontSize, lineHeight: fontSize + 8, color: textColor }]}
+        style={[styles.paragraph, { fontSize, lineHeight: fontSize + 8, color: effectiveTextColor }]}
       >
         {renderInline(rawLine)}
       </Text>
@@ -268,8 +346,25 @@ export default function MarkdownRenderer({
   // Handle unclosed code block at end of content
   if (inCodeBlock && codeBlockBuffer.length > 0) {
     renderedElements.push(
-      <View key="code-unclosed" style={styles.codeBlock}>
-        <Text style={styles.codeBlockText}>{codeBlockBuffer.join('\n')}</Text>
+      <View
+        key="code-unclosed"
+        style={[
+          styles.codeBlock,
+          {
+            backgroundColor: isLightMode ? '#F8FAFC' : '#0F172A',
+            borderColor: isLightMode ? '#E2E8F0' : '#334155',
+          },
+        ]}
+      >
+        <Text
+          style={[
+            styles.codeBlockText,
+            { color: isLightMode ? '#0369A1' : '#38BDF8' },
+          ]}
+          selectable
+        >
+          {codeBlockBuffer.join('\n')}
+        </Text>
       </View>
     );
   }
@@ -287,7 +382,6 @@ const styles = StyleSheet.create({
   },
   bold: {
     fontWeight: '700',
-    color: '#FFFFFF',
   },
   italic: {
     fontStyle: 'italic',
@@ -297,7 +391,6 @@ const styles = StyleSheet.create({
   },
   strikethrough: {
     textDecorationLine: 'line-through',
-    color: '#9CA3AF',
   },
   h1: {
     fontSize: 22,
@@ -327,8 +420,6 @@ const styles = StyleSheet.create({
   },
   blockquote: {
     borderLeftWidth: 3.5,
-    borderLeftColor: '#3B82F6',
-    backgroundColor: '#1E293B',
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderRadius: 6,
@@ -346,14 +437,12 @@ const styles = StyleSheet.create({
   },
   bulletDot: {
     fontSize: 16,
-    color: '#60A5FA',
     marginRight: 8,
     lineHeight: 22,
   },
   orderedNum: {
     fontSize: 13,
     fontWeight: '700',
-    color: '#60A5FA',
     marginRight: 8,
     lineHeight: 22,
     minWidth: 20,
@@ -362,8 +451,6 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   codeBlock: {
-    backgroundColor: '#0F172A',
-    borderColor: '#334155',
     borderWidth: 1,
     borderRadius: 8,
     padding: 12,
@@ -372,36 +459,29 @@ const styles = StyleSheet.create({
   },
   codeHeader: {
     borderBottomWidth: 1,
-    borderBottomColor: '#1E293B',
     paddingBottom: 6,
     marginBottom: 8,
   },
   codeLangText: {
-    color: '#64748B',
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
   codeBlockText: {
-    color: '#38BDF8',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontSize: 13,
     lineHeight: 20,
   },
   inlineCode: {
-    backgroundColor: '#1E293B',
-    color: '#38BDF8',
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',
     fontWeight: '600',
     paddingHorizontal: 5,
     paddingVertical: 1,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#334155',
   },
   hr: {
     height: 1,
-    backgroundColor: '#374151',
     marginVertical: 16,
   },
 });

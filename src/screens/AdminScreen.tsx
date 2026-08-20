@@ -539,33 +539,36 @@ export default function AdminScreen() {
 
   // Reusable Sidebar Navigation Content Component
   const renderSidebarContent = (isDrawer = false) => (
-    <View style={[styles.sidebarInner, isDrawer && { height: '100%' }]}>
+    <View style={[styles.sidebarInner, { backgroundColor: theme.card }, isDrawer && { height: '100%' }]}>
       
       {/* Brand Header */}
-      <View style={styles.sidebarBrand}>
-        <View style={styles.brandIconBox}>
-          <Ionicons name="shield-checkmark" size={18} color="#60A5FA" />
+      <View style={[styles.sidebarBrand, { borderBottomColor: theme.border }]}>
+        <View style={[styles.brandIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+          <Ionicons name="shield-checkmark" size={18} color={theme.accentLight} />
         </View>
         <View style={{ flex: 1 }}>
-          <Text style={styles.brandTitle}>SUPERADMIN</Text>
-          <Text style={styles.brandSubtitle}>Control Portal Studio</Text>
+          <Text style={[styles.brandTitle, { color: theme.text }]}>SUPERADMIN</Text>
+          <Text style={[styles.brandSubtitle, { color: theme.accentLight }]}>Control Portal Studio</Text>
         </View>
         {isDrawer && (
           <TouchableOpacity onPress={() => setMobileDrawerOpen(false)} style={styles.drawerCloseBtn}>
-            <Ionicons name="close" size={20} color="#9CA3AF" />
+            <Ionicons name="close" size={20} color={theme.subtext} />
           </TouchableOpacity>
         )}
       </View>
 
       {/* Nav Items List */}
       <ScrollView style={styles.sidebarNavScroll} showsVerticalScrollIndicator={false}>
-        <Text style={styles.sidebarSectionLabel}>MENU ADMINISTRATOR</Text>
+        <Text style={[styles.sidebarSectionLabel, { color: theme.muted }]}>MENU ADMINISTRATOR</Text>
         {NAV_ITEMS.map(item => {
           const isActive = activeTab === item.key;
           return (
             <TouchableOpacity
               key={item.key}
-              style={[styles.sidebarNavItem, isActive && styles.sidebarNavItemActive]}
+              style={[
+                styles.sidebarNavItem,
+                isActive && [styles.sidebarNavItemActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+              ]}
               onPress={() => {
                 setActiveTab(item.key as any);
                 if (isDrawer) setMobileDrawerOpen(false);
@@ -574,13 +577,17 @@ export default function AdminScreen() {
               <Ionicons
                 name={item.icon as any}
                 size={17}
-                color={isActive ? '#60A5FA' : '#8B98AD'}
+                color={isActive ? theme.accentLight : theme.subtext}
               />
-              <Text style={[styles.sidebarNavText, isActive && styles.sidebarNavTextActive]}>
+              <Text style={[styles.sidebarNavText, { color: theme.subtext }, isActive && [styles.sidebarNavTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
                 {item.label}
               </Text>
-              <View style={[styles.navItemBadge, isActive && styles.navItemBadgeActive]}>
-                <Text style={[styles.navItemBadgeText, isActive && styles.navItemBadgeTextActive]}>
+              <View style={[
+                styles.navItemBadge,
+                { backgroundColor: theme.cardInner, borderColor: theme.border },
+                isActive && [styles.navItemBadgeActive, { backgroundColor: theme.card, borderColor: theme.accent }]
+              ]}>
+                <Text style={[styles.navItemBadgeText, { color: theme.subtext }, isActive && [styles.navItemBadgeTextActive, { color: theme.accentLight }]]}>
                   {item.tag}
                 </Text>
               </View>
@@ -590,18 +597,18 @@ export default function AdminScreen() {
       </ScrollView>
 
       {/* Sidebar Footer */}
-      <View style={styles.sidebarFooter}>
+      <View style={[styles.sidebarFooter, { borderTopColor: theme.border }]}>
         <TouchableOpacity
-          style={styles.switchModeBtn}
+          style={[styles.switchModeBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
           onPress={() => {
             if (isDrawer) setMobileDrawerOpen(false);
             navigation.goBack();
           }}
         >
-          <Ionicons name="phone-portrait-outline" size={15} color="#9CA3AF" />
-          <Text style={styles.switchModeText}>Buka Mode Mahasiswa</Text>
+          <Ionicons name="phone-portrait-outline" size={15} color={theme.subtext} />
+          <Text style={[styles.switchModeText, { color: theme.subtext }]}>Buka Mode Mahasiswa</Text>
         </TouchableOpacity>
-        <Text style={styles.sidebarVersionText}>Console v2.4 • Supabase DB Live</Text>
+        <Text style={[styles.sidebarVersionText, { color: theme.muted }]}>Console v2.4 • Supabase DB Live</Text>
       </View>
 
     </View>
@@ -659,13 +666,13 @@ export default function AdminScreen() {
       {/* ========================================================================= */}
       {/* 2. STANDALONE EXECUTIVE ADMIN PORTAL LAYOUT */}
       {/* ========================================================================= */}
-      <View style={styles.portalLayout}>
+      <View style={[styles.portalLayout, { backgroundColor: theme.bg }]}>
 
         {/* ======================================================================= */}
         {/* DESKTOP FIXED SIDEBAR (Visible on Desktop / Tablet) */}
         {/* ======================================================================= */}
         {isWide && (
-          <View style={styles.desktopSidebar}>
+          <View style={[styles.desktopSidebar, { backgroundColor: theme.card, borderRightColor: theme.border }]}>
             {renderSidebarContent(false)}
           </View>
         )}
@@ -673,44 +680,44 @@ export default function AdminScreen() {
         {/* ======================================================================= */}
         {/* MAIN CENTER CANVAS */}
         {/* ======================================================================= */}
-        <View style={styles.mainCanvas}>
+        <View style={[styles.mainCanvas, { backgroundColor: theme.bg }]}>
           
           {/* Top Executive Command Bar with Hamburger Toggle for Mobile */}
-          <View style={styles.topCommandBar}>
+          <View style={[styles.topCommandBar, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
             <View style={styles.commandLeft}>
               
               {/* Mobile Hamburger Toggle Button */}
               {!isWide && (
                 <TouchableOpacity
                   onPress={() => setMobileDrawerOpen(true)}
-                  style={styles.hamburgerBtn}
+                  style={[styles.hamburgerBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
                 >
-                  <Ionicons name="menu-outline" size={20} color="#F3F4F6" />
+                  <Ionicons name="menu-outline" size={20} color={theme.text} />
                 </TouchableOpacity>
               )}
 
               <View>
-                <Text style={styles.commandTitle}>
+                <Text style={[styles.commandTitle, { color: theme.text }]}>
                   {NAV_ITEMS.find(n => n.key === activeTab)?.label}
                 </Text>
-                <Text style={styles.commandSub}>
+                <Text style={[styles.commandSub, { color: theme.subtext }]}>
                   Pusat Konfigurasi Sistem, Model AI & Data Mahasiswa
                 </Text>
               </View>
             </View>
 
             <View style={styles.commandRight}>
-              <View style={styles.liveIndicator}>
+              <View style={[styles.liveIndicator, { backgroundColor: isLightMode ? '#ECFDF5' : '#101F1A', borderColor: isLightMode ? '#A7F3D0' : '#19382B' }]}>
                 <View style={styles.liveDot} />
-                <Text style={styles.liveText}>DB {dbPing ? `${dbPing}ms` : '38ms'}</Text>
+                <Text style={[styles.liveText, { color: isLightMode ? '#059669' : '#34D399' }]}>DB {dbPing ? `${dbPing}ms` : '38ms'}</Text>
               </View>
 
               <TouchableOpacity
                 onPress={() => navigation.goBack()}
-                style={styles.exitPortalBtn}
+                style={[styles.exitPortalBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
               >
-                <Ionicons name="exit-outline" size={14} color="#9CA3AF" />
-                {isWide && <Text style={styles.exitPortalText}>Mode Mahasiswa</Text>}
+                <Ionicons name="exit-outline" size={14} color={theme.subtext} />
+                {isWide && <Text style={[styles.exitPortalText, { color: theme.subtext }]}>Mode Mahasiswa</Text>}
               </TouchableOpacity>
             </View>
           </View>
@@ -729,70 +736,70 @@ export default function AdminScreen() {
               <View style={styles.tabContent}>
                 
                 <View style={styles.cardHeaderRow}>
-                  <Text style={styles.sectionTitle}>Metrik Sistem & Volume Data Terpusat</Text>
-                  <TouchableOpacity onPress={fetchStats} style={styles.refreshBtn}>
-                    <Ionicons name="refresh" size={13} color="#60A5FA" />
-                    <Text style={styles.refreshBtnText}>Refresh Data</Text>
+                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Metrik Sistem & Volume Data Terpusat</Text>
+                  <TouchableOpacity onPress={fetchStats} style={[styles.refreshBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name="refresh" size={13} color={theme.accentLight} />
+                    <Text style={[styles.refreshBtnText, { color: theme.accentLight }]}>Refresh Data</Text>
                   </TouchableOpacity>
                 </View>
 
                 {loadingStats ? (
-                  <View style={styles.loaderBox}><ActivityIndicator size="small" color="#60A5FA" /></View>
+                  <View style={styles.loaderBox}><ActivityIndicator size="small" color={theme.accentLight} /></View>
                 ) : (
                   <View style={styles.metricsGrid}>
-                    <View style={styles.metricCard}>
-                      <View style={[styles.metricIconWrap, { backgroundColor: '#16233B' }]}>
-                        <Ionicons name="people" size={18} color="#60A5FA" />
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }]}>
+                        <Ionicons name="people" size={18} color="#3B82F6" />
                       </View>
-                      <Text style={styles.metricNum}>{stats.users}</Text>
-                      <Text style={styles.metricLabel}>Mahasiswa Terdaftar</Text>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.users}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Mahasiswa Terdaftar</Text>
                     </View>
 
-                    <View style={styles.metricCard}>
-                      <View style={[styles.metricIconWrap, { backgroundColor: '#2B1A24' }]}>
-                        <Ionicons name="book" size={18} color="#F472B6" />
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FDF2F8' : '#2B1A24' }]}>
+                        <Ionicons name="book" size={18} color="#EC4899" />
                       </View>
-                      <Text style={styles.metricNum}>{stats.journals}</Text>
-                      <Text style={styles.metricLabel}>Catatan Jurnal Keseharian</Text>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.journals}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Catatan Jurnal Keseharian</Text>
                     </View>
 
-                    <View style={styles.metricCard}>
-                      <View style={[styles.metricIconWrap, { backgroundColor: '#122B22' }]}>
-                        <Ionicons name="chatbubbles" size={18} color="#34D399" />
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#ECFDF5' : '#122B22' }]}>
+                        <Ionicons name="chatbubbles" size={18} color="#10B981" />
                       </View>
-                      <Text style={styles.metricNum}>{stats.messages}</Text>
-                      <Text style={styles.metricLabel}>Pesan Sesi Curhat AI</Text>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.messages}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Pesan Sesi Curhat AI</Text>
                     </View>
 
-                    <View style={styles.metricCard}>
-                      <View style={[styles.metricIconWrap, { backgroundColor: '#26203B' }]}>
-                        <Ionicons name="document-text" size={18} color="#A78BFA" />
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#F5F3FF' : '#26203B' }]}>
+                        <Ionicons name="document-text" size={18} color="#8B5CF6" />
                       </View>
-                      <Text style={styles.metricNum}>{stats.notes}</Text>
-                      <Text style={styles.metricLabel}>Catatan Kuliah & Kuis</Text>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.notes}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Catatan Kuliah & Kuis</Text>
                     </View>
 
-                    <View style={styles.metricCard}>
-                      <View style={[styles.metricIconWrap, { backgroundColor: '#2B2314' }]}>
-                        <Ionicons name="checkbox" size={18} color="#FBBF24" />
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FFFBEB' : '#2B2314' }]}>
+                        <Ionicons name="checkbox" size={18} color="#F59E0B" />
                       </View>
-                      <Text style={styles.metricNum}>{stats.tasks}</Text>
-                      <Text style={styles.metricLabel}>Tugas & Deadline</Text>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.tasks}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Tugas & Deadline</Text>
                     </View>
 
-                    <View style={styles.metricCard}>
-                      <View style={[styles.metricIconWrap, { backgroundColor: '#162828' }]}>
-                        <Ionicons name="school" size={18} color="#2DD4BF" />
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#F0FDFA' : '#162828' }]}>
+                        <Ionicons name="school" size={18} color="#14B8A6" />
                       </View>
-                      <Text style={styles.metricNum}>{stats.subjects}</Text>
-                      <Text style={styles.metricLabel}>Mata Kuliah Kustom</Text>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.subjects}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Mata Kuliah Kustom</Text>
                     </View>
                   </View>
                 )}
 
                 {/* Health & Cloud Infrastructure */}
-                <View style={styles.card}>
-                  <Text style={styles.cardTitle}>Infrastruktur Cloud & Status Realtime</Text>
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Text style={[styles.cardTitle, { color: theme.text }]}>Infrastruktur Cloud & Status Realtime</Text>
                   
                   <View style={styles.infoRow}>
                     <Ionicons name="server" size={16} color="#34D399" />
@@ -1945,7 +1952,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   metricNum: {
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 22,
     fontWeight: '800',
   },
@@ -1955,18 +1962,18 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   card: {
-    backgroundColor: '#141822',
+    backgroundColor: '#FFFFFF',
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   cardMaintenanceActive: {
-    borderColor: '#7F1D1D',
-    backgroundColor: '#1A1012',
+    borderColor: '#FECACA',
+    backgroundColor: '#FEF2F2',
   },
   cardTitle: {
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 4,
@@ -1984,26 +1991,26 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   infoRowText: {
-    color: '#9CA3AF',
+    color: '#4B5563',
     fontSize: 12,
     flex: 1,
   },
   inputLabel: {
-    color: '#9CA3AF',
+    color: '#4B5563',
     fontSize: 11.5,
     fontWeight: '600',
     marginBottom: 6,
     marginTop: 10,
   },
   textInput: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 13,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   paramChipsRow: {
     flexDirection: 'row',
@@ -2012,16 +2019,16 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   paramChip: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#F9FAFB',
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   paramChipActive: {
-    backgroundColor: '#16233B',
-    borderColor: '#253856',
+    backgroundColor: '#EFF6FF',
+    borderColor: '#BFDBFE',
   },
   paramChipText: {
     color: '#6B7280',
@@ -2029,7 +2036,7 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   paramChipTextActive: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontWeight: '600',
   },
   presetSectionHeaderRow: {
@@ -2043,37 +2050,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#16233B',
+    backgroundColor: '#EFF6FF',
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: '#253856',
+    borderColor: '#BFDBFE',
   },
   addPresetActionText: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontSize: 11,
     fontWeight: '600',
   },
   customPresetBadge: {
-    backgroundColor: '#1C1938',
+    backgroundColor: '#EEF2FF',
     paddingHorizontal: 6,
     paddingVertical: 1.5,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#3730A3',
+    borderColor: '#C7D2FE',
   },
   customPresetBadgeText: {
-    color: '#A5B4FC',
+    color: '#4338CA',
     fontSize: 9,
     fontWeight: '700',
   },
   deletePresetIconBtn: {
     padding: 3,
-    backgroundColor: '#201214',
+    backgroundColor: '#FEF2F2',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#4A1D24',
+    borderColor: '#FECACA',
   },
   presetGrid: {
     flexDirection: 'row',
@@ -2084,15 +2091,15 @@ const styles = StyleSheet.create({
   presetCard: {
     flex: 1,
     minWidth: 200,
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   presetCardActive: {
-    borderColor: '#2B4066',
-    backgroundColor: '#131C2E',
+    borderColor: '#BFDBFE',
+    backgroundColor: '#EFF6FF',
   },
   presetTop: {
     flexDirection: 'row',
@@ -2101,15 +2108,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   presetTitle: {
-    color: '#9CA3AF',
+    color: '#4B5563',
     fontSize: 12,
     fontWeight: '600',
   },
   presetTitleActive: {
-    color: '#60A5FA',
+    color: '#2563EB',
   },
   presetDesc: {
-    color: '#5A6578',
+    color: '#6B7280',
     fontSize: 10.5,
     lineHeight: 15,
   },
@@ -2117,7 +2124,7 @@ const styles = StyleSheet.create({
   /* Custom Preset Modal Styles */
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.4)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -2133,14 +2140,14 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 540,
     maxHeight: '90%',
-    backgroundColor: '#11141C',
+    backgroundColor: '#FFFFFF',
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#1E2430',
+    borderColor: '#E5E7EB',
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.1,
     shadowRadius: 20,
     elevation: 25,
   },
@@ -2150,21 +2157,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E2430',
+    borderBottomColor: '#F3F4F6',
     marginBottom: 14,
   },
   presetModalIconWrap: {
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: '#16233B',
+    backgroundColor: '#EFF6FF',
     borderWidth: 1,
-    borderColor: '#253856',
+    borderColor: '#BFDBFE',
     justifyContent: 'center',
     alignItems: 'center',
   },
   presetModalTitle: {
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 14.5,
     fontWeight: '700',
   },
@@ -2179,37 +2186,37 @@ const styles = StyleSheet.create({
     maxHeight: 400,
   },
   modalFieldLabel: {
-    color: '#9CA3AF',
+    color: '#4B5563',
     fontSize: 11.5,
     fontWeight: '600',
     marginBottom: 6,
     marginTop: 10,
   },
   modalFieldHint: {
-    color: '#5A6578',
+    color: '#6B7280',
     fontSize: 10.5,
     marginBottom: 6,
   },
   modalInput: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#F9FAFB',
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 12.5,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   modalPromptArea: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#F9FAFB',
     borderRadius: 8,
     padding: 12,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 12,
     lineHeight: 18,
     minHeight: 140,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     marginBottom: 10,
   },
   modalBtnRow: {
@@ -2217,19 +2224,19 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: '#1E2430',
+    borderTopColor: '#F3F4F6',
     marginTop: 10,
   },
   modalCancelBtn: {
     flex: 1,
-    backgroundColor: '#1E2430',
+    backgroundColor: '#F3F4F6',
     paddingVertical: 11,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
   },
   modalCancelText: {
-    color: '#9CA3AF',
+    color: '#4B5563',
     fontSize: 12.5,
     fontWeight: '600',
   },
@@ -2249,15 +2256,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   promptArea: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#F9FAFB',
     borderRadius: 10,
     padding: 12,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 12,
     lineHeight: 18,
     minHeight: 160,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     marginBottom: 16,
   },
   saveActionBtn: {
@@ -2275,27 +2282,27 @@ const styles = StyleSheet.create({
     fontSize: 13,
   },
   latencyBadge: {
-    backgroundColor: '#101F1A',
+    backgroundColor: '#ECFDF5',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#19382B',
+    borderColor: '#A7F3D0',
   },
   latencyText: {
-    color: '#34D399',
+    color: '#065F46',
     fontSize: 11,
     fontWeight: '600',
   },
   testInput: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 13,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     marginBottom: 10,
   },
   runTestBtn: {
@@ -2303,24 +2310,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#1E293B',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#2B4066',
+    borderColor: '#E5E7EB',
     marginBottom: 12,
   },
   runTestText: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontSize: 12.5,
     fontWeight: '600',
   },
   testResponseCard: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#F9FAFB',
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   testResponseHeader: {
     flexDirection: 'row',
@@ -2329,12 +2336,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   testResponseTitle: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontSize: 11.5,
     fontWeight: '600',
   },
   testResponseText: {
-    color: '#E5E7EB',
+    color: '#374151',
     fontSize: 12.5,
     lineHeight: 19,
   },
@@ -2349,10 +2356,10 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A202C',
+    borderBottomColor: '#F3F4F6',
   },
   switchItemTitle: {
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 2,
@@ -2373,14 +2380,14 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   emojiInput: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#F9FAFB',
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 20,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     textAlign: 'center',
     width: 64,
   },
@@ -2397,7 +2404,7 @@ const styles = StyleSheet.create({
   },
   colorCircleActive: {
     borderWidth: 2,
-    borderColor: '#FFFFFF',
+    borderColor: '#111827',
   },
   formBtnRow: {
     flexDirection: 'row',
@@ -2406,13 +2413,13 @@ const styles = StyleSheet.create({
   },
   cancelEditBtn: {
     flex: 1,
-    backgroundColor: '#1E2430',
+    backgroundColor: '#F3F4F6',
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: 'center',
   },
   cancelEditText: {
-    color: '#9CA3AF',
+    color: '#4B5563',
     fontWeight: '500',
     fontSize: 12,
   },
@@ -2429,7 +2436,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   resetText: {
-    color: '#EF4444',
+    color: '#DC2626',
     fontSize: 11,
     fontWeight: '500',
   },
@@ -2439,11 +2446,11 @@ const styles = StyleSheet.create({
   moodItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   moodEmojiBox: {
     width: 36,
@@ -2453,7 +2460,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   moodItemLabel: {
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 13,
     fontWeight: '500',
   },
@@ -2473,14 +2480,14 @@ const styles = StyleSheet.create({
   },
   iconBtn: {
     padding: 6,
-    backgroundColor: '#141822',
+    backgroundColor: '#F3F4F6',
     borderRadius: 6,
   },
   previewBox: {
     marginBottom: 14,
   },
   previewLabel: {
-    color: '#9CA3AF',
+    color: '#4B5563',
     fontSize: 11,
     fontWeight: '600',
     marginBottom: 6,
@@ -2489,34 +2496,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    backgroundColor: '#1E190E',
+    backgroundColor: '#FFFBEB',
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#3D3016',
+    borderColor: '#FDE68A',
   },
   bannerBadgeText: {
-    color: '#FBBF24',
+    color: '#B45309',
     fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.5,
     marginBottom: 2,
   },
   bannerPreviewText: {
-    color: '#FEF3C7',
+    color: '#92400E',
     fontSize: 12,
     lineHeight: 18,
   },
   broadcastInput: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: 12,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 13,
     lineHeight: 20,
     minHeight: 100,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     marginBottom: 6,
   },
   broadcastActionRow: {
@@ -2539,8 +2546,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   saveBroadcastBtnDisabled: {
-    backgroundColor: '#1E293B',
-    opacity: 0.5,
+    backgroundColor: '#E5E7EB',
   },
   saveBroadcastText: {
     color: '#FFFFFF',
@@ -2552,33 +2558,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#201214',
+    backgroundColor: '#FEF2F2',
     borderWidth: 1,
-    borderColor: '#4A1D24',
+    borderColor: '#FECACA',
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
   clearBannerText: {
-    color: '#EF4444',
+    color: '#DC2626',
     fontSize: 12.5,
     fontWeight: '600',
   },
   userSearchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     gap: 8,
     marginBottom: 14,
   },
   userSearchInput: {
     flex: 1,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 12.5,
   },
   userListWrap: {
@@ -2587,29 +2593,29 @@ const styles = StyleSheet.create({
   userRowCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
   },
   userAvatarSquare: {
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#16233B',
+    backgroundColor: '#EFF6FF',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#253856',
+    borderColor: '#BFDBFE',
   },
   userAvatarInitial: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontSize: 14,
     fontWeight: '700',
   },
   userNameText: {
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 13,
     fontWeight: '600',
   },
@@ -2636,15 +2642,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   badgeKpi: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#2B4066',
+    borderColor: '#E5E7EB',
   },
   badgeKpiText: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -2653,16 +2659,16 @@ const styles = StyleSheet.create({
   apiKeyInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     paddingHorizontal: 12,
     marginBottom: 10,
   },
   apiKeyInput: {
     flex: 1,
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 13,
     paddingVertical: 10,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
@@ -2681,12 +2687,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   apiResultSuccess: {
-    backgroundColor: '#0D281E',
-    borderColor: '#195B42',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
   },
   apiResultError: {
-    backgroundColor: '#261214',
-    borderColor: '#592026',
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
   },
   apiResultText: {
     fontSize: 12,
@@ -2694,10 +2700,10 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   apiResultTextSuccess: {
-    color: '#34D399',
+    color: '#065F46',
   },
   apiResultTextError: {
-    color: '#F87171',
+    color: '#991B1B',
   },
   /* Multi-Key Pool & Fallback Routing Studio Styles */
   addKeyToPoolBtn: {
@@ -2719,10 +2725,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 20,
-    backgroundColor: '#0E1117',
+    backgroundColor: '#F9FAFB',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     borderStyle: 'dashed',
     marginBottom: 12,
     gap: 6,
@@ -2738,10 +2744,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   keyItemCard: {
-    backgroundColor: '#0E1117',
+    backgroundColor: '#FFFFFF',
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: '#E5E7EB',
     padding: 10,
   },
   keyItemTop: {
@@ -2757,28 +2763,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   keyIndexBadge: {
-    backgroundColor: '#1E293B',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 7,
     paddingVertical: 2.5,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: '#334155',
+    borderColor: '#E5E7EB',
   },
   keyIndexBadgePrimary: {
-    backgroundColor: '#162D24',
-    borderColor: '#225E45',
+    backgroundColor: '#ECFDF5',
+    borderColor: '#A7F3D0',
   },
   keyIndexText: {
-    color: '#94A3B8',
+    color: '#4B5563',
     fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
   keyIndexTextPrimary: {
-    color: '#34D399',
+    color: '#065F46',
   },
   keyPreviewText: {
-    color: '#F3F4F6',
+    color: '#111827',
     fontSize: 12.5,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     flex: 1,
@@ -2792,24 +2798,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#16233B',
+    backgroundColor: '#F3F4F6',
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#253856',
+    borderColor: '#E5E7EB',
   },
   testSmallText: {
-    color: '#60A5FA',
+    color: '#2563EB',
     fontSize: 11,
     fontWeight: '600',
   },
   deleteSmallBtn: {
     padding: 5,
-    backgroundColor: '#201214',
+    backgroundColor: '#FEF2F2',
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#4A1D24',
+    borderColor: '#FECACA',
   },
   keyItemResultBox: {
     flexDirection: 'row',
@@ -2840,5 +2846,6 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '700',
+    textAlign: 'center',
   },
 });

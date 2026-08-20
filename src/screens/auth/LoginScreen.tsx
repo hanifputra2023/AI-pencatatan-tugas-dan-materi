@@ -11,11 +11,14 @@ import { supabase } from '../../lib/supabase';
 import { showAlert } from '../../lib/alert';
 import { useResponsive } from '../../hooks/useResponsive';
 
+import { useTheme } from '../../contexts/ThemeContext';
+
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Login'> };
 
 export default function LoginScreen({ navigation }: Props) {
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
+  const { theme, isLightMode } = useTheme();
 
   const [mode, setMode] = useState<'login' | 'register'>('login');
   const [username, setUsername] = useState('');
@@ -65,7 +68,7 @@ export default function LoginScreen({ navigation }: Props) {
   };
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
@@ -75,15 +78,19 @@ export default function LoginScreen({ navigation }: Props) {
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
         >
-          <View style={[styles.authCard, isWide && styles.authCardWide]}>
+          <View style={[
+            styles.authCard,
+            { backgroundColor: theme.card, borderColor: theme.border },
+            isWide && styles.authCardWide
+          ]}>
 
             {/* Minimalist Geometric Brand Logo */}
             <View style={styles.brandCenter}>
-              <View style={styles.logoBadge}>
-                <Ionicons name="sparkles" size={20} color="#3B82F6" />
+              <View style={[styles.logoBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                <Ionicons name="sparkles" size={20} color={theme.accentLight} />
               </View>
-              <Text style={styles.brandTitle}>StudyBot AI</Text>
-              <Text style={styles.brandSub}>
+              <Text style={[styles.brandTitle, { color: theme.text }]}>StudyBot AI</Text>
+              <Text style={[styles.brandSub, { color: theme.subtext }]}>
                 {mode === 'login'
                   ? 'Masuk ke akun catatan dan ruang belajarmu'
                   : 'Buat akun baru untuk mulai belajar lebih pintar'}
@@ -91,23 +98,37 @@ export default function LoginScreen({ navigation }: Props) {
             </View>
 
             {/* Clean Segmented Mode Switcher */}
-            <View style={styles.modeTabsRow}>
+            <View style={[styles.modeTabsRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
               <TouchableOpacity
-                style={[styles.modeTabBtn, mode === 'login' && styles.modeTabBtnActive]}
+                style={[
+                  styles.modeTabBtn,
+                  mode === 'login' && [styles.modeTabBtnActive, { backgroundColor: theme.card }]
+                ]}
                 onPress={() => setMode('login')}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.modeTabText, mode === 'login' && styles.modeTabTextActive]}>
+                <Text style={[
+                  styles.modeTabText,
+                  { color: theme.subtext },
+                  mode === 'login' && [styles.modeTabTextActive, { color: theme.accentLight }]
+                ]}>
                   Masuk
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.modeTabBtn, mode === 'register' && styles.modeTabBtnActive]}
+                style={[
+                  styles.modeTabBtn,
+                  mode === 'register' && [styles.modeTabBtnActive, { backgroundColor: theme.card }]
+                ]}
                 onPress={() => setMode('register')}
                 activeOpacity={0.7}
               >
-                <Text style={[styles.modeTabText, mode === 'register' && styles.modeTabTextActive]}>
+                <Text style={[
+                  styles.modeTabText,
+                  { color: theme.subtext },
+                  mode === 'register' && [styles.modeTabTextActive, { color: theme.accentLight }]
+                ]}>
                   Daftar
                 </Text>
               </TouchableOpacity>
@@ -119,21 +140,22 @@ export default function LoginScreen({ navigation }: Props) {
               {/* Username (Register Mode Only) */}
               {mode === 'register' && (
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.fieldLabel}>Nama Panggilan</Text>
+                  <Text style={[styles.fieldLabel, { color: theme.subtext }]}>Nama Panggilan</Text>
                   <View style={[
                     styles.inputBox,
-                    focusedField === 'username' && styles.inputBoxFocused
+                    { backgroundColor: theme.cardInner, borderColor: theme.border },
+                    focusedField === 'username' && [styles.inputBoxFocused, { borderColor: theme.accent, backgroundColor: theme.card }]
                   ]}>
                     <Ionicons
                       name="person-outline"
                       size={17}
-                      color={focusedField === 'username' ? '#60A5FA' : '#6B7280'}
+                      color={focusedField === 'username' ? theme.accentLight : theme.muted}
                       style={styles.inputIcon}
                     />
                     <TextInput
-                      style={styles.textInput}
+                      style={[styles.textInput, { color: theme.text }]}
                       placeholder="Nama kamu (opsional)"
-                      placeholderTextColor="#4B5565"
+                      placeholderTextColor={theme.muted}
                       value={username}
                       onChangeText={setUsername}
                       autoCapitalize="words"
@@ -146,21 +168,22 @@ export default function LoginScreen({ navigation }: Props) {
 
               {/* Email */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Email</Text>
+                <Text style={[styles.fieldLabel, { color: theme.subtext }]}>Email</Text>
                 <View style={[
                   styles.inputBox,
-                  focusedField === 'email' && styles.inputBoxFocused
+                  { backgroundColor: theme.cardInner, borderColor: theme.border },
+                  focusedField === 'email' && [styles.inputBoxFocused, { borderColor: theme.accent, backgroundColor: theme.card }]
                 ]}>
                   <Ionicons
                     name="mail-outline"
                     size={17}
-                    color={focusedField === 'email' ? '#60A5FA' : '#6B7280'}
+                    color={focusedField === 'email' ? theme.accentLight : theme.muted}
                     style={styles.inputIcon}
                   />
                   <TextInput
-                    style={styles.textInput}
+                    style={[styles.textInput, { color: theme.text }]}
                     placeholder="nama@email.com"
-                    placeholderTextColor="#4B5565"
+                    placeholderTextColor={theme.muted}
                     value={email}
                     onChangeText={setEmail}
                     keyboardType="email-address"
@@ -174,21 +197,22 @@ export default function LoginScreen({ navigation }: Props) {
 
               {/* Password */}
               <View style={styles.fieldGroup}>
-                <Text style={styles.fieldLabel}>Kata Sandi</Text>
+                <Text style={[styles.fieldLabel, { color: theme.subtext }]}>Kata Sandi</Text>
                 <View style={[
                   styles.inputBox,
-                  focusedField === 'password' && styles.inputBoxFocused
+                  { backgroundColor: theme.cardInner, borderColor: theme.border },
+                  focusedField === 'password' && [styles.inputBoxFocused, { borderColor: theme.accent, backgroundColor: theme.card }]
                 ]}>
                   <Ionicons
                     name="lock-closed-outline"
                     size={17}
-                    color={focusedField === 'password' ? '#60A5FA' : '#6B7280'}
+                    color={focusedField === 'password' ? theme.accentLight : theme.muted}
                     style={styles.inputIcon}
                   />
                   <TextInput
-                    style={[styles.textInput, { flex: 1 }]}
+                    style={[styles.textInput, { color: theme.text }]}
                     placeholder={mode === 'register' ? 'Minimal 6 karakter' : 'Kata sandi akun'}
-                    placeholderTextColor="#4B5565"
+                    placeholderTextColor={theme.muted}
                     value={password}
                     onChangeText={setPassword}
                     secureTextEntry={!showPass}
@@ -203,7 +227,7 @@ export default function LoginScreen({ navigation }: Props) {
                     <Ionicons
                       name={showPass ? 'eye-off-outline' : 'eye-outline'}
                       size={17}
-                      color="#6B7280"
+                      color={theme.muted}
                     />
                   </TouchableOpacity>
                 </View>
@@ -211,7 +235,7 @@ export default function LoginScreen({ navigation }: Props) {
 
               {/* Submit Button */}
               <TouchableOpacity
-                style={[styles.primaryBtn, loading && { opacity: 0.7 }]}
+                style={[styles.primaryBtn, { backgroundColor: theme.primary }, loading && { opacity: 0.7 }]}
                 onPress={handleSubmit}
                 disabled={loading}
                 activeOpacity={0.8}
@@ -231,9 +255,9 @@ export default function LoginScreen({ navigation }: Props) {
                 onPress={() => setMode(mode === 'login' ? 'register' : 'login')}
                 activeOpacity={0.7}
               >
-                <Text style={styles.switchPromptText}>
+                <Text style={[styles.switchPromptText, { color: theme.subtext }]}>
                   {mode === 'login' ? 'Belum punya akun? ' : 'Sudah punya akun? '}
-                  <Text style={styles.switchPromptLink}>
+                  <Text style={[styles.switchPromptLink, { color: theme.accentLight }]}>
                     {mode === 'login' ? 'Daftar sekarang' : 'Masuk di sini'}
                   </Text>
                 </Text>
@@ -242,9 +266,9 @@ export default function LoginScreen({ navigation }: Props) {
             </View>
 
             {/* Footer Security Badge */}
-            <View style={styles.cardFooter}>
-              <Ionicons name="lock-closed" size={11} color="#4B5565" />
-              <Text style={styles.footerSecurityText}>
+            <View style={[styles.cardFooter, { borderTopColor: theme.border }]}>
+              <Ionicons name="lock-closed" size={11} color={theme.muted} />
+              <Text style={[styles.footerSecurityText, { color: theme.muted }]}>
                 Tersinkronisasi Aman & Privasi Terlindungi
               </Text>
             </View>

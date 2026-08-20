@@ -816,31 +816,48 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
               {/* Summary Section (If Generated) */}
               {summary ? (
-                <View style={[styles.readerSummaryCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[
+                  styles.readerSummaryCard,
+                  {
+                    backgroundColor: isLightMode ? '#EFF6FF' : '#111A2E',
+                    borderColor: isLightMode ? '#BFDBFE' : '#1D3256',
+                  }
+                ]}>
                   <View style={styles.summaryTopRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="sparkles" size={16} color={theme.accentLight} />
-                      <Text style={[styles.summaryTitle, { color: theme.text }]}>📌 Intisari & Rangkuman AI</Text>
+                      <Ionicons name="sparkles" size={16} color={isLightMode ? '#1D4ED8' : theme.accentLight} />
+                      <Text style={[styles.summaryTitle, { color: isLightMode ? '#1D4ED8' : theme.text }]}>📌 Intisari & Rangkuman AI</Text>
                     </View>
-                    <TouchableOpacity onPress={handleAppendSummaryToContent} style={[styles.appendBtn, { backgroundColor: theme.accentBg }]}>
-                      <Text style={[styles.appendBtnText, { color: theme.accentLight }]}>+ Sisipkan</Text>
+                    <TouchableOpacity
+                      onPress={handleAppendSummaryToContent}
+                      style={[styles.appendBtn, { backgroundColor: isLightMode ? '#DBEAFE' : theme.accentBg }]}
+                    >
+                      <Text style={[styles.appendBtnText, { color: isLightMode ? '#1D4ED8' : theme.accentLight }]}>+ Sisipkan</Text>
                     </TouchableOpacity>
                   </View>
-                  <MarkdownRenderer content={summary} fontSize={14} textColor={theme.text} />
+                  <MarkdownRenderer content={summary} fontSize={14} textColor={isLightMode ? '#1E3A8A' : theme.text} />
                 </View>
               ) : null}
 
               {/* Interactive Quiz Section (If Generated) */}
               {quizData.length > 0 ? (
-                <View style={styles.quizCard}>
+                <View style={[
+                  styles.quizCard,
+                  {
+                    backgroundColor: theme.card,
+                    borderColor: isLightMode ? '#A7F3D0' : '#192C23',
+                  }
+                ]}>
                   <View style={styles.quizTopRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="school" size={18} color="#34D399" />
-                      <Text style={styles.quizHeaderTitle}>🧠 Kuis Pemahaman ({quizData.length} Soal)</Text>
+                      <Ionicons name="school" size={18} color={isLightMode ? '#059669' : '#34D399'} />
+                      <Text style={[styles.quizHeaderTitle, { color: isLightMode ? '#059669' : '#34D399' }]}>
+                        🧠 Kuis Pemahaman ({quizData.length} Soal)
+                      </Text>
                     </View>
                     <View style={styles.quizHeaderActions}>
-                      <TouchableOpacity onPress={handleResetQuizAnswers} style={styles.miniBtn}>
-                        <Text style={styles.miniBtnText}>Reset</Text>
+                      <TouchableOpacity onPress={handleResetQuizAnswers} style={[styles.miniBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <Text style={[styles.miniBtnText, { color: theme.subtext }]}>Reset</Text>
                       </TouchableOpacity>
                       <TouchableOpacity onPress={handleClearQuiz} style={[styles.miniBtnDanger, { backgroundColor: isLightMode ? '#FEE2E2' : '#331215', borderColor: isLightMode ? '#FECACA' : '#591D24' }]}>
                         <Text style={[styles.miniBtnDangerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus</Text>
@@ -849,17 +866,23 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                   </View>
 
                   {/* Score Progress Bar */}
-                  <View style={[styles.scoreBarCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                  <View style={[
+                    styles.scoreBarCard,
+                    {
+                      backgroundColor: isLightMode ? '#ECFDF5' : '#131D19',
+                      borderColor: isLightMode ? '#A7F3D0' : '#1D3B2D',
+                    }
+                  ]}>
                     <View style={styles.scoreTopInfo}>
-                      <Text style={[styles.scoreLabel, { color: theme.subtext }]}>
+                      <Text style={[styles.scoreLabel, { color: isLightMode ? '#065F46' : theme.subtext }]}>
                         Progres: {answeredCount} dari {quizData.length} Soal Dijawab
                       </Text>
-                      <Text style={[styles.scoreValueText, { color: theme.accentLight }]}>
+                      <Text style={[styles.scoreValueText, { color: isLightMode ? '#059669' : theme.accentLight }]}>
                         Skor: {correctCount}/{quizData.length} ({scorePercent}%)
                       </Text>
                     </View>
-                    <View style={[styles.progressTrack, { backgroundColor: theme.border }]}>
-                      <View style={[styles.progressFill, { backgroundColor: theme.primary, width: `${(answeredCount / quizData.length) * 100}%` }]} />
+                    <View style={[styles.progressTrack, { backgroundColor: isLightMode ? '#D1FAE5' : theme.border }]}>
+                      <View style={[styles.progressFill, { backgroundColor: isLightMode ? '#10B981' : theme.primary, width: `${(answeredCount / quizData.length) * 100}%` }]} />
                     </View>
                   </View>
 
@@ -871,7 +894,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
                     return (
                       <View key={qIndex} style={[styles.questionBlock, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                        <Text style={[styles.questionNum, { color: theme.accentLight }]}>Soal {qIndex + 1}:</Text>
+                        <Text style={[styles.questionNum, { color: isLightMode ? '#2563EB' : theme.accentLight }]}>Soal {qIndex + 1}:</Text>
                         <Text style={[styles.questionText, { color: theme.text }]}>{q.question}</Text>
 
                         <View style={styles.optionsList}>
@@ -886,13 +909,19 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                                   styles.optionBtn,
                                   { backgroundColor: theme.card, borderColor: theme.border },
                                   isChosen && [styles.optionBtnSelected, { backgroundColor: theme.accentBg, borderColor: theme.accent }],
-                                  isAnswered && isTheRightAnswer && styles.optionBtnCorrect,
-                                  isAnswered && isChosen && !isTheRightAnswer && styles.optionBtnWrong,
+                                  isAnswered && isTheRightAnswer && [
+                                    styles.optionBtnCorrect,
+                                    { backgroundColor: isLightMode ? '#DCFCE7' : '#0D281E', borderColor: isLightMode ? '#22C55E' : '#10B981' }
+                                  ],
+                                  isAnswered && isChosen && !isTheRightAnswer && [
+                                    styles.optionBtnWrong,
+                                    { backgroundColor: isLightMode ? '#FEE2E2' : '#261214', borderColor: isLightMode ? '#EF4444' : '#EF4444' }
+                                  ],
                                 ]}
                                 onPress={() => handleSelectQuizOption(qIndex, optIndex)}
                                 activeOpacity={0.7}
                               >
-                                <View style={[styles.optionIndexBadge, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                                <View style={[styles.optionIndexBadge, { backgroundColor: isLightMode ? '#E2E8F0' : theme.cardInner, borderColor: theme.border }]}>
                                   <Text style={[styles.optionIndexText, { color: theme.text }]}>
                                     {String.fromCharCode(65 + optIndex)}
                                   </Text>
@@ -901,14 +930,14 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                                   style={[
                                     styles.optionText,
                                     { color: theme.text },
-                                    isAnswered && isTheRightAnswer && styles.optionTextCorrect,
-                                    isAnswered && isChosen && !isTheRightAnswer && styles.optionTextWrong,
+                                    isAnswered && isTheRightAnswer && [styles.optionTextCorrect, { color: isLightMode ? '#15803D' : '#34D399' }],
+                                    isAnswered && isChosen && !isTheRightAnswer && [styles.optionTextWrong, { color: isLightMode ? '#DC2626' : '#F87171' }],
                                   ]}
                                 >
                                   {opt}
                                 </Text>
                                 {isAnswered && isTheRightAnswer && (
-                                  <Ionicons name="checkmark-circle" size={16} color="#34D399" style={{ marginLeft: 'auto' }} />
+                                  <Ionicons name="checkmark-circle" size={16} color={isLightMode ? '#16A34A' : '#34D399'} style={{ marginLeft: 'auto' }} />
                                 )}
                                 {isAnswered && isChosen && !isTheRightAnswer && (
                                   <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 'auto' }} />
@@ -919,13 +948,18 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         </View>
 
                         {isAnswered && (
-                          <View style={[styles.explanationCard, isCorrect ? styles.explanationCardCorrect : styles.explanationCardWrong]}>
+                          <View style={[
+                            styles.explanationCard,
+                            isCorrect
+                              ? [styles.explanationCardCorrect, { backgroundColor: isLightMode ? '#DCFCE7' : '#0A2118', borderColor: isLightMode ? '#86EFAC' : '#144634' }]
+                              : [styles.explanationCardWrong, { backgroundColor: isLightMode ? '#FEF3C7' : '#241D10', borderColor: isLightMode ? '#FCD34D' : '#4D3B16' }]
+                          ]}>
                             <Ionicons
                               name={isCorrect ? 'sparkles' : 'information-circle'}
                               size={15}
-                              color={isCorrect ? '#34D399' : '#FBBF24'}
+                              color={isCorrect ? (isLightMode ? '#16A34A' : '#34D399') : (isLightMode ? '#D97706' : '#FBBF24')}
                             />
-                            <Text style={styles.explanationText}>
+                            <Text style={[styles.explanationText, { color: theme.text }]}>
                               {q.explanation}
                             </Text>
                           </View>
@@ -946,7 +980,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
               {/* Draft Status Banner (Auto-Save Indicator & Discard Option) */}
               {!noteId && (draftSavedTime || hasRestoredDraft) ? (
-                <View style={styles.draftBannerRow}>
+                <View style={[styles.draftBannerRow, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F1E19', borderColor: isLightMode ? '#86EFAC' : '#1D4537' }]}>
                   <View style={[styles.draftStatusPill, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
                     <Ionicons name="cloud-done" size={13} color="#10B981" />
                     <Text style={[styles.draftStatusText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
@@ -974,7 +1008,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
               <View style={styles.subjectHeaderRow}>
                 <Text style={[styles.inputLabel, { color: theme.text }]}>Pilih Mata Kuliah:</Text>
                 <TouchableOpacity
-                  style={[styles.manageSubjBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  style={[styles.manageSubjBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
                   onPress={() => setShowSubjectModal(true)}
                 >
                   <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
@@ -1010,7 +1044,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                 {/* Write vs Live Preview Toggle */}
                 <View style={[styles.editModeToggleWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                   <TouchableOpacity
-                    style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
+                    style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
                     onPress={() => setEditTab('write')}
                   >
                     <Ionicons name="create-outline" size={13} color={editTab === 'write' ? theme.accentLight : theme.subtext} />
@@ -1020,7 +1054,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
+                    style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
                     onPress={() => setEditTab('preview')}
                   >
                     <Ionicons name="eye-outline" size={13} color={editTab === 'preview' ? theme.accentLight : theme.subtext} />
@@ -1039,57 +1073,62 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     {...(Platform.OS === 'web' ? { onMouseDown: (e: any) => e.preventDefault() } : {})}
                   >
                     <View style={styles.toolbarRow}>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
-                        <Text style={styles.toolBtnBold}>B</Text>
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
+                        <Text style={[styles.toolBtnBold, { color: theme.text }]}>B</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('*', '*', 'teks miring')}>
-                        <Text style={styles.toolBtnItalic}>I</Text>
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('*', '*', 'teks miring')}>
+                        <Text style={[styles.toolBtnItalic, { color: theme.text }]}>I</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('__', '__', 'teks garis bawah')}>
-                        <Text style={styles.toolBtnUnderline}>U</Text>
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('__', '__', 'teks garis bawah')}>
+                        <Text style={[styles.toolBtnUnderline, { color: theme.text }]}>U</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('~~', '~~', 'teks coret')}>
-                        <Text style={[styles.toolBtnUnderline, { textDecorationLine: 'line-through' }]}>S</Text>
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('~~', '~~', 'teks coret')}>
+                        <Text style={[styles.toolBtnItalic, { textDecorationLine: 'line-through', color: theme.text }]}>S</Text>
                       </TouchableOpacity>
-                      <View style={styles.toolDivider} />
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('## ', 'Judul Bagian')}>
-                        <Text style={styles.toolBtnH3}>H2</Text>
+                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('## ', 'Judul Bagian')}>
+                        <Text style={[styles.toolBtnH3, { color: theme.text }]}>H2</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('### ', 'Judul Sub Bagian')}>
-                        <Text style={styles.toolBtnH3}>H3</Text>
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('### ', 'Judul Sub Bagian')}>
+                        <Text style={[styles.toolBtnH3, { color: theme.text }]}>H3</Text>
                       </TouchableOpacity>
-                      <View style={styles.toolDivider} />
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('- ', 'Item list')}>
-                        <Ionicons name="list" size={15} color="#9CA3AF" />
+                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('- ', 'Item list')}>
+                        <Ionicons name="list" size={15} color={theme.text} />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('1. ', 'Item numerik')}>
-                        <Text style={styles.toolBtnH3}>1.</Text>
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('1. ', 'Item numerik')}>
+                        <Text style={[styles.toolBtnH3, { color: theme.text }]}>1.</Text>
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('> ', 'Kutipan')}>
-                        <Ionicons name="chatbubble-outline" size={14} color="#9CA3AF" />
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('> ', 'Kutipan')}>
+                        <Ionicons name="chatbubble-outline" size={14} color={theme.text} />
                       </TouchableOpacity>
-                      <View style={styles.toolDivider} />
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('`', '`', 'kode')}>
-                        <Ionicons name="code-slash" size={15} color="#9CA3AF" />
+                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('`', '`', 'kode')}>
+                        <Ionicons name="code-slash" size={15} color={theme.text} />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => wrapSelection('```\n', '\n```', 'blok kode')}>
-                        <Ionicons name="terminal-outline" size={15} color="#9CA3AF" />
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('```\n', '\n```', 'blok kode')}>
+                        <Ionicons name="terminal-outline" size={15} color={theme.text} />
                       </TouchableOpacity>
-                      <TouchableOpacity style={styles.toolBtn} onPress={() => prefixLine('---\n', '')}>
-                        <Ionicons name="remove-outline" size={15} color="#9CA3AF" />
+                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('---\n', '')}>
+                        <Ionicons name="remove-outline" size={15} color={theme.text} />
                       </TouchableOpacity>
                     </View>
 
                     {/* Font Size Selector */}
-                    <View style={styles.fontSizeRow}>
-                      <Ionicons name="text-outline" size={13} color="#6B7280" />
+                    <View style={[styles.fontSizeRow, { borderTopColor: theme.border }]}>
+                      <Ionicons name="text-outline" size={13} color={theme.muted} />
+                      <Text style={[styles.fontSizeChipText, { color: theme.muted }]}>Ukuran Teks:</Text>
                       {FONT_SIZES.map(size => (
                         <TouchableOpacity
                           key={size}
-                          style={[styles.fontSizeChip, editorFontSize === size && styles.fontSizeChipActive]}
+                          style={[
+                            styles.fontSizeChip,
+                            { backgroundColor: isLightMode ? '#F1F5F9' : '#1A1F2E' },
+                            editorFontSize === size && [styles.fontSizeChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                          ]}
                           onPress={() => setEditorFontSize(size)}
                         >
-                          <Text style={[styles.fontSizeChipText, editorFontSize === size && styles.fontSizeChipTextActive]}>
+                          <Text style={[styles.fontSizeChipText, { color: theme.subtext }, editorFontSize === size && [styles.fontSizeChipTextActive, { color: theme.accentLight }]]}>
                             {size}
                           </Text>
                         </TouchableOpacity>
@@ -1256,7 +1295,6 @@ const styles = StyleSheet.create({
     flex: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    backgroundColor: '#090B0E',
   },
   topHeader: {
     flexDirection: 'row',
