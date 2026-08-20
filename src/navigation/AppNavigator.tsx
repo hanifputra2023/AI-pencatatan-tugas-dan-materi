@@ -58,6 +58,7 @@ function MainTabs() {
     <View style={{ flex: 1, backgroundColor: theme.bg }}>
       {isDesktop && <DesktopHeader />}
       <Tab.Navigator
+        backBehavior="history"
         screenOptions={({ route }) => ({
           tabBarIcon: ({ focused, color }) => {
             const icons: Record<string, keyof typeof Ionicons.glyphMap> = {

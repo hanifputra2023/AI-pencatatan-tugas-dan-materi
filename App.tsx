@@ -2,6 +2,7 @@ import 'react-native-url-polyfill/auto';
 import React, { useEffect } from 'react';
 import { View, StyleSheet, Platform, useWindowDimensions } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
+import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import { AuthProvider } from './src/contexts/AuthContext';
 import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { MoodProvider } from './src/contexts/MoodContext';
@@ -32,6 +33,7 @@ if (Platform.OS === 'web' && typeof document !== 'undefined') {
     document.head.appendChild(style);
   }
 }
+
 
 function MainAppContainer() {
   const { theme, isLightMode } = useTheme();
@@ -65,28 +67,33 @@ function MainAppContainer() {
   }, [isLightMode]);
 
   return (
-    <View style={[styles.outerBackground, { backgroundColor: theme.bg }]}>
+    <SafeAreaView 
+      style={[styles.outerBackground, { backgroundColor: theme.bg }]} 
+      edges={Platform.OS === 'web' ? [] : ['top', 'left', 'right']}
+    >
       <StatusBar style={isLightMode ? 'dark' : 'light'} />
       <View style={[styles.appContainer, { backgroundColor: theme.bg }]}>
         <AppNavigator />
       </View>
-    </View>
+    </SafeAreaView>
   );
 }
 
 export default function App() {
   return (
-    <AuthProvider>
-      <ThemeProvider>
-        <MoodProvider>
-          <AlertProvider>
-            <SubjectProvider>
-              <MainAppContainer />
-            </SubjectProvider>
-          </AlertProvider>
-        </MoodProvider>
-      </ThemeProvider>
-    </AuthProvider>
+    <SafeAreaProvider>
+      <AuthProvider>
+        <ThemeProvider>
+          <MoodProvider>
+            <AlertProvider>
+              <SubjectProvider>
+                <MainAppContainer />
+              </SubjectProvider>
+            </AlertProvider>
+          </MoodProvider>
+        </ThemeProvider>
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 

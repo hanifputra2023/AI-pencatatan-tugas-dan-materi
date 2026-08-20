@@ -55,9 +55,11 @@ CREATE TABLE IF NOT EXISTS public.journal_entries (
   mood TEXT DEFAULT 'neutral',
   tags TEXT[] DEFAULT '{}',
   image_url TEXT,
+  is_draft BOOLEAN DEFAULT FALSE,
   created_at TIMESTAMPTZ DEFAULT NOW(),
   updated_at TIMESTAMPTZ DEFAULT NOW()
 );
+ALTER TABLE public.journal_entries ADD COLUMN IF NOT EXISTS is_draft BOOLEAN DEFAULT FALSE;
 ALTER TABLE public.journal_entries ENABLE ROW LEVEL SECURITY;
 CREATE POLICY "Users can view own entries"   ON public.journal_entries FOR SELECT USING (auth.uid() = user_id);
 CREATE POLICY "Users can insert own entries" ON public.journal_entries FOR INSERT WITH CHECK (auth.uid() = user_id);

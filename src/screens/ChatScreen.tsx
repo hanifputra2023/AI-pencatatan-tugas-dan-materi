@@ -21,6 +21,7 @@ import { safeSaveChatMessages, safeSaveSessions, safeRemoveChatCache } from '../
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import MarkdownRenderer from '../components/MarkdownRenderer';
+import { compressImage } from '../lib/imageCompressor';
 
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
@@ -40,7 +41,7 @@ function generateUUID(): string {
 export default function ChatScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const { aiPersona, aiBotName } = useMoods();
+  const { aiPersona, aiBotName, activePersona } = useMoods();
   const { theme, isLightMode } = useTheme();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -317,17 +318,16 @@ export default function ChatScreen() {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsEditing: false,
         quality: 0.8,
-        base64: true,
       });
       if (!res.canceled && res.assets[0]) {
         const asset = res.assets[0];
+        const compressedUri = await compressImage(asset.uri, { maxWidth: 800, quality: 0.55 });
         setAttachment({
           type: 'image',
-          uri: asset.uri,
+          uri: compressedUri,
           name: asset.fileName || 'Foto.jpg',
           size: asset.fileSize,
           mimeType: asset.mimeType || 'image/jpeg',
-          base64: asset.base64 || undefined,
         });
       }
     } catch (e: any) {
@@ -346,17 +346,16 @@ export default function ChatScreen() {
       const res = await ImagePicker.launchCameraAsync({
         allowsEditing: false,
         quality: 0.8,
-        base64: true,
       });
       if (!res.canceled && res.assets[0]) {
         const asset = res.assets[0];
+        const compressedUri = await compressImage(asset.uri, { maxWidth: 800, quality: 0.55 });
         setAttachment({
           type: 'image',
-          uri: asset.uri,
+          uri: compressedUri,
           name: 'Kamera_' + Date.now() + '.jpg',
           size: asset.fileSize,
           mimeType: 'image/jpeg',
-          base64: asset.base64 || undefined,
         });
       }
     } catch (e: any) {
@@ -741,6 +740,13 @@ export default function ChatScreen() {
             <View style={styles.nameRow}>
               <Text style={[styles.headerTitle, { color: theme.text }]}>{aiBotName || 'Ara'}</Text>
               <View style={styles.statusDot} />
+              {activePersona?.name && (
+                <View style={[styles.personaHeaderBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                  <Text style={[styles.personaHeaderBadgeText, { color: theme.accentLight }]}>
+                    {activePersona.name.split(' (')[0]}
+                  </Text>
+                </View>
+              )}
             </View>
             <Text style={[styles.headerSubtitle, { color: theme.subtext }]} numberOfLines={1}>
               {currentSessionTitle || 'Teman Curhat AI'}
@@ -1051,54 +1057,6 @@ export default function ChatScreen() {
         </View>
       </Modal>
 
-      {/* Attachment Selection Menu Modal */}
-      <Modal
-        visible={showAttachMenu}
-        transparent
-        animationType="fade"
-        onRequestClose={() => setShowAttachMenu(false)}
-      >
-        <TouchableOpacity
-          style={styles.attachModalOverlay}
-          activeOpacity={1}
-          onPress={() => setShowAttachMenu(false)}
-        >
-          <View style={[styles.attachMenuCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <Text style={[styles.attachMenuTitle, { color: theme.text }]}>Kirim Lampiran</Text>
-
-            <TouchableOpacity style={[styles.attachOptionRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={pickImage}>
-              <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                <Ionicons name="image-outline" size={18} color={theme.accentLight} />
-              </View>
-              <View>
-                <Text style={[styles.attachOptionLabel, { color: theme.text }]}>Foto / Gambar Soal</Text>
-                <Text style={[styles.attachOptionSub, { color: theme.subtext }]}>JPG, PNG untuk dianalisis AI</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[styles.attachOptionRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={pickAudio}>
-              <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#3B1A16', borderColor: theme.border }]}>
-                <Ionicons name="mic-outline" size={18} color={isLightMode ? '#D97706' : '#FB923C'} />
-              </View>
-              <View>
-                <Text style={[styles.attachOptionLabel, { color: theme.text }]}>Audio / Voice Note</Text>
-                <Text style={[styles.attachOptionSub, { color: theme.subtext }]}>MP3, WAV, M4A</Text>
-              </View>
-            </TouchableOpacity>
-
-            <TouchableOpacity style={[styles.attachOptionRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={pickDocument}>
-              <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#DCFCE7' : '#143825', borderColor: theme.border }]}>
-                <Ionicons name="document-text-outline" size={18} color={isLightMode ? '#16A34A' : '#4ADE80'} />
-              </View>
-              <View>
-                <Text style={[styles.attachOptionLabel, { color: theme.text }]}>Dokumen Materi / PDF</Text>
-                <Text style={[styles.attachOptionSub, { color: theme.subtext }]}>PDF, TXT, DOCX</Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-        </TouchableOpacity>
-      </Modal>
-
     </SafeAreaView>
   );
 }
@@ -1184,6 +1142,16 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: 3,
     backgroundColor: '#10B981',
+  },
+  personaHeaderBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  personaHeaderBadgeText: {
+    fontSize: 10,
+    fontWeight: '600',
   },
   headerSubtitle: {
     color: '#6B7280',

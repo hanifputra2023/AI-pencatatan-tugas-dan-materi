@@ -6,7 +6,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -17,6 +17,7 @@ import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { sendMessageToGemini } from '../lib/gemini';
+import { compressImage } from '../lib/imageCompressor';
 
 type JournalEntryRouteProp = RouteProp<RootStackParamList, 'JournalEntry'>;
 
@@ -36,6 +37,8 @@ export default function JournalEntryScreen() {
   // View vs Edit Mode (Existing entry starts in Reader/Detail mode, new starts in Edit mode)
   const [isEditing, setIsEditing] = useState(!entryId);
 
+  const [isDraft, setIsDraft] = useState(false);
+
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
   const [mood, setMood] = useState<string>(moods[0]?.type || 'neutral');
@@ -52,12 +55,13 @@ export default function JournalEntryScreen() {
 
   // Draft state for new journal
   const [draftStatus, setDraftStatus] = useState<string | null>(null);
+  const [pendingDraft, setPendingDraft] = useState<any>(null);
   const draftTimerRef = useRef<any>(null);
   const contentInputRef = useRef<TextInput>(null);
   const selectionRef = useRef({ start: 0, end: 0 });
 
   // -------------------------------------------------------------
-  // Fetch existing journal or restore draft
+  // Fetch existing journal or check draft
   // -------------------------------------------------------------
   const fetchEntry = useCallback(async () => {
     if (!entryId) return;
@@ -71,6 +75,7 @@ export default function JournalEntryScreen() {
         setTags(entry.tags ?? []);
         if (entry.image_url) setImageUri(entry.image_url);
         if (entry.created_at) setCreatedAt(entry.created_at);
+        setIsDraft(!!entry.is_draft);
       }
     } catch (e) {
       console.log('Error fetching journal entry:', e);
@@ -79,41 +84,95 @@ export default function JournalEntryScreen() {
     }
   }, [entryId]);
 
-  const loadDraft = useCallback(async () => {
+  const checkDraft = useCallback(async () => {
     if (entryId) return;
     try {
       const key = `@journal_draft_${user?.id || 'anonymous'}`;
       const raw = await AsyncStorage.getItem(key);
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (parsed.title || parsed.content) {
-          setTitle(parsed.title || '');
-          setContent(parsed.content || '');
-          if (parsed.mood) setMood(parsed.mood);
-          if (parsed.tags) setTags(parsed.tags);
-          if (parsed.imageUri) setImageUri(parsed.imageUri);
-          setDraftStatus('Draf sebelumnya dipulihkan');
+        if (parsed.title?.trim() || parsed.content?.trim()) {
+          setPendingDraft(parsed);
         }
       }
     } catch (e) { }
   }, [entryId, user]);
 
+  const handleRestoreDraft = () => {
+    if (!pendingDraft) return;
+    setTitle(pendingDraft.title || '');
+    setContent(pendingDraft.content || '');
+    if (pendingDraft.mood) setMood(pendingDraft.mood);
+    if (pendingDraft.tags) setTags(pendingDraft.tags);
+    if (pendingDraft.imageUri) setImageUri(pendingDraft.imageUri);
+    setPendingDraft(null);
+    setDraftStatus('Draf berhasil dipulihkan');
+  };
+
+  const handleDiscardDraft = async () => {
+    try {
+      const key = `@journal_draft_${user?.id || 'anonymous'}`;
+      await AsyncStorage.removeItem(key);
+      setPendingDraft(null);
+      setDraftStatus(null);
+    } catch (e) { }
+  };
+
   useEffect(() => {
     if (entryId) {
+      setFetching(true);
       fetchEntry();
+      setIsEditing(false);
+      setPendingDraft(null);
+      setDraftStatus(null);
     } else {
-      loadDraft();
+      // Always start fresh and clean for NEW JOURNAL
+      setTitle('');
+      setContent('');
+      setMood(moods[0]?.type || 'neutral');
+      setTags([]);
+      setImageUri(null);
+      setCreatedAt(new Date().toISOString());
+      setIsEditing(true);
+      setAiInsight(null);
+      setDraftStatus(null);
+      setPendingDraft(null);
+      setFetching(false);
+      checkDraft();
     }
-  }, [entryId, fetchEntry, loadDraft]);
+  }, [entryId, fetchEntry, checkDraft, moods]);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (!entryId) {
+        setTitle('');
+        setContent('');
+        setMood(moods[0]?.type || 'neutral');
+        setTags([]);
+        setImageUri(null);
+        setCreatedAt(new Date().toISOString());
+        setIsEditing(true);
+        setAiInsight(null);
+        setDraftStatus(null);
+        setPendingDraft(null);
+        setFetching(false);
+        checkDraft();
+      }
+    }, [entryId, checkDraft, moods])
+  );
 
   // -------------------------------------------------------------
-  // Auto-Save Draft for New Journal Entries
+  // Auto-Save Draft for New Journal Entries (Only when user types)
   // -------------------------------------------------------------
   const saveDraft = useCallback(async (t: string, c: string, m: string, tg: string[], img: string | null) => {
     if (entryId) return;
-    if (!t.trim() && !c.trim()) return;
+    const key = `@journal_draft_${user?.id || 'anonymous'}`;
     try {
-      const key = `@journal_draft_${user?.id || 'anonymous'}`;
+      if (!t.trim() && !c.trim()) {
+        await AsyncStorage.removeItem(key);
+        setDraftStatus(null);
+        return;
+      }
       await AsyncStorage.setItem(key, JSON.stringify({
         title: t,
         content: c,
@@ -128,21 +187,21 @@ export default function JournalEntryScreen() {
 
   useEffect(() => {
     if (entryId) return;
-    if (!title.trim() && !content.trim()) return;
+    if (pendingDraft) return; // Don't auto-save before user chooses to restore or discard
 
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
       saveDraft(title, content, mood, tags, imageUri);
-    }, 800);
+    }, 1200);
 
     return () => {
       if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     };
-  }, [title, content, mood, tags, imageUri, entryId, saveDraft]);
+  }, [title, content, mood, tags, imageUri, entryId, pendingDraft, saveDraft]);
 
   // Flush-save draft when app goes to background
   useEffect(() => {
-    if (entryId) return;
+    if (entryId || pendingDraft) return;
     const subscription = AppState.addEventListener('change', nextState => {
       if (nextState.match(/inactive|background/)) {
         if (title.trim() || content.trim()) {
@@ -151,7 +210,7 @@ export default function JournalEntryScreen() {
       }
     });
     return () => subscription.remove();
-  }, [title, content, mood, tags, imageUri, entryId, saveDraft]);
+  }, [title, content, mood, tags, imageUri, entryId, pendingDraft, saveDraft]);
 
   // -------------------------------------------------------------
   // Markdown Format Helpers with Selection Wrapping
@@ -202,8 +261,20 @@ export default function JournalEntryScreen() {
   };
 
   const pickImage = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.7 });
-    if (!result.canceled) setImageUri(result.assets[0].uri);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        quality: 0.8,
+        allowsEditing: false,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const rawUri = result.assets[0].uri;
+        const compressedUri = await compressImage(rawUri, { maxWidth: 800, quality: 0.55 });
+        setImageUri(compressedUri);
+      }
+    } catch (e) {
+      console.warn('Error picking/compressing journal image:', e);
+    }
   };
 
   // -------------------------------------------------------------
@@ -234,11 +305,16 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
   };
 
   // -------------------------------------------------------------
-  // Save & Delete
   // -------------------------------------------------------------
-  const handleSave = async () => {
-    if (!content.trim()) {
-      showAlert('Perhatian', 'Isi jurnal tidak boleh kosong.');
+  // Save & Delete (Dual Mode: Draft or Published)
+  // -------------------------------------------------------------
+  const handleSave = async (asDraft: boolean = false) => {
+    if (!content.trim() && !asDraft) {
+      showAlert('Perhatian', 'Isi jurnal tidak boleh kosong untuk dipublikasikan.');
+      return;
+    }
+    if (!title.trim() && !content.trim()) {
+      showAlert('Perhatian', 'Draf setidaknya harus memiliki judul atau isi tulisan.');
       return;
     }
     setLoading(true);
@@ -250,19 +326,28 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
       mood,
       tags,
       image_url: imageUri,
+      is_draft: asDraft,
     };
 
     try {
       if (user) {
         if (entryId) {
           await supabase.from('journal_entries').update(payload).eq('id', entryId);
+          setIsDraft(asDraft);
           setIsEditing(false);
-          showAlert('Tersimpan ✨', 'Perubahan jurnal berhasil disimpan.');
+          showAlert(
+            asDraft ? 'Draf Disimpan' : 'Tersimpan',
+            asDraft ? 'Perubahan disimpan ke dalam Draf Saya.' : 'Perubahan jurnal berhasil disimpan dan dipublikasikan.'
+          );
         } else {
           await supabase.from('journal_entries').insert(payload);
-          // Clear draft on new save
+          // Clear temp local draft
           const key = `@journal_draft_${user.id}`;
           await AsyncStorage.removeItem(key);
+          showAlert(
+            asDraft ? 'Draf Tersimpan' : 'Tersimpan',
+            asDraft ? 'Tersimpan di tab Draf Saya.' : 'Jurnal berhasil dipublikasikan.'
+          );
           navigation.goBack();
         }
       }
@@ -275,7 +360,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 
   const handleDelete = () => {
     confirmAction(
-      'Hapus Jurnal?',
+      isDraft ? 'Hapus Draf?' : 'Hapus Jurnal?',
       'Catatan ini akan dihapus secara permanen dan tidak bisa dikembalikan.',
       async () => {
         if (user && entryId) {
@@ -291,7 +376,15 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const charCount = content.length;
 
-  if (fetching) {
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('Main' as any, { screen: 'Journal' });
+    }
+  };
+
+  if (loading && !isEditing && entryId) {
     return (
       <View style={[styles.loaderCenter, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="small" color={theme.accentLight} />
@@ -304,28 +397,62 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 
       {/* Top Header */}
       <View style={[styles.topHeader, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        <TouchableOpacity style={[styles.headerBackBtn, { backgroundColor: theme.cardInner }]} onPress={() => navigation.goBack()}>
+        <TouchableOpacity style={[styles.headerBackBtn, { backgroundColor: theme.cardInner }]} onPress={handleBack}>
           <Ionicons name="arrow-back" size={20} color={theme.text} />
         </TouchableOpacity>
 
         <View style={{ flex: 1, paddingHorizontal: 10 }}>
-          <Text style={[styles.topHeaderTitle, { color: theme.text }]} numberOfLines={1}>
-            {isEditing ? (entryId ? 'Edit Jurnal' : 'Tulis Jurnal Baru') : (title || 'Detail Jurnal')}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            {isDraft && (
+              <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#3B2412', borderColor: isLightMode ? '#FCD34D' : '#78350F' }]}>
+                <Ionicons name="document-text" size={9} color={isLightMode ? '#D97706' : '#FBBF24'} />
+                <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Draf</Text>
+              </View>
+            )}
+            <Text style={[styles.topHeaderTitle, { color: theme.text }]} numberOfLines={1}>
+              {isEditing ? (entryId ? (isDraft ? 'Edit Draf' : 'Edit Jurnal') : 'Tulis Jurnal Baru') : (title || (isDraft ? 'Draf Tanpa Judul' : 'Detail Jurnal'))}
+            </Text>
+          </View>
           <Text style={[styles.topHeaderSub, { color: theme.subtext }]}>
-            {isEditing ? 'Mode Pengeditan' : 'Mode Baca Rapi'}
+            {isEditing ? (isDraft ? 'Mode Pengeditan Draf' : 'Mode Pengeditan') : (isDraft ? 'Draf Belum Dipublikasikan' : 'Mode Baca Rapi')}
           </Text>
         </View>
 
         <View style={styles.headerRightActions}>
-          {!isEditing && entryId ? (
+          {isEditing ? (
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity
+                style={[styles.headerDraftBtn, { backgroundColor: isLightMode ? '#FEF3C7' : '#2A1D14', borderColor: isLightMode ? '#FCD34D' : '#593914' }]}
+                onPress={() => handleSave(true)}
+                disabled={loading || (!title.trim() && !content.trim())}
+              >
+                <Ionicons name="document-text-outline" size={13} color={isLightMode ? '#B45309' : '#FBBF24'} />
+                <Text style={[styles.headerDraftBtnText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Draf</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.headerSaveBtn, { backgroundColor: theme.primary }, !content.trim() && { opacity: 0.5 }]}
+                onPress={() => handleSave(false)}
+                disabled={loading || !content.trim()}
+              >
+                {loading ? (
+                  <ActivityIndicator color="#FFFFFF" size="small" />
+                ) : (
+                  <>
+                    <Ionicons name="checkmark" size={14} color="#FFFFFF" />
+                    <Text style={styles.headerSaveText}>{entryId && !isDraft ? 'Simpan' : 'Publikasi'}</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+            </View>
+          ) : (
             <>
               <TouchableOpacity
                 style={[styles.headerEditBtn, { backgroundColor: theme.primary }]}
                 onPress={() => setIsEditing(true)}
               >
                 <Ionicons name="create-outline" size={15} color="#FFFFFF" />
-                <Text style={styles.headerEditBtnText}>Edit</Text>
+                <Text style={styles.headerEditBtnText}>{isDraft ? 'Lanjut Edit' : 'Edit'}</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -335,27 +462,34 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
                 <Ionicons name="trash-outline" size={16} color="#EF4444" />
               </TouchableOpacity>
             </>
-          ) : (
-            <TouchableOpacity
-              style={[styles.headerSaveBtn, { backgroundColor: theme.primary }, !content.trim() && { opacity: 0.5 }]}
-              onPress={handleSave}
-              disabled={loading || !content.trim()}
-            >
-              {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
-              ) : (
-                <>
-                  <Ionicons name="checkmark" size={15} color="#FFFFFF" />
-                  <Text style={styles.headerSaveText}>Simpan</Text>
-                </>
-              )}
-            </TouchableOpacity>
           )}
         </View>
       </View>
 
-      {/* Draft Notification Banner */}
-      {draftStatus && isEditing && !entryId && (
+      {/* Pending Draft Confirmation Banner */}
+      {pendingDraft && isEditing && !entryId && (
+        <View style={[styles.pendingDraftBanner, { backgroundColor: isLightMode ? '#EFF6FF' : '#141E2E', borderColor: isLightMode ? '#BFDBFE' : '#2A3C59' }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
+            <Ionicons name="document-text" size={15} color={theme.accentLight} />
+            <Text style={[styles.pendingDraftText, { color: theme.text }]} numberOfLines={1}>
+              Ditemukan draf lama
+            </Text>
+          </View>
+          <View style={styles.draftActionBtns}>
+            <TouchableOpacity style={[styles.draftRestoreBtn, { backgroundColor: theme.primary }]} onPress={handleRestoreDraft}>
+              <Ionicons name="refresh" size={12} color="#FFFFFF" />
+              <Text style={styles.draftRestoreText}>Pulihkan</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.draftDiscardBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#3B181E', borderColor: isLightMode ? '#FCA5A5' : '#5C1D24' }]} onPress={handleDiscardDraft}>
+              <Ionicons name="trash-outline" size={12} color="#EF4444" />
+              <Text style={styles.draftDiscardText}>Buang</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
+      {/* Auto-saved Status Banner */}
+      {draftStatus && !pendingDraft && isEditing && !entryId && (
         <View style={[styles.draftBanner, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
           <Ionicons name="cloud-done-outline" size={13} color="#10B981" />
           <Text style={[styles.draftBannerText, { color: isLightMode ? '#15803D' : '#34D399' }]}>{draftStatus}</Text>
@@ -423,7 +557,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
             {/* Word Count Stats Bar */}
             <View style={styles.readerStatsBar}>
               <Text style={[styles.readerStatsText, { color: theme.muted }]}>
-                📝 {wordCount} Kata • {charCount} Karakter
+                {wordCount} Kata • {charCount} Karakter
               </Text>
             </View>
 
@@ -512,19 +646,19 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 
           {/* Quick Format Toolbar */}
           <View style={[styles.formatToolbar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-            <TouchableOpacity style={styles.formatBtn} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
+            <TouchableOpacity style={[styles.formatBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
               <Text style={[styles.formatBtnText, { color: theme.text, fontWeight: '900' }]}>B</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.formatBtn} onPress={() => wrapSelection('*', '*', 'teks miring')}>
+            <TouchableOpacity style={[styles.formatBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => wrapSelection('*', '*', 'teks miring')}>
               <Text style={[styles.formatBtnText, { color: theme.text, fontStyle: 'italic' }]}>I</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.formatBtn} onPress={() => wrapSelection('__', '__', 'garis bawah')}>
+            <TouchableOpacity style={[styles.formatBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => wrapSelection('__', '__', 'garis bawah')}>
               <Text style={[styles.formatBtnText, { color: theme.text, textDecorationLine: 'underline' }]}>U</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={styles.formatBtn} onPress={() => prefixLine('- ', 'Poin')}>
+            <TouchableOpacity style={[styles.formatBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => prefixLine('- ', 'Poin')}>
               <Ionicons name="list" size={14} color={theme.subtext} />
             </TouchableOpacity>
-            <TouchableOpacity style={styles.formatBtn} onPress={() => prefixLine('> ', 'Kutipan')}>
+            <TouchableOpacity style={[styles.formatBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => prefixLine('> ', 'Kutipan')}>
               <Ionicons name="chatbox-ellipses-outline" size={14} color={theme.subtext} />
             </TouchableOpacity>
           </View>
@@ -602,7 +736,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
                 {imageUri ? (
                   <Image source={{ uri: imageUri }} style={styles.imagePreview} />
                 ) : (
-                  <View style={styles.imagePlaceholder}>
+                  <View style={[styles.imagePlaceholder, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                     <Ionicons name="image-outline" size={22} color={theme.muted} />
                     <Text style={[styles.imagePlaceholderText, { color: theme.subtext }]}>Pilih Foto dari Galeri</Text>
                   </View>
@@ -618,14 +752,58 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
             </View>
           </View>
 
-          {/* Action Save Button */}
-          <TouchableOpacity style={[styles.saveBtn, { backgroundColor: theme.primary }]} onPress={handleSave} disabled={loading}>
-            {loading ? (
-              <ActivityIndicator color="#fff" size="small" />
-            ) : (
-              <Text style={styles.saveBtnText}>{entryId ? 'Simpan Perubahan' : 'Simpan Jurnal'}</Text>
-            )}
-          </TouchableOpacity>
+          {/* Bottom Dual Action Buttons */}
+          <View style={{ flexDirection: isWide ? 'row' : 'column', gap: 10, marginTop: 14 }}>
+            <TouchableOpacity
+              style={[
+                styles.saveBtn,
+                {
+                  backgroundColor: isLightMode ? '#FEF3C7' : '#2A1D14',
+                  borderColor: isLightMode ? '#FCD34D' : '#593914',
+                  flex: 1,
+                  marginTop: 0,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 6
+                }
+              ]}
+              onPress={() => handleSave(true)}
+              disabled={loading}
+            >
+              <Ionicons name="document-text-outline" size={16} color={isLightMode ? '#B45309' : '#FDE68A'} />
+              <Text style={[styles.saveBtnText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>
+                Simpan Draf
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.saveBtn,
+                {
+                  backgroundColor: theme.primary,
+                  borderColor: theme.primary,
+                  flex: 1.5,
+                  marginTop: 0,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 6
+                }
+              ]}
+              onPress={() => handleSave(false)}
+              disabled={loading}
+            >
+              {loading ? (
+                <ActivityIndicator color="#fff" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark-done" size={16} color="#FFFFFF" />
+                  <Text style={styles.saveBtnText}>
+                    {entryId && !isDraft ? 'Simpan Perubahan' : 'Publikasikan Jurnal'}
+                  </Text>
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
 
         </ScrollView>
       )}
@@ -1075,5 +1253,89 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 14,
     fontWeight: '600',
+  },
+  pendingDraftBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    gap: 8,
+  },
+  pendingDraftText: {
+    fontSize: 12,
+    fontWeight: '500',
+    flexShrink: 1,
+  },
+  draftActionBtns: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  draftRestoreBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 9,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  draftRestoreText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  draftDiscardBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  draftDiscardText: {
+    color: '#EF4444',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  draftBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+  },
+  draftBannerText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  headerDraftBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  headerDraftBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  draftBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  draftBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
   },
 });

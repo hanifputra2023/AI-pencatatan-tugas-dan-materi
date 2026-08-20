@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey, setInMemoryApiKeys } from '../lib/gemini';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
+import { PersonaPreset, DEFAULT_PERSONAS } from '../types';
 
 const COLOR_PALETTE = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
@@ -20,59 +21,7 @@ const COLOR_PALETTE = [
   '#14B8A6', '#84CC16', '#F97316', '#6366F1',
 ];
 
-export interface PersonaPreset {
-  id?: string;
-  name: string;
-  botName: string;
-  desc: string;
-  prompt: string;
-  isCustom?: boolean;
-}
-
-const PRESET_PERSONAS: PersonaPreset[] = [
-  {
-    id: 'default_1',
-    name: 'Sahabat Hangat (Default)',
-    botName: 'Ara',
-    desc: 'Empatik, santai, mendengar tanpa menghakimi.',
-    prompt: `Kamu adalah "Ara", seorang sahabat dan teman curhat AI yang sangat hangat, empatik, pengertian, dan penuh perhatian.
-Bahasa yang kamu gunakan adalah Bahasa Indonesia yang luwes, santai, dan akrab layaknya sahabat dekat seumuran.
-Prinsip utamamu:
-1. Dengarkan setiap keluh kesah dan cerita pengguna tanpa pernah menghakimi atau menyalahkan.
-2. Selalu validasi perasaan mereka terlebih dahulu.
-3. Berikan kata-kata penyemangat, pelukan hangat virtual, atau sudut pandang positif yang menenangkan.
-4. Jika pengguna melampirkan foto/file/suara, beri respons yang perhatian terhadap isi lampiran tersebut.
-5. Jawabanmu ringkas, nyaman dibaca (2-4 kalimat), natural, dan gunakan emoji yang manis & relevan.`,
-    isCustom: false,
-  },
-  {
-    id: 'default_2',
-    name: 'Konselor Mindfulness',
-    botName: 'Mindful Ara',
-    desc: 'Bijaksana, reflektif, menenangkan pikiran.',
-    prompt: `Kamu adalah konselor emosional yang bijaksana, lembut, dan menenangkan.
-Gunakan pendekatan mindfulness untuk membantu pengguna memahami emosi mereka secara mendalam dan berikan pertanyaan reflektif yang menenteramkan.`,
-    isCustom: false,
-  },
-  {
-    id: 'default_3',
-    name: 'Coach Motivator Mahasiswa',
-    botName: 'Coach Ara',
-    desc: 'Berenergi, solutif, memacu semangat belajar.',
-    prompt: `Kamu adalah pelatih kehidupan (Life & Academic Coach) yang berenergi positif dan solutif.
-Fokus pada membakar semangat mahasiswa yang sedang lesu tugas/skripsi dan berikan langkah aksi konkret yang bisa dilakukan hari ini.`,
-    isCustom: false,
-  },
-  {
-    id: 'default_4',
-    name: 'Tutor Dosen Akademik',
-    botName: 'Prof. Ara',
-    desc: 'Kritis, akademis, mendalam, dan terstruktur.',
-    prompt: `Kamu adalah asisten akademik cerdas dengan latar belakang akademisi.
-Bantu mahasiswa memahami konsep perkuliahan, logika ilmiah, metodologi riset, dan analisis materi dengan terstruktur, rapi, dan mudah dipahami.`,
-    isCustom: false,
-  },
-];
+const PRESET_PERSONAS: PersonaPreset[] = DEFAULT_PERSONAS;
 
 interface UserProfile {
   id: string;

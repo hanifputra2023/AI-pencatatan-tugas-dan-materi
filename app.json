@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "StudyBot AI",
-    "slug": "studybot-ai-app",
+    "slug": "aichat",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -11,30 +11,35 @@
       "resizeMode": "contain",
       "backgroundColor": "#090B0E"
     },
-    "assetBundlePatterns": ["**/*"],
+    "assetBundlePatterns": [
+      "**/*"
+    ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.studybot.app"
+      "bundleIdentifier": "com.studybot.app",
+      "infoPlist": {
+        "ITSAppUsesNonExemptEncryption": false
+      }
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#090B0E"
       },
-      "package": "com.studybot.app"
+      "package": "com.studybot.app",
+      "permissions": [
+        "android.permission.RECORD_AUDIO"
+      ]
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "plugins": [
-      "expo-font",
-      "expo-secure-store",
-      [
-        "expo-image-picker",
-        {
-          "photosPermission": "App ini membutuhkan akses ke galeri untuk foto jurnal."
-        }
-      ]
-    ]
+
+    "extra": {
+      "eas": {
+        "projectId": "99281a68-4a0e-4fdc-9b48-1d7bf2849438"
+      }
+    },
+    "owner": "hanif230607s-team"
   }
 }

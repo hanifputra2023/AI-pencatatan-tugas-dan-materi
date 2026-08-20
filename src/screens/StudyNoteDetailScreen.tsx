@@ -438,7 +438,7 @@ ${content}`;
       if (noteId && user) {
         await supabase.from('study_notes').update({ summary: aiReply, updated_at: new Date().toISOString() }).eq('id', noteId);
       }
-      showAlert('Rangkuman Selesai ✨', 'Intisari materi telah dibuat dan otomatis tersimpan ke catatan.');
+      showAlert('Rangkuman Selesai', 'Intisari materi telah dibuat dan otomatis tersimpan ke catatan.');
     } catch (e: any) {
       showAlert('Gagal Merangkum', e.message || 'Terjadi kesalahan pada AI.');
     } finally {
@@ -449,12 +449,12 @@ ${content}`;
   // Feature 1.1: Append Summary into Note Content
   const handleAppendSummaryToContent = async () => {
     if (!summary) return;
-    const newContent = `${content.trim()}\n\n---\n### 📌 Rangkuman Intisari AI:\n${summary.trim()}`;
+    const newContent = `${content.trim()}\n\n---\n### Rangkuman Intisari AI:\n${summary.trim()}`;
     setContent(newContent);
     if (noteId && user) {
       await supabase.from('study_notes').update({ content: newContent, updated_at: new Date().toISOString() }).eq('id', noteId);
     }
-    showAlert('Berhasil Disisipkan 📋', 'Rangkuman telah digabungkan ke dalam catatan kuliah dan tersimpan.');
+    showAlert('Berhasil Disisipkan', 'Rangkuman telah digabungkan ke dalam catatan kuliah dan tersimpan.');
   };
 
   // AI Feature 2: Generate Comprehensive Interactive Quiz (3, 5, or 10 Questions)
@@ -662,6 +662,14 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
   }, 0);
   const scorePercent = quizData.length > 0 ? Math.round((correctCount / quizData.length) * 100) : 0;
 
+  const handleBack = () => {
+    if (navigation.canGoBack()) {
+      navigation.goBack();
+    } else {
+      navigation.navigate('Main' as any, { screen: 'Study' });
+    }
+  };
+
   if (fetching) {
     return <View style={[styles.loaderCenter, { backgroundColor: theme.bg }]}><ActivityIndicator size="small" color={theme.accentLight} /></View>;
   }
@@ -669,52 +677,73 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
 
-      {/* Top Header Mode Switcher */}
+      {/* Top Header with Back Button */}
       <View style={[styles.topHeader, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
-        {/* Segmented Mode Switcher */}
-        <View style={[styles.segmentedWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-          <TouchableOpacity
-            style={[styles.segmentBtn, viewMode === 'reader' && [styles.segmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
-            onPress={() => setViewMode('reader')}
-          >
-            <Ionicons name="book-outline" size={14} color={viewMode === 'reader' ? theme.accentLight : theme.subtext} />
-            <Text style={[styles.segmentText, { color: theme.subtext }, viewMode === 'reader' && [styles.segmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-              Detail Materi
-            </Text>
-          </TouchableOpacity>
+        <TouchableOpacity
+          style={[styles.headerBackBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+          onPress={handleBack}
+        >
+          <Ionicons name="arrow-back" size={20} color={theme.text} />
+        </TouchableOpacity>
 
-          <TouchableOpacity
-            style={[styles.segmentBtn, viewMode === 'edit' && [styles.segmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
-            onPress={() => setViewMode('edit')}
-          >
-            <Ionicons name="create-outline" size={14} color={viewMode === 'edit' ? theme.accentLight : theme.subtext} />
-            <Text style={[styles.segmentText, { color: theme.subtext }, viewMode === 'edit' && [styles.segmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-              Edit Catatan
-            </Text>
-          </TouchableOpacity>
+        <View style={{ flex: 1, paddingHorizontal: 10 }}>
+          <Text style={[styles.topHeaderTitle, { color: theme.text }]} numberOfLines={1}>
+            {viewMode === 'edit'
+              ? (noteId ? 'Edit Catatan Kuliah' : 'Catatan Kuliah Baru')
+              : (title || 'Detail Materi Kuliah')}
+          </Text>
+          <Text style={[styles.topHeaderSub, { color: theme.subtext }]} numberOfLines={1}>
+            {viewMode === 'edit' ? (subject ? `Mata Kuliah: ${subject}` : 'Mode Pengeditan') : (subject ? `Mata Kuliah: ${subject}` : 'Mode Baca Rapi')}
+          </Text>
         </View>
 
-        {/* Right Action */}
-        {viewMode === 'edit' ? (
-          <TouchableOpacity
-            style={[styles.headerSaveBtn, { backgroundColor: theme.primary }, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
-            onPress={handleSave}
-            disabled={loading || !title.trim() || !content.trim()}
-          >
-            {loading ? (
-              <ActivityIndicator color="#FFFFFF" size="small" />
-            ) : (
-              <>
-                <Ionicons name="checkmark" size={16} color="#FFFFFF" />
-                <Text style={styles.headerSaveText}>Simpan</Text>
-              </>
-            )}
-          </TouchableOpacity>
-        ) : (
-          <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={handleCopyNote}>
-            <Ionicons name="copy-outline" size={18} color={theme.subtext} />
-          </TouchableOpacity>
-        )}
+        {/* Right Actions */}
+        <View style={styles.headerRightActions}>
+          {noteId && (
+            <View style={[styles.segmentedWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+              <TouchableOpacity
+                style={[styles.segmentBtn, viewMode === 'reader' && [styles.segmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
+                onPress={() => setViewMode('reader')}
+              >
+                <Ionicons name="book-outline" size={13} color={viewMode === 'reader' ? theme.accentLight : theme.subtext} />
+                <Text style={[styles.segmentText, { color: theme.subtext }, viewMode === 'reader' && [styles.segmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                  Detail
+                </Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.segmentBtn, viewMode === 'edit' && [styles.segmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]]}
+                onPress={() => setViewMode('edit')}
+              >
+                <Ionicons name="create-outline" size={13} color={viewMode === 'edit' ? theme.accentLight : theme.subtext} />
+                <Text style={[styles.segmentText, { color: theme.subtext }, viewMode === 'edit' && [styles.segmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                  Edit
+                </Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
+          {viewMode === 'edit' ? (
+            <TouchableOpacity
+              style={[styles.headerSaveBtn, { backgroundColor: theme.primary }, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
+              onPress={handleSave}
+              disabled={loading || !title.trim() || !content.trim()}
+            >
+              {loading ? (
+                <ActivityIndicator color="#FFFFFF" size="small" />
+              ) : (
+                <>
+                  <Ionicons name="checkmark" size={15} color="#FFFFFF" />
+                  <Text style={styles.headerSaveText}>Simpan</Text>
+                </>
+              )}
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={handleCopyNote}>
+              <Ionicons name="copy-outline" size={17} color={theme.subtext} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       <ScrollView
@@ -1301,11 +1330,30 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 10,
     borderBottomWidth: 1,
     borderBottomColor: '#161B24',
     backgroundColor: '#0E1117',
-    gap: 10,
+  },
+  headerBackBtn: {
+    padding: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topHeaderTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  topHeaderSub: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  headerRightActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   backBtn: {
     padding: 6,

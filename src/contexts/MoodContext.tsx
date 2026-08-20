@@ -1,7 +1,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
-import { MoodOption, MOOD_OPTIONS as DEFAULT_MOOD_OPTIONS } from '../types';
+import { MoodOption, MOOD_OPTIONS as DEFAULT_MOOD_OPTIONS, PersonaPreset, DEFAULT_PERSONAS } from '../types';
 import { setInMemoryApiKeys } from '../lib/gemini';
 
 interface MoodContextType {
@@ -15,6 +15,9 @@ interface MoodContextType {
   updateAiPersona: (prompt: string) => Promise<void>;
   aiBotName: string;
   updateAiBotName: (name: string) => Promise<void>;
+  allPersonas: PersonaPreset[];
+  activePersona: PersonaPreset;
+  selectPersona: (persona: PersonaPreset) => Promise<void>;
   globalAnnouncement: string;
   updateGlobalAnnouncement: (text: string) => Promise<void>;
   geminiApiKey: string;
@@ -36,6 +39,9 @@ const MoodContext = createContext<MoodContextType>({
   updateAiPersona: async () => {},
   aiBotName: 'Ara',
   updateAiBotName: async () => {},
+  allPersonas: DEFAULT_PERSONAS,
+  activePersona: DEFAULT_PERSONAS[0],
+  selectPersona: async () => {},
   globalAnnouncement: '',
   updateGlobalAnnouncement: async () => {},
   geminiApiKey: '',
@@ -50,6 +56,8 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const [moods, setMoods] = useState<MoodOption[]>(DEFAULT_MOOD_OPTIONS);
   const [aiPersona, setAiPersona] = useState<string>('');
   const [aiBotName, setAiBotName] = useState<string>('Ara');
+  const [allPersonas, setAllPersonas] = useState<PersonaPreset[]>(DEFAULT_PERSONAS);
+  const [activePersona, setActivePersona] = useState<PersonaPreset>(DEFAULT_PERSONAS[0]);
   const [globalAnnouncement, setGlobalAnnouncement] = useState<string>('');
   const [geminiApiKey, setGeminiApiKey] = useState<string>('');
   const [geminiApiKeys, setGeminiApiKeys] = useState<string[]>([]);
@@ -93,11 +101,20 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         const map: Record<string, string> = {};
         let foundAnnouncement = false;
         let poolFromDb: string[] = [];
+        let customPersonasFromDb: PersonaPreset[] = [];
 
         settingsRes.data.forEach(item => {
           map[item.key] = item.value;
           if (item.key === 'ai_persona') setAiPersona(item.value);
           if (item.key === 'ai_bot_name') setAiBotName(item.value);
+          if (item.key === 'custom_ai_presets') {
+            try {
+              const parsed = JSON.parse(item.value);
+              if (Array.isArray(parsed)) {
+                customPersonasFromDb = parsed;
+              }
+            } catch (e) {}
+          }
           if (item.key === 'gemini_api_keys') {
             try {
               const parsed = JSON.parse(item.value);
@@ -114,6 +131,19 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
             foundAnnouncement = true;
           }
         });
+
+        const combinedPersonas = [...DEFAULT_PERSONAS, ...customPersonasFromDb];
+        setAllPersonas(combinedPersonas);
+
+        try {
+          const cachedPersonaId = await AsyncStorage.getItem('@active_user_persona_id');
+          if (cachedPersonaId) {
+            const match = combinedPersonas.find(p => p.id === cachedPersonaId);
+            if (match) {
+              setActivePersona(match);
+            }
+          }
+        } catch (e) {}
 
         if (poolFromDb.length > 0) {
           setGeminiApiKeys(poolFromDb);
@@ -267,6 +297,13 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const selectPersona = async (persona: PersonaPreset) => {
+    setActivePersona(persona);
+    if (persona.id) {
+      await AsyncStorage.setItem('@active_user_persona_id', persona.id);
+    }
+  };
+
   return (
     <MoodContext.Provider
       value={{
@@ -276,10 +313,13 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         updateMood,
         deleteMood,
         resetToDefaults,
-        aiPersona,
+        aiPersona: activePersona.prompt || aiPersona || DEFAULT_PERSONAS[0].prompt,
         updateAiPersona,
-        aiBotName,
+        aiBotName: activePersona.botName || aiBotName || DEFAULT_PERSONAS[0].botName,
         updateAiBotName,
+        allPersonas,
+        activePersona,
+        selectPersona,
         globalAnnouncement,
         updateGlobalAnnouncement,
         geminiApiKey,

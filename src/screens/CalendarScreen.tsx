@@ -221,7 +221,11 @@ export default function CalendarScreen() {
       <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: 60 }}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isWide ? styles.scrollContentWide : styles.scrollContentMobile,
+          { paddingBottom: 60 }
+        ]}
       >
         <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
@@ -627,11 +631,15 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   scrollContent: {
-    paddingHorizontal: 18,
     paddingBottom: 40,
+  },
+  scrollContentMobile: {
+    paddingHorizontal: 16,
+    paddingTop: 4,
   },
   scrollContentWide: {
     paddingHorizontal: 28,
+    paddingTop: 8,
   },
   innerContainer: {
     width: '100%',
@@ -788,11 +796,14 @@ const styles = StyleSheet.create({
   grid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    gap: 5,
+    gap: 6,
     justifyContent: 'flex-start',
   },
   gridCell: {
-    width: 42,
+    width: 44,
+    minWidth: 38,
+    flexGrow: 1,
+    maxWidth: 48,
     height: 48,
     borderRadius: 8,
     justifyContent: 'center',

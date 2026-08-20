@@ -25,6 +25,7 @@ export default function JournalScreen() {
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState<'published' | 'drafts'>('published');
   const [filterMood, setFilterMood] = useState<string | null>(null);
 
   const fetchEntries = useCallback(async () => {
@@ -37,11 +38,10 @@ export default function JournalScreen() {
       .select('*')
       .eq('user_id', user.id)
       .order('created_at', { ascending: false });
-    if (filterMood) query = query.eq('mood', filterMood);
     const { data } = await query;
     if (data) setEntries(data as JournalEntry[]);
     setLoading(false);
-  }, [user, filterMood]);
+  }, [user]);
 
   useEffect(() => {
     fetchEntries();
@@ -53,9 +53,7 @@ export default function JournalScreen() {
       .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, payload => {
         if (payload.eventType === 'INSERT') {
           const newEntry = payload.new as JournalEntry;
-          if (!filterMood || newEntry.mood === filterMood) {
-            setEntries(prev => [newEntry, ...prev.filter(e => e.id !== newEntry.id)]);
-          }
+          setEntries(prev => [newEntry, ...prev.filter(e => e.id !== newEntry.id)]);
         } else if (payload.eventType === 'UPDATE') {
           const updated = payload.new as JournalEntry;
           setEntries(prev => prev.map(e => (e.id === updated.id ? updated : e)));
@@ -69,7 +67,7 @@ export default function JournalScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, filterMood, fetchEntries]);
+  }, [user, fetchEntries]);
 
   useFocusEffect(
     useCallback(() => {
@@ -77,9 +75,9 @@ export default function JournalScreen() {
     }, [fetchEntries])
   );
 
-  const deleteEntry = (id: string) => {
+  const deleteEntry = (id: string, isDraft?: boolean) => {
     confirmAction(
-      'Hapus Jurnal?',
+      isDraft ? 'Hapus Draf?' : 'Hapus Jurnal?',
       'Catatan ini akan dihapus permanen.',
       async () => {
         setEntries(prev => prev.filter(e => e.id !== id));
@@ -91,18 +89,34 @@ export default function JournalScreen() {
     );
   };
 
+  const publishedEntries = entries.filter(e => !e.is_draft);
+  const draftEntries = entries.filter(e => !!e.is_draft);
+
+  const displayedEntries = (activeTab === 'drafts' ? draftEntries : publishedEntries).filter(e => {
+    if (!filterMood) return true;
+    return e.mood === filterMood;
+  });
+
   const renderItem = ({ item }: { item: JournalEntry }) => {
     const mood = moods.find(m => m.type === item.mood);
     return (
       <TouchableOpacity
         style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }, isWide && styles.cardWide]}
         onPress={() => navigation.navigate('JournalEntry', { entryId: item.id })}
-        onLongPress={() => deleteEntry(item.id)}
+        onLongPress={() => deleteEntry(item.id, item.is_draft)}
       >
         <View style={styles.cardHeader}>
-          <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
-            {item.title || 'Catatan Harian'}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+            {item.is_draft && (
+              <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#3B2412', borderColor: isLightMode ? '#FCD34D' : '#78350F' }]}>
+                <Ionicons name="document-text" size={10} color={isLightMode ? '#D97706' : '#FBBF24'} />
+                <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Draf</Text>
+              </View>
+            )}
+            <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
+              {item.title || (item.is_draft ? 'Draf Tanpa Judul' : 'Catatan Harian')}
+            </Text>
+          </View>
           <Text style={styles.cardEmoji}>{mood?.emoji || '•'}</Text>
         </View>
         <Text style={[styles.cardContent, { color: theme.subtext }]} numberOfLines={3}>{item.content}</Text>
@@ -142,7 +156,38 @@ export default function JournalScreen() {
         </TouchableOpacity>
       </View>
 
-      {/* Filter Chips */}
+      {/* Main Tab Segment (Jurnal vs Draf) */}
+      <View style={styles.tabSegmentContainer}>
+        <TouchableOpacity
+          style={[
+            styles.tabSegmentBtn,
+            { backgroundColor: theme.card, borderColor: theme.border },
+            activeTab === 'published' && [styles.tabSegmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+          ]}
+          onPress={() => setActiveTab('published')}
+        >
+          <Ionicons name="book" size={13} color={activeTab === 'published' ? theme.accentLight : theme.subtext} />
+          <Text style={[styles.tabSegmentText, { color: theme.subtext }, activeTab === 'published' && [styles.tabSegmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+            Semua Jurnal ({publishedEntries.length})
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={[
+            styles.tabSegmentBtn,
+            { backgroundColor: theme.card, borderColor: theme.border },
+            activeTab === 'drafts' && [styles.tabSegmentBtnActive, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]
+          ]}
+          onPress={() => setActiveTab('drafts')}
+        >
+          <Ionicons name="document-text" size={13} color={activeTab === 'drafts' ? (isLightMode ? '#D97706' : '#FBBF24') : theme.subtext} />
+          <Text style={[styles.tabSegmentText, { color: theme.subtext }, activeTab === 'drafts' && [styles.tabSegmentTextActive, { color: isLightMode ? '#B45309' : '#FDE68A', fontWeight: '700' }]]}>
+            Draf Saya ({draftEntries.length})
+          </Text>
+        </TouchableOpacity>
+      </View>
+
+      {/* Mood Filter Chips */}
       <View style={styles.filterContainer}>
         <TouchableOpacity
           style={[
@@ -152,7 +197,7 @@ export default function JournalScreen() {
           ]}
           onPress={() => setFilterMood(null)}
         >
-          <Text style={[styles.filterText, { color: theme.subtext }, !filterMood && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>Semua</Text>
+          <Text style={[styles.filterText, { color: theme.subtext }, !filterMood && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>Semua Mood</Text>
         </TouchableOpacity>
         {moods.map(m => (
           <TouchableOpacity
@@ -173,18 +218,22 @@ export default function JournalScreen() {
 
       {loading ? (
         <View style={styles.loaderCenter}><ActivityIndicator size="small" color={theme.subtext} /></View>
-      ) : entries.length === 0 ? (
+      ) : displayedEntries.length === 0 ? (
         <View style={[styles.empty, { backgroundColor: theme.card, borderColor: theme.border }]}>
-          <Ionicons name="book-outline" size={32} color={theme.muted} style={{ marginBottom: 10 }} />
-          <Text style={[styles.emptyTitle, { color: theme.text }]}>Belum ada catatan</Text>
-          <Text style={[styles.emptySub, { color: theme.subtext }]}>Mulai tulis jurnal pertama kamu hari ini.</Text>
+          <Ionicons name={activeTab === 'drafts' ? 'document-text-outline' : 'book-outline'} size={32} color={theme.muted} style={{ marginBottom: 10 }} />
+          <Text style={[styles.emptyTitle, { color: theme.text }]}>
+            {activeTab === 'drafts' ? 'Tidak ada draf tersimpan' : 'Belum ada catatan jurnal'}
+          </Text>
+          <Text style={[styles.emptySub, { color: theme.subtext }]}>
+            {activeTab === 'drafts' ? 'Tulisan yang kamu simpan sebagai draf akan muncul di sini.' : 'Mulai tulis jurnal pertama kamu hari ini.'}
+          </Text>
           <TouchableOpacity style={[styles.emptyBtn, { backgroundColor: theme.primary }]} onPress={() => navigation.navigate('JournalEntry', {})}>
-            <Text style={styles.emptyBtnText}>+ Tulis Jurnal</Text>
+            <Text style={styles.emptyBtnText}>+ Tulis Jurnal Baru</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <FlatList
-          data={entries}
+          data={displayedEntries}
           renderItem={renderItem}
           keyExtractor={item => item.id}
           numColumns={isWide ? 2 : 1}
@@ -245,6 +294,44 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '600',
+  },
+  tabSegmentContainer: {
+    flexDirection: 'row',
+    paddingHorizontal: 18,
+    gap: 8,
+    marginBottom: 10,
+  },
+  tabSegmentBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  tabSegmentBtnActive: {
+    shadowOpacity: 0.1,
+  },
+  tabSegmentText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  tabSegmentTextActive: {
+    fontSize: 12,
+  },
+  draftBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  draftBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
   },
   filterContainer: {
     flexDirection: 'row',

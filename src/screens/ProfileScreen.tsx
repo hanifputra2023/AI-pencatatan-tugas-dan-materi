@@ -8,11 +8,15 @@ import * as ImagePicker from 'expo-image-picker';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
+import { useMoods } from '../contexts/MoodContext';
 import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { useResponsive } from '../hooks/useResponsive';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { confirmAction, showAlert } from '../lib/alert';
+import { compressImage } from '../lib/imageCompressor';
+import { PersonaPreset } from '../types';
+import { calculateRealStreak } from '../lib/streakCalculator';
 
 const BG_COLOR_PRESETS = [
   { label: 'Obsidian Dark', hex: '#0E1117' },
@@ -52,6 +56,7 @@ const ACCENT_COLOR_PALETTE = [
 
 export default function ProfileScreen() {
   const { user, signOut, isAdmin, role, claimAdminRole, refreshProfileRole } = useAuth();
+  const { allPersonas, activePersona, selectPersona } = useMoods();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -84,6 +89,10 @@ export default function ProfileScreen() {
   const [claiming, setClaiming] = useState(false);
   const [secretTapCount, setSecretTapCount] = useState(0);
 
+  // AI Persona Selection Modal State
+  const [showPersonaModal, setShowPersonaModal] = useState(false);
+  const [personaSearchQuery, setPersonaSearchQuery] = useState('');
+
   const fetchProfile = useCallback(async () => {
     if (!user) {
       setLoading(false);
@@ -99,22 +108,24 @@ export default function ProfileScreen() {
 
   const fetchStats = useCallback(async () => {
     if (!user) return;
-    const [journalRes, chatRes] = await Promise.all([
-      supabase.from('journal_entries').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
-      supabase.from('chat_messages').select('id').eq('user_id', user.id).eq('role', 'user'),
-    ]);
-    const entries = journalRes.data ?? [];
-    let streak = 0;
-    let date = new Date();
-    date.setHours(0, 0, 0, 0);
-    for (let i = 0; i < 30; i++) {
-      const found = entries.find(e => new Date(e.created_at).toDateString() === date.toDateString());
-      if (found) {
-        streak++;
-        date.setDate(date.getDate() - 1);
-      } else break;
+    try {
+      const [journalRes, chatRes] = await Promise.all([
+        supabase.from('journal_entries').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('chat_messages').select('id, created_at').eq('user_id', user.id).eq('role', 'user').order('created_at', { ascending: false }),
+      ]);
+      const entries = journalRes.data ?? [];
+      const chats = chatRes.data ?? [];
+
+      const allTimestamps: string[] = [
+        ...entries.map(d => d.created_at),
+        ...chats.map(d => d.created_at),
+      ];
+
+      const streak = calculateRealStreak(allTimestamps);
+      setStats({ total: entries.length, streak, chats: chats.length });
+    } catch (e) {
+      console.log('Error fetching stats in ProfileScreen:', e);
     }
-    setStats({ total: entries.length, streak, chats: chatRes.data?.length ?? 0 });
   }, [user]);
 
   useEffect(() => {
@@ -147,13 +158,21 @@ export default function ProfileScreen() {
   );
 
   const pickAvatar = async () => {
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [1, 1],
-      quality: 0.7,
-    });
-    if (!result.canceled) setAvatarUrl(result.assets[0].uri);
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const rawUri = result.assets[0].uri;
+        const compressedUri = await compressImage(rawUri, { maxWidth: 400, quality: 0.6 });
+        setAvatarUrl(compressedUri);
+      }
+    } catch (e) {
+      console.warn('Error picking/compressing avatar:', e);
+    }
   };
 
   const saveProfile = async () => {
@@ -349,6 +368,48 @@ export default function ProfileScreen() {
                 <Text style={[styles.statNum, { color: theme.text }]}>{stats.chats}</Text>
                 <Text style={[styles.statLabel, { color: theme.subtext }]}>Sesi Cerita</Text>
               </View>
+            </View>
+
+            {/* ========================================================================= */}
+            {/* PILIHAN KEPRIBADIAN & KARAKTER TEMAN AI (COMPACT ACTIVE CARD + MODAL) */}
+            {/* ========================================================================= */}
+            <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 14 }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                  <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name="sparkles" size={17} color={theme.accentLight} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Kepribadian Teman AI</Text>
+                      {activePersona.isCustom && (
+                        <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
+                          <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Kustom</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={[styles.activePersonaNameHighlight, { color: theme.accentLight }]}>
+                      {activePersona.name} • "{activePersona.botName || 'Ara'}"
+                    </Text>
+                  </View>
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  onPress={() => {
+                    setPersonaSearchQuery('');
+                    setShowPersonaModal(true);
+                  }}
+                  activeOpacity={0.7}
+                >
+                  <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Ganti</Text>
+                  <Ionicons name="chevron-forward" size={13} color={theme.accentLight} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.activePersonaDesc, { color: theme.subtext, marginTop: 6 }]} numberOfLines={2}>
+                {activePersona.desc}
+              </Text>
             </View>
 
             {/* ========================================================================= */}
@@ -740,6 +801,135 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* MODAL PEMILIHAN KARAKTER AI (CLEAN & SEARCHABLE MODAL) */}
+      {/* ========================================================================= */}
+      <Modal
+        visible={showPersonaModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowPersonaModal(false)}
+      >
+        <View style={styles.personaModalOverlay}>
+          <TouchableOpacity
+            style={styles.personaModalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowPersonaModal(false)}
+          />
+
+          <View style={[styles.personaModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {/* Modal Header */}
+            <View style={[styles.personaModalHeader, { borderBottomColor: theme.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                  <Ionicons name="sparkles" size={17} color={theme.accentLight} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.personaModalTitle, { color: theme.text }]}>Pilih Kepribadian Teman AI</Text>
+                  <Text style={[styles.personaModalSub, { color: theme.subtext }]}>
+                    Tersedia {allPersonas.length} pilihan karakter dari admin
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowPersonaModal(false)}
+                style={[styles.closePersonaModalBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+              >
+                <Ionicons name="close" size={18} color={theme.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Bar for Personas */}
+            {allPersonas.length > 3 && (
+              <View style={[styles.personaSearchWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <Ionicons name="search" size={15} color={theme.muted} />
+                <TextInput
+                  style={[styles.personaSearchInput, { color: theme.text }]}
+                  placeholder="Cari karakter atau peran..."
+                  placeholderTextColor={theme.muted}
+                  value={personaSearchQuery}
+                  onChangeText={setPersonaSearchQuery}
+                />
+                {personaSearchQuery ? (
+                  <TouchableOpacity onPress={() => setPersonaSearchQuery('')}>
+                    <Ionicons name="close-circle" size={15} color={theme.muted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+            )}
+
+            {/* Scrollable Personas List */}
+            <ScrollView style={styles.personaModalList} showsVerticalScrollIndicator={false}>
+              <View style={{ gap: 8, paddingVertical: 4 }}>
+                {allPersonas
+                  .filter(p => {
+                    if (!personaSearchQuery.trim()) return true;
+                    const q = personaSearchQuery.toLowerCase();
+                    return p.name.toLowerCase().includes(q) ||
+                      (p.botName && p.botName.toLowerCase().includes(q)) ||
+                      (p.desc && p.desc.toLowerCase().includes(q));
+                  })
+                  .map((persona, pIdx) => {
+                    const isSelected = (activePersona.id && persona.id)
+                      ? activePersona.id === persona.id
+                      : activePersona.name === persona.name;
+
+                    return (
+                      <TouchableOpacity
+                        key={persona.id || `p_${pIdx}`}
+                        style={[
+                          styles.personaOptionCard,
+                          {
+                            backgroundColor: isSelected ? (isLightMode ? '#EFF6FF' : '#141E2E') : theme.cardInner,
+                            borderColor: isSelected ? theme.accent : theme.border,
+                          },
+                          isSelected && { borderWidth: 1.5 }
+                        ]}
+                        onPress={() => {
+                          selectPersona(persona);
+                          setShowPersonaModal(false);
+                          showAlert('Karakter AI Dipilih', `Teman AI kamu sekarang: "${persona.name}" (${persona.botName || 'Ara'})`);
+                        }}
+                        activeOpacity={0.8}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                            <Text style={[styles.personaNameText, { color: isSelected ? theme.accentLight : theme.text }]}>
+                              {persona.name}
+                            </Text>
+                            {persona.isCustom && (
+                              <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
+                                <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Kustom</Text>
+                              </View>
+                            )}
+                          </View>
+
+                          {isSelected ? (
+                            <View style={[styles.selectedCheckWrap, { backgroundColor: theme.primary }]}>
+                              <Ionicons name="checkmark" size={12} color="#FFFFFF" />
+                            </View>
+                          ) : (
+                            <View style={[styles.unselectedCheckWrap, { borderColor: theme.border }]} />
+                          )}
+                        </View>
+
+                        <Text style={[styles.personaBotCallText, { color: theme.accentLight }]}>
+                          Nama Panggilan: <Text style={{ fontWeight: '700' }}>"{persona.botName || 'Ara'}"</Text>
+                        </Text>
+
+                        <Text style={[styles.personaDescText, { color: theme.subtext }]} numberOfLines={2}>
+                          {persona.desc}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -1365,5 +1555,133 @@ const styles = StyleSheet.create({
     color: '#FFFFFF',
     fontSize: 12.5,
     fontWeight: '600',
+  },
+  personaOptionCard: {
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 3,
+  },
+  personaNameText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  customPersonaBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  customPersonaBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+  selectedCheckWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  unselectedCheckWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1.5,
+  },
+  personaBotCallText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  personaDescText: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  activePersonaNameHighlight: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  changePersonaBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  changePersonaBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  activePersonaDesc: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  personaModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.75)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  personaModalBackdrop: {
+    ...StyleSheet.absoluteFillObject,
+  },
+  personaModalCard: {
+    width: '100%',
+    maxWidth: 520,
+    maxHeight: '85%',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  personaModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 12,
+    borderBottomWidth: 1,
+  },
+  personaModalTitle: {
+    fontSize: 14.5,
+    fontWeight: '700',
+  },
+  personaModalSub: {
+    fontSize: 11,
+    marginTop: 1,
+  },
+  closePersonaModalBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  personaSearchWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 12,
+    marginBottom: 4,
+  },
+  personaSearchInput: {
+    flex: 1,
+    fontSize: 12.5,
+    padding: 0,
+  },
+  personaModalList: {
+    marginTop: 8,
   },
 });

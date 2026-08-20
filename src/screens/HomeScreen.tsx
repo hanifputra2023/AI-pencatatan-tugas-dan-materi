@@ -16,6 +16,7 @@ import { JournalEntry, StudyNote, StudentTask } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert } from '../lib/alert';
+import { calculateRealStreak } from '../lib/streakCalculator';
 
 const DEFAULT_DAILY_QUESTS = [
   { id: '1', title: 'Curhat atau refleksi sejenak ke AI', completed: false, icon: 'chatbubble-ellipses-outline' },
@@ -222,7 +223,7 @@ export default function HomeScreen() {
         ...(journalDatesRes.data?.map(d => d.created_at) || []),
         ...(chatDatesRes.data?.map(d => d.created_at) || []),
       ];
-      calculateRealStreak(allTimestamps);
+      setStreak(calculateRealStreak(allTimestamps));
       loadDailyQuests(hasTodayChat, hasTodayJournal);
     } catch (err) {
       console.log('Error fetching home dashboard data:', err);
@@ -255,43 +256,6 @@ export default function HomeScreen() {
       fetchData();
     }, [fetchData])
   );
-
-  const calculateRealStreak = (timestamps: string[]) => {
-    if (timestamps.length === 0) {
-      setStreak(0);
-      return;
-    }
-
-    const uniqueDateSet = new Set<string>();
-    timestamps.forEach(ts => {
-      uniqueDateSet.add(new Date(ts).toDateString());
-    });
-
-    let currentStreak = 0;
-    const checkDate = new Date();
-    checkDate.setHours(0, 0, 0, 0);
-
-    const todayStr = checkDate.toDateString();
-    const hasToday = uniqueDateSet.has(todayStr);
-
-    if (hasToday) {
-      currentStreak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    } else {
-      checkDate.setDate(checkDate.getDate() - 1);
-      if (!uniqueDateSet.has(checkDate.toDateString())) {
-        setStreak(0);
-        return;
-      }
-    }
-
-    while (uniqueDateSet.has(checkDate.toDateString())) {
-      currentStreak++;
-      checkDate.setDate(checkDate.getDate() - 1);
-    }
-
-    setStreak(currentStreak);
-  };
 
   const toggleQuest = (id: string) => {
     const updated = quests.map(q => q.id === id ? { ...q, completed: !q.completed } : q);
