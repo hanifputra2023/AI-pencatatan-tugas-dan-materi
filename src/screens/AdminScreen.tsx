@@ -166,14 +166,13 @@ export default function AdminScreen() {
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [userSearch, setUserSearch] = useState('');
-
   const fetchCustomPresets = async () => {
     try {
       const cached = await AsyncStorage.getItem('@custom_ai_presets');
       if (cached) {
         setCustomPresets(JSON.parse(cached));
       }
-      const { data } = await supabase.from('app_configs').select('*').eq('key', 'custom_ai_presets').single();
+      const { data } = await supabase.from('app_settings').select('*').eq('key', 'custom_ai_presets').single();
       if (data?.value) {
         const parsed = JSON.parse(data.value);
         if (Array.isArray(parsed)) {
@@ -181,8 +180,30 @@ export default function AdminScreen() {
           await AsyncStorage.setItem('@custom_ai_presets', data.value);
         }
       }
-    } catch (e) {}
+    } catch (e) {
+      console.log('Error loading custom presets from app_settings:', e);
+    }
   };
+
+  useEffect(() => {
+    if (aiBotName) setBotNameInput(aiBotName);
+  }, [aiBotName]);
+
+  useEffect(() => {
+    if (aiPersona) setPromptText(aiPersona);
+  }, [aiPersona]);
+
+  useEffect(() => {
+    if (geminiApiKeys && geminiApiKeys.length > 0) {
+      setKeysPool(geminiApiKeys);
+    }
+  }, [geminiApiKeys]);
+
+  useEffect(() => {
+    if (globalAnnouncement !== undefined) {
+      setAnnouncementText(globalAnnouncement);
+    }
+  }, [globalAnnouncement]);
 
   useEffect(() => {
     fetchStats();
@@ -329,10 +350,11 @@ export default function AdminScreen() {
       const updated = [...customPresets, newPreset];
       setCustomPresets(updated);
       await AsyncStorage.setItem('@custom_ai_presets', JSON.stringify(updated));
-      await supabase.from('app_configs').upsert({
+      const { error } = await supabase.from('app_settings').upsert({
         key: 'custom_ai_presets',
         value: JSON.stringify(updated),
       });
+      if (error) throw error;
       // Automatically apply this preset to the prompt textarea!
       handleSelectPreset(newPreset);
       setShowAddPresetModal(false);
@@ -340,9 +362,9 @@ export default function AdminScreen() {
       setNewPresetBotName('Ara');
       setNewPresetDesc('');
       setNewPresetPrompt('');
-      showAlert('Berhasil Ditambahkan! ✨', `Preset "${newPreset.name}" berhasil dibuat dan instruksi intinya telah dimuat ke editor.`);
+      showAlert('Berhasil Ditambahkan! ✨', `Preset "${newPreset.name}" berhasil dibuat dan disimpan ke database cloud.`);
     } catch (e: any) {
-      showAlert('Gagal Menyimpan', e.message || 'Terjadi kesalahan saat menyimpan preset.');
+      showAlert('Gagal Menyimpan ke Database', e.message || 'Terjadi kesalahan saat menyimpan preset ke database.');
     } finally {
       setSavingCustomPreset(false);
     }
@@ -353,14 +375,19 @@ export default function AdminScreen() {
       'Hapus Preset Kustom?',
       `Apakah Anda yakin ingin menghapus preset "${presetName}"?`,
       async () => {
-        const updated = customPresets.filter(p => p.id !== presetId);
-        setCustomPresets(updated);
-        await AsyncStorage.setItem('@custom_ai_presets', JSON.stringify(updated));
-        await supabase.from('app_configs').upsert({
-          key: 'custom_ai_presets',
-          value: JSON.stringify(updated),
-        });
-        showAlert('Terhapus', `Preset "${presetName}" berhasil dihapus.`);
+        try {
+          const updated = customPresets.filter(p => p.id !== presetId);
+          setCustomPresets(updated);
+          await AsyncStorage.setItem('@custom_ai_presets', JSON.stringify(updated));
+          const { error } = await supabase.from('app_settings').upsert({
+            key: 'custom_ai_presets',
+            value: JSON.stringify(updated),
+          });
+          if (error) throw error;
+          showAlert('Terhapus', `Preset "${presetName}" berhasil dihapus dari database cloud.`);
+        } catch (e: any) {
+          showAlert('Gagal Menghapus', e.message || 'Gagal menghapus preset dari database.');
+        }
       },
       'Hapus'
     );
