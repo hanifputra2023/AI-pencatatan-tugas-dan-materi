@@ -666,7 +666,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      navigation.navigate('Main' as any, { screen: 'Study' });
+      navigation.navigate('Main', { screen: 'Study' });
     }
   };
 

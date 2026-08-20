@@ -380,7 +380,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
     if (navigation.canGoBack()) {
       navigation.goBack();
     } else {
-      navigation.navigate('Main' as any, { screen: 'Journal' });
+      navigation.navigate('Main', { screen: 'Journal' });
     }
   };
 
@@ -1298,18 +1298,6 @@ const styles = StyleSheet.create({
   draftDiscardText: {
     color: '#EF4444',
     fontSize: 11,
-    fontWeight: '600',
-  },
-  draftBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderBottomWidth: 1,
-  },
-  draftBannerText: {
-    fontSize: 11.5,
     fontWeight: '600',
   },
   headerDraftBtn: {

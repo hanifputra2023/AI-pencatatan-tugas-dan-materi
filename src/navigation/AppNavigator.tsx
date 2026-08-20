@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, NavigatorScreenParams } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -22,11 +22,17 @@ import AdminScreen from '../screens/AdminScreen';
 export type RootStackParamList = {
   Login: undefined;
   Register: undefined;
-  Main: undefined;
-  JournalEntry: { entryId?: string };
-  StudyNoteDetail: { noteId?: string };
+  Main: NavigatorScreenParams<TabParamList> | undefined;
+  JournalEntry: { entryId?: string } | undefined;
+  StudyNoteDetail: { noteId?: string } | undefined;
   Admin: undefined;
 };
+
+declare global {
+  namespace ReactNavigation {
+    interface RootParamList extends RootStackParamList {}
+  }
+}
 
 export type TabParamList = {
   Home: undefined;
