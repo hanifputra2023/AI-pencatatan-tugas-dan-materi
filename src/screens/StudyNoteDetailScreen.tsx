@@ -17,8 +17,10 @@ import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import MarkdownRenderer from '../components/MarkdownRenderer';
+import ScanNoteModal from '../components/ScanNoteModal';
 
 type StudyNoteRouteProp = RouteProp<RootStackParamList, 'StudyNoteDetail'>;
+
 
 const QUIZ_COUNT_OPTIONS = [3, 5, 10];
 
@@ -46,6 +48,9 @@ export default function StudyNoteDetailScreen() {
   // Subject Manager Modal
   const [showSubjectModal, setShowSubjectModal] = useState(false);
 
+  // AI Scan & Rewrite Modal
+  const [showScanModal, setShowScanModal] = useState(!!route.params?.autoOpenScan);
+
   // Interactive Quiz options & test answers state
   const [quizCount, setQuizCount] = useState<number>(5);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
@@ -54,6 +59,41 @@ export default function StudyNoteDetailScreen() {
   const [fetching, setFetching] = useState(!!noteId);
   const [generatingSummary, setGeneratingSummary] = useState(false);
   const [generatingQuiz, setGeneratingQuiz] = useState(false);
+
+  const handleApplyScanResult = ({
+    content: newContent,
+    title: suggestedTitle,
+    subject: suggestedSubj,
+    mode,
+  }: {
+    content: string;
+    title?: string;
+    subject?: string;
+    mode: 'replace' | 'append';
+  }) => {
+    if (mode === 'append') {
+      setContent(prev => (prev.trim() ? prev.trim() + '\n\n---\n\n' + newContent : newContent));
+    } else {
+      setContent(newContent);
+    }
+
+    if (suggestedTitle && (!title.trim() || mode === 'replace')) {
+      setTitle(suggestedTitle);
+    }
+
+    if (suggestedSubj && (!subject.trim() || mode === 'replace')) {
+      const matched = subjects.find(s => s.name.toLowerCase() === suggestedSubj.toLowerCase());
+      if (matched) {
+        setSubject(matched.name);
+      } else if (suggestedSubj.trim()) {
+        setSubject(suggestedSubj.trim());
+      }
+    }
+
+    setViewMode('edit');
+    showAlert('Materi Diterapkan 🎉', 'Catatan berhasil diperbarui dari hasil analisis foto AI!');
+  };
+
 
   const contentInputRef = useRef<TextInput>(null);
   const [editorFontSize, setEditorFontSize] = useState(14);
@@ -798,6 +838,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                 </TouchableOpacity>
 
                 <TouchableOpacity
+                  style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  onPress={() => setShowScanModal(true)}
+                >
+                  <Ionicons name="camera" size={14} color="#818CF8" />
+                  <Text style={[styles.readerActionBtnText, { color: '#818CF8' }]}>Scan Foto AI</Text>
+                </TouchableOpacity>
+
+
+                <TouchableOpacity
                   style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingSummary && { opacity: 0.6 }]}
                   onPress={handleGenerateSummary}
                   disabled={generatingSummary}
@@ -1066,31 +1115,49 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                 })}
               </ScrollView>
 
-              {/* Main Content Input Header with Live Preview Switch */}
+              {/* Main Content Input Header with Live Preview Switch & AI Scan */}
               <View style={styles.contentHeaderRow}>
                 <Text style={[styles.inputLabel, { color: theme.text }]}>Isi Catatan Materi:</Text>
                 
-                {/* Write vs Live Preview Toggle */}
-                <View style={[styles.editModeToggleWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <View style={styles.contentHeaderRightGroup}>
                   <TouchableOpacity
-                    style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
-                    onPress={() => setEditTab('write')}
+                    style={[
+                      styles.scanHeaderQuickBtn,
+                      {
+                        backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
+                        borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
+                      }
+                    ]}
+                    onPress={() => setShowScanModal(true)}
                   >
-                    <Ionicons name="create-outline" size={13} color={editTab === 'write' ? theme.accentLight : theme.subtext} />
-                    <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'write' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-                      Tulis
+                    <Ionicons name="camera" size={13} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+                    <Text style={[styles.scanHeaderQuickText, { color: isLightMode ? '#4F46E5' : '#A5B4FC' }]}>
+                      Scan Foto AI
                     </Text>
                   </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
-                    onPress={() => setEditTab('preview')}
-                  >
-                    <Ionicons name="eye-outline" size={13} color={editTab === 'preview' ? theme.accentLight : theme.subtext} />
-                    <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'preview' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-                      Pratinjau Rapi
-                    </Text>
-                  </TouchableOpacity>
+                  {/* Write vs Live Preview Toggle */}
+                  <View style={[styles.editModeToggleWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <TouchableOpacity
+                      style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
+                      onPress={() => setEditTab('write')}
+                    >
+                      <Ionicons name="create-outline" size={13} color={editTab === 'write' ? theme.accentLight : theme.subtext} />
+                      <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'write' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                        Tulis
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
+                      onPress={() => setEditTab('preview')}
+                    >
+                      <Ionicons name="eye-outline" size={13} color={editTab === 'preview' ? theme.accentLight : theme.subtext} />
+                      <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'preview' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                        Pratinjau
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 </View>
               </View>
 
@@ -1102,6 +1169,19 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     {...(Platform.OS === 'web' ? { onMouseDown: (e: any) => e.preventDefault() } : {})}
                   >
                     <View style={styles.toolbarRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.toolBtn,
+                          {
+                            backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
+                            borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
+                          }
+                        ]}
+                        onPress={() => setShowScanModal(true)}
+                      >
+                        <Ionicons name="camera" size={14} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+                      </TouchableOpacity>
+                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
                       <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
                         <Text style={[styles.toolBtnBold, { color: theme.text }]}>B</Text>
                       </TouchableOpacity>
@@ -1233,6 +1313,14 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
                 <View style={styles.aiBtnRow}>
                   <TouchableOpacity
+                    style={[styles.aiToolBtnScan, { backgroundColor: isLightMode ? '#4F46E5' : '#4338CA' }]}
+                    onPress={() => setShowScanModal(true)}
+                  >
+                    <Ionicons name="camera" size={14} color="#FFFFFF" />
+                    <Text style={styles.aiToolBtnText}>Scan & Rewrite Foto</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
                     style={[styles.aiToolBtn, { backgroundColor: theme.primary }, generatingSummary && { opacity: 0.7 }]}
                     onPress={handleGenerateSummary}
                     disabled={generatingSummary}
@@ -1242,7 +1330,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     ) : (
                       <>
                         <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                        <Text style={styles.aiToolBtnText}>Rangkum Intisari Ujian</Text>
+                        <Text style={styles.aiToolBtnText}>Rangkum AI</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -1260,7 +1348,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         onPress={() => setQuizCount(cnt)}
                       >
                         <Text style={[styles.cntChipText, { color: theme.subtext }, quizCount === cnt && [styles.cntChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-                          {cnt} Soal
+                          {cnt}
                         </Text>
                       </TouchableOpacity>
                     ))}
@@ -1276,7 +1364,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     ) : (
                       <>
                         <Ionicons name="school" size={14} color="#FFFFFF" />
-                        <Text style={styles.aiToolBtnText}>Buat {quizCount} Kuis</Text>
+                        <Text style={styles.aiToolBtnText}>Kuis</Text>
                       </>
                     )}
                   </TouchableOpacity>
@@ -1310,6 +1398,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         visible={showSubjectModal}
         onClose={() => setShowSubjectModal(false)}
         onSelectSubject={(subjName) => setSubject(subjName)}
+      />
+
+      {/* AI Scan & Rewrite Modal */}
+      <ScanNoteModal
+        visible={showScanModal}
+        onClose={() => setShowScanModal(false)}
+        onApply={handleApplyScanResult}
+        hasExistingContent={!!content.trim()}
+        availableSubjects={subjects}
       />
     </SafeAreaView>
   );
@@ -1674,6 +1771,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     marginBottom: 6,
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  contentHeaderRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  scanHeaderQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  scanHeaderQuickText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   editModeToggleWrap: {
     flexDirection: 'row',
@@ -1866,9 +1983,21 @@ const styles = StyleSheet.create({
     gap: 8,
     flexWrap: 'wrap',
   },
-  aiToolBtn: {
+  aiToolBtnScan: {
     flex: 1,
     minWidth: 140,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    backgroundColor: '#4F46E5',
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+  },
+  aiToolBtn: {
+    flex: 1,
+    minWidth: 110,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1880,7 +2009,7 @@ const styles = StyleSheet.create({
   },
   aiToolBtnQuiz: {
     flex: 1,
-    minWidth: 140,
+    minWidth: 100,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

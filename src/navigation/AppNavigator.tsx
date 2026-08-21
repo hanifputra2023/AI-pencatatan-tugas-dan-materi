@@ -24,7 +24,7 @@ export type RootStackParamList = {
   Register: undefined;
   Main: NavigatorScreenParams<TabParamList> | undefined;
   JournalEntry: { entryId?: string } | undefined;
-  StudyNoteDetail: { noteId?: string } | undefined;
+  StudyNoteDetail: { noteId?: string; autoOpenScan?: boolean } | undefined;
   Admin: undefined;
 };
 
@@ -41,7 +41,7 @@ export type TabParamList = {
   Journal: undefined;
   Calendar: undefined;
   Profile: undefined;
-  StudyNoteDetail: { noteId?: string } | undefined;
+  StudyNoteDetail: { noteId?: string; autoOpenScan?: boolean } | undefined;
   JournalEntry: { entryId?: string } | undefined;
   Admin: undefined;
 };

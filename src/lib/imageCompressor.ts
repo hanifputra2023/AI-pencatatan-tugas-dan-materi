@@ -79,3 +79,32 @@ export async function compressImage(
     return uri;
   }
 }
+
+import * as FileSystem from 'expo-file-system';
+
+/**
+ * Mengonversi URI gambar (Web data/blob URL atau Native file URI) menjadi string Base64 murni
+ */
+export async function uriToBase64(uri: string): Promise<string> {
+  if (!uri) return '';
+  if (uri.startsWith('data:')) {
+    return uri.split(',')[1] || '';
+  }
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1] || '');
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  return await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+}
+

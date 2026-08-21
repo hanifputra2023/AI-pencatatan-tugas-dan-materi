@@ -290,14 +290,33 @@ export default function StudyNotesScreen() {
         </View>
 
         {activeTab === 'notes' && (
-          <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: theme.primary }]}
-            onPress={() => navigation.navigate('StudyNoteDetail', {})}
-          >
-            <Ionicons name="add" size={17} color="#FFFFFF" />
-            <Text style={styles.addBtnText}>Catatan Baru</Text>
-          </TouchableOpacity>
+          <View style={styles.topActionBtnGroup}>
+            <TouchableOpacity
+              style={[
+                styles.scanQuickTopBtn,
+                {
+                  backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
+                  borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
+                }
+              ]}
+              onPress={() => navigation.navigate('StudyNoteDetail', { autoOpenScan: true })}
+            >
+              <Ionicons name="camera" size={15} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+              <Text style={[styles.scanQuickTopText, { color: isLightMode ? '#4F46E5' : '#A5B4FC' }]}>
+                Scan Foto
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: theme.primary }]}
+              onPress={() => navigation.navigate('StudyNoteDetail', {})}
+            >
+              <Ionicons name="add" size={17} color="#FFFFFF" />
+              <Text style={styles.addBtnText}>Catatan Baru</Text>
+            </TouchableOpacity>
+          </View>
         )}
+
 
         {activeTab === 'tasks' && isMobile && (
           <TouchableOpacity
@@ -913,6 +932,24 @@ const styles = StyleSheet.create({
     fontSize: 12,
     marginTop: 2,
   },
+  topActionBtnGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  scanQuickTopBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    gap: 5,
+    borderWidth: 1,
+  },
+  scanQuickTopText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -927,6 +964,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '600',
   },
+
   tabsRow: {
     flexDirection: 'row',
     backgroundColor: '#141822',
