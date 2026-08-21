@@ -291,21 +291,7 @@ export default function StudyNotesScreen() {
 
         {activeTab === 'notes' && (
           <View style={styles.topActionBtnGroup}>
-            <TouchableOpacity
-              style={[
-                styles.scanQuickTopBtn,
-                {
-                  backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
-                  borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
-                }
-              ]}
-              onPress={() => navigation.navigate('StudyNoteDetail', { autoOpenScan: true })}
-            >
-              <Ionicons name="camera" size={15} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
-              <Text style={[styles.scanQuickTopText, { color: isLightMode ? '#4F46E5' : '#A5B4FC' }]}>
-                Scan Foto
-              </Text>
-            </TouchableOpacity>
+            
 
             <TouchableOpacity
               style={[styles.addBtn, { backgroundColor: theme.primary }]}
