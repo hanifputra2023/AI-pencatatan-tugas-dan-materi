@@ -9,6 +9,7 @@ import { StudentTask } from '../types';
 import { copyToClipboard } from '../lib/clipboard';
 import { sendMessageToGemini } from '../lib/gemini';
 import { showAlert } from '../lib/alert';
+import { isDeviceOnline } from '../lib/offlineSync';
 
 interface TaskWorkpadModalProps {
   visible: boolean;
@@ -53,6 +54,12 @@ export default function TaskWorkpadModal({
   };
 
   const handleGenerateAiOutline = async (mode: 'outline' | 'draft') => {
+    const online = await isDeviceOnline();
+    if (!online) {
+      showAlert('Mode Offline ☁️', 'Fitur AI (Outline & Draft) memerlukan koneksi internet. Silakan sambungkan perangkat ke internet.');
+      return;
+    }
+
     setLoadingAi(true);
     try {
       const prompt = mode === 'outline'

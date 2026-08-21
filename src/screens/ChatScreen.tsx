@@ -24,6 +24,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { compressImage } from '../lib/imageCompressor';
+import { isDeviceOnline } from '../lib/offlineSync';
 
 async function uriToBase64(uri: string): Promise<string> {
   if (uri.startsWith('data:')) {
@@ -467,6 +468,12 @@ export default function ChatScreen() {
   const handleSend = async (textToSend?: string) => {
     const text = (textToSend || inputText).trim();
     if ((!text && !attachment) || loading) return;
+
+    const online = await isDeviceOnline();
+    if (!online) {
+      setErrorToast('Mode Offline ☁️: Bot AI memerlukan koneksi internet untuk menjawab pesan.');
+      return;
+    }
 
     setErrorToast(null);
     const currentAttachment = attachment;

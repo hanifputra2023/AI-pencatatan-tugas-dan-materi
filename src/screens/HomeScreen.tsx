@@ -17,6 +17,14 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert } from '../lib/alert';
 import { calculateRealStreak } from '../lib/streakCalculator';
+import {
+  isDeviceOnline,
+  subscribeNetworkStatus,
+  getCachedDashboard,
+  cacheDashboardLocally,
+  processOfflineSyncQueue,
+  queueOfflineAction,
+} from '../lib/offlineSync';
 
 const DEFAULT_DAILY_QUESTS = [
   { id: '1', title: 'Curhat atau refleksi sejenak ke AI', completed: false, icon: 'chatbubble-ellipses-outline' },
@@ -58,6 +66,7 @@ export default function HomeScreen() {
   const [totalNotesCount, setTotalNotesCount] = useState(0);
   const [pendingTasksCount, setPendingTasksCount] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [isOnline, setIsOnline] = useState(true);
 
   // Daily AI Wisdom State
   const [wisdom, setWisdom] = useState(WISDOM_PRESETS[0]);
@@ -150,6 +159,23 @@ export default function HomeScreen() {
       return;
     }
 
+    // 1. Instant load from local cache (0ms loading offline)
+    try {
+      const cached = await getCachedDashboard(user.id);
+      if (cached) {
+        if (cached.username) setUsername(cached.username);
+        if (typeof cached.streak === 'number') setStreak(cached.streak);
+        if (cached.todayMood !== undefined) setTodayMood(cached.todayMood);
+        if (cached.recentEntries) setRecentEntries(cached.recentEntries);
+        if (cached.upcomingTasks) setUpcomingTasks(cached.upcomingTasks);
+        if (cached.recentStudyNotes) setRecentStudyNotes(cached.recentStudyNotes);
+        if (typeof cached.pendingTasksCount === 'number') setPendingTasksCount(cached.pendingTasksCount);
+        if (typeof cached.totalNotesCount === 'number') setTotalNotesCount(cached.totalNotesCount);
+        setLoading(false);
+      }
+    } catch (e) {}
+
+    // 2. Fetch fresh data from Supabase
     try {
       const [profileRes, recentRes, journalDatesRes, chatDatesRes, tasksRes, notesRes, allTasksCountRes, allNotesCountRes] = await Promise.all([
         supabase.from('profiles').select('username').eq('id', user.id).single(),
@@ -162,17 +188,25 @@ export default function HomeScreen() {
         supabase.from('study_notes').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
       ]);
 
-      if (profileRes.data) setUsername(profileRes.data.username || 'Kamu');
+      const fetchedUsername = profileRes.data?.username || 'Kamu';
+      setUsername(fetchedUsername);
 
       let hasTodayJournal = false;
       let hasTodayChat = false;
+      let calculatedTodayMood: string | null = null;
+      let fetchedEntries: JournalEntry[] = [];
+      let fetchedTasks: StudentTask[] = [];
+      let fetchedNotes: StudyNote[] = [];
+      let fetchedPendingCount = 0;
+      let fetchedTotalNotes = 0;
 
       if (recentRes.data) {
-        const entries = recentRes.data as JournalEntry[];
-        setRecentEntries(entries);
+        fetchedEntries = recentRes.data as JournalEntry[];
+        setRecentEntries(fetchedEntries);
         const todayStr = new Date().toDateString();
-        const todayEntry = entries.find(e => new Date(e.created_at).toDateString() === todayStr);
-        setTodayMood(todayEntry ? todayEntry.mood : null);
+        const todayEntry = fetchedEntries.find(e => new Date(e.created_at).toDateString() === todayStr);
+        calculatedTodayMood = todayEntry ? todayEntry.mood : null;
+        setTodayMood(calculatedTodayMood);
         hasTodayJournal = !!todayEntry;
       }
 
@@ -182,24 +216,32 @@ export default function HomeScreen() {
       }
 
       if (tasksRes.data) {
-        setUpcomingTasks(tasksRes.data as StudentTask[]);
+        fetchedTasks = tasksRes.data as StudentTask[];
+        setUpcomingTasks(fetchedTasks);
       }
 
       if (notesRes.data) {
-        setRecentStudyNotes(notesRes.data as StudyNote[]);
+        fetchedNotes = notesRes.data as StudyNote[];
+        setRecentStudyNotes(fetchedNotes);
       }
 
-      if (typeof allTasksCountRes.count === 'number') {
-        setPendingTasksCount(allTasksCountRes.count);
-      } else {
-        setPendingTasksCount(tasksRes.data?.length || 0);
-      }
+      fetchedPendingCount = typeof allTasksCountRes.count === 'number' ? allTasksCountRes.count : (tasksRes.data?.length || 0);
+      setPendingTasksCount(fetchedPendingCount);
 
-      if (typeof allNotesCountRes.count === 'number') {
-        setTotalNotesCount(allNotesCountRes.count);
-      } else {
-        setTotalNotesCount(notesRes.data?.length || 0);
-      }
+      fetchedTotalNotes = typeof allNotesCountRes.count === 'number' ? allNotesCountRes.count : (notesRes.data?.length || 0);
+      setTotalNotesCount(fetchedTotalNotes);
+
+      // Cache all dashboard data for instant offline loading
+      cacheDashboardLocally(user.id, {
+        username: fetchedUsername,
+        streak,
+        todayMood: calculatedTodayMood,
+        recentEntries: fetchedEntries,
+        upcomingTasks: fetchedTasks,
+        recentStudyNotes: fetchedNotes,
+        pendingTasksCount: fetchedPendingCount,
+        totalNotesCount: fetchedTotalNotes,
+      });
 
       // Check Active Draft
       try {
@@ -219,11 +261,6 @@ export default function HomeScreen() {
         setActiveDraft(null);
       }
 
-      const allTimestamps: string[] = [
-        ...(journalDatesRes.data?.map(d => d.created_at) || []),
-        ...(chatDatesRes.data?.map(d => d.created_at) || []),
-      ];
-      setStreak(calculateRealStreak(allTimestamps));
       loadDailyQuests(hasTodayChat, hasTodayJournal);
     } catch (err) {
       console.log('Error fetching home dashboard data:', err);
@@ -235,7 +272,19 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchData();
 
-    if (!user) return;
+    // Subscribe to network online/offline and process queue
+    const unsubscribeNetwork = subscribeNetworkStatus(async (online) => {
+      setIsOnline(online);
+      if (online && user) {
+        const { syncedCount } = await processOfflineSyncQueue(user.id);
+        if (syncedCount > 0) {
+          fetchData();
+          showAlert('Sinkronisasi Sukses 🔄', `${syncedCount} aktivitas offline telah berhasil di-upload ke database!`);
+        }
+      }
+    });
+
+    if (!user) return () => unsubscribeNetwork();
 
     const channel = supabase
       .channel('home_realtime_' + user.id)
@@ -247,6 +296,7 @@ export default function HomeScreen() {
       .subscribe();
 
     return () => {
+      unsubscribeNetwork();
       supabase.removeChannel(channel);
     };
   }, [user, fetchData]);
@@ -290,22 +340,52 @@ export default function HomeScreen() {
   const handleSaveGratitude = async () => {
     if (!gratitudeText.trim()) return;
     setSavingGratitude(true);
+    const content = gratitudeText.trim();
+    const payload = {
+      user_id: user?.id || 'anonymous',
+      title: '✨ Rasa Syukur Hari Ini',
+      content,
+      mood: 'happy',
+      tags: ['syukur', 'mindfulness'],
+    };
+
+    const online = await isDeviceOnline();
+    if (!online) {
+      if (user) {
+        queueOfflineAction({
+          userId: user.id,
+          type: 'CREATE_JOURNAL',
+          payload,
+        });
+      }
+      setGratitudeText('');
+      setSavingGratitude(false);
+      showAlert('Tersimpan Offline 🤍', 'Catatan rasa syukur disimpan di HP & otomatis di-sync saat online.');
+      const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
+      saveDailyQuests(updated);
+      return;
+    }
+
     try {
       if (user) {
-        await supabase.from('journal_entries').insert({
-          user_id: user.id,
-          title: '✨ Rasa Syukur Hari Ini',
-          content: gratitudeText.trim(),
-          mood: 'happy',
-          tags: ['syukur', 'mindfulness'],
-        });
+        await supabase.from('journal_entries').insert(payload);
       }
       setGratitudeText('');
       showAlert('Tersimpan 🤍', 'Catatan rasa syukur kamu berhasil disimpan ke Jurnal.');
       const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
       saveDailyQuests(updated);
     } catch (e: any) {
-      showAlert('Gagal Menyimpan', e.message || 'Terjadi kesalahan.');
+      if (user) {
+        queueOfflineAction({
+          userId: user.id,
+          type: 'CREATE_JOURNAL',
+          payload,
+        });
+      }
+      setGratitudeText('');
+      showAlert('Tersimpan Offline 🤍', 'Catatan rasa syukur disimpan di HP & otomatis di-sync saat online.');
+      const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
+      saveDailyQuests(updated);
     } finally {
       setSavingGratitude(false);
     }
@@ -408,6 +488,16 @@ export default function HomeScreen() {
             <Text style={[styles.streakNumber, { color: theme.text }]}>{streak} Hari</Text>
           </TouchableOpacity>
         </View>
+
+        {/* Offline Status Warning Banner */}
+        {!isOnline && (
+          <View style={[styles.offlineBanner, { backgroundColor: isLightMode ? '#FEF3C7' : '#2D2008', borderColor: isLightMode ? '#FDE68A' : '#78350F' }]}>
+            <Ionicons name="cloud-offline" size={15} color="#D97706" />
+            <Text style={[styles.offlineBannerText, { color: isLightMode ? '#92400E' : '#FCD34D' }]}>
+              Mode Offline Aktif • Beranda & aktivitas tersimpan di HP & otomatis di-upload saat online.
+            </Text>
+          </View>
+        )}
 
         {/* Global Announcement Banner */}
         {globalAnnouncement && globalAnnouncement.trim().length > 0 ? (
@@ -931,6 +1021,22 @@ const styles = StyleSheet.create({
     color: '#F3F4F6',
     fontSize: 12,
     fontWeight: '600',
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  offlineBannerText: {
+    flex: 1,
+    fontSize: 11.5,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   announcementBanner: {
     flexDirection: 'row',

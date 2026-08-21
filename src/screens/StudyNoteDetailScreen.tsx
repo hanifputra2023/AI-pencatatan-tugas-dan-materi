@@ -19,6 +19,12 @@ import { copyToClipboard } from '../lib/clipboard';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import ScanNoteModal from '../components/ScanNoteModal';
+import {
+  isDeviceOnline,
+  queueOfflineAction,
+  cacheNotesLocally,
+  getCachedNotes
+} from '../lib/offlineSync';
 
 type StudyNoteRouteProp = RouteProp<RootStackParamList, 'StudyNoteDetail'>;
 
@@ -458,6 +464,12 @@ export default function StudyNoteDetailScreen() {
       showAlert('Perhatian', 'Tulis materi catatan terlebih dahulu untuk dirangkum AI.');
       return;
     }
+
+    const online = await isDeviceOnline();
+    if (!online) {
+      showAlert('Mode Offline ☁️', 'Fitur Rangkuman AI memerlukan koneksi internet. Sambungkan perangkat ke internet untuk menggunakan AI.');
+      return;
+    }
     setGeneratingSummary(true);
     try {
       const prompt = `Kamu adalah Ara, asisten pintar profesor akademik dan tutor belajar terbaik untuk mahasiswa.
@@ -636,26 +648,79 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
       updated_at: new Date().toISOString(),
     };
 
-    if (user) {
-      if (noteId) {
-        await supabase.from('study_notes').update(payload).eq('id', noteId);
-      } else {
-        await supabase.from('study_notes').insert(payload);
-        // Clear local draft once saved to Supabase
-        try {
-          const draftKey = getDraftKey();
-          await AsyncStorage.removeItem(draftKey);
-          setHasRestoredDraft(false);
-          setDraftSavedTime(null);
-        } catch (e) {}
+    const online = await isDeviceOnline();
+
+    if (!online) {
+      // Offline Flow
+      if (user) {
+        if (noteId) {
+          queueOfflineAction({
+            userId: user.id,
+            type: 'UPDATE_NOTE',
+            payload: { id: noteId, ...payload },
+          });
+        } else {
+          const tempNoteId = `local_note_${Date.now()}`;
+          queueOfflineAction({
+            userId: user.id,
+            type: 'CREATE_NOTE',
+            payload,
+          });
+          try {
+            const draftKey = getDraftKey();
+            await AsyncStorage.removeItem(draftKey);
+            setHasRestoredDraft(false);
+            setDraftSavedTime(null);
+          } catch (e) {}
+        }
       }
+      setLoading(false);
+      showAlert('Tersimpan Offline 💾', 'Catatan kuliah tersimpan di HP & otomatis di-upload ke database saat online.');
+      if (noteId) {
+        setViewMode('reader');
+      } else {
+        navigation.goBack();
+      }
+      return;
     }
-    setLoading(false);
-    showAlert('Tersimpan', 'Catatan kuliah berhasil disimpan.');
-    if (noteId) {
-      setViewMode('reader');
-    } else {
-      navigation.goBack();
+
+    try {
+      if (user) {
+        if (noteId) {
+          await supabase.from('study_notes').update(payload).eq('id', noteId);
+        } else {
+          await supabase.from('study_notes').insert(payload);
+          try {
+            const draftKey = getDraftKey();
+            await AsyncStorage.removeItem(draftKey);
+            setHasRestoredDraft(false);
+            setDraftSavedTime(null);
+          } catch (e) {}
+        }
+      }
+      setLoading(false);
+      showAlert('Tersimpan', 'Catatan kuliah berhasil disimpan.');
+      if (noteId) {
+        setViewMode('reader');
+      } else {
+        navigation.goBack();
+      }
+    } catch (err) {
+      // Network drop fallback
+      if (user) {
+        queueOfflineAction({
+          userId: user.id,
+          type: noteId ? 'UPDATE_NOTE' : 'CREATE_NOTE',
+          payload: noteId ? { id: noteId, ...payload } : payload,
+        });
+      }
+      setLoading(false);
+      showAlert('Tersimpan Offline 💾', 'Catatan kuliah tersimpan di HP & otomatis di-upload ke database saat online.');
+      if (noteId) {
+        setViewMode('reader');
+      } else {
+        navigation.goBack();
+      }
     }
   };
 

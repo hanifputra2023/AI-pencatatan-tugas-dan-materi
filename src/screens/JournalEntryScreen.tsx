@@ -18,6 +18,10 @@ import { showAlert, confirmAction } from '../lib/alert';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { sendMessageToGemini } from '../lib/gemini';
 import { compressImage } from '../lib/imageCompressor';
+import {
+  isDeviceOnline,
+  queueOfflineAction
+} from '../lib/offlineSync';
 
 type JournalEntryRouteProp = RouteProp<RootStackParamList, 'JournalEntry'>;
 
@@ -329,6 +333,36 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
       is_draft: asDraft,
     };
 
+    const online = await isDeviceOnline();
+
+    if (!online) {
+      if (user) {
+        if (entryId) {
+          queueOfflineAction({
+            userId: user.id,
+            type: 'UPDATE_JOURNAL',
+            payload: { id: entryId, ...payload },
+          });
+          setIsDraft(asDraft);
+          setIsEditing(false);
+        } else {
+          queueOfflineAction({
+            userId: user.id,
+            type: 'CREATE_JOURNAL',
+            payload,
+          });
+          const key = `@journal_draft_${user.id}`;
+          await AsyncStorage.removeItem(key);
+        }
+      }
+      setLoading(false);
+      showAlert('Tersimpan Offline 💾', 'Jurnal berhasil disimpan di HP & otomatis di-upload ke database saat online.');
+      if (!entryId) {
+        navigation.goBack();
+      }
+      return;
+    }
+
     try {
       if (user) {
         if (entryId) {
@@ -352,7 +386,19 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
         }
       }
     } catch (e: any) {
-      showAlert('Gagal Menyimpan', e.message || 'Terjadi kesalahan.');
+      if (user) {
+        queueOfflineAction({
+          userId: user.id,
+          type: entryId ? 'UPDATE_JOURNAL' : 'CREATE_JOURNAL',
+          payload: entryId ? { id: entryId, ...payload } : payload,
+        });
+      }
+      setLoading(false);
+      showAlert('Tersimpan Offline 💾', 'Jurnal berhasil disimpan di HP & otomatis di-upload ke database saat online.');
+      if (!entryId) {
+        navigation.goBack();
+      }
+      return;
     } finally {
       setLoading(false);
     }
@@ -364,11 +410,28 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
       'Catatan ini akan dihapus secara permanen dan tidak bisa dikembalikan.',
       async () => {
         if (user && entryId) {
-          await supabase.from('journal_entries').delete().eq('id', entryId);
+          const online = await isDeviceOnline();
+          if (online) {
+            try {
+              await supabase.from('journal_entries').delete().eq('id', entryId);
+            } catch (e) {
+              queueOfflineAction({
+                userId: user.id,
+                type: 'DELETE_JOURNAL',
+                payload: { id: entryId },
+              });
+            }
+          } else {
+            queueOfflineAction({
+              userId: user.id,
+              type: 'DELETE_JOURNAL',
+              payload: { id: entryId },
+            });
+          }
           navigation.goBack();
         }
       },
-      'Hapus Permanen'
+      'Hapus'
     );
   };
 

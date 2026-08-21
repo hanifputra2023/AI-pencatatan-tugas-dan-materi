@@ -13,7 +13,15 @@ import { supabase } from '../lib/supabase';
 import { JournalEntry } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
-import { confirmAction } from '../lib/alert';
+import { confirmAction, showAlert } from '../lib/alert';
+import {
+  isDeviceOnline,
+  subscribeNetworkStatus,
+  cacheJournalsLocally,
+  getCachedJournals,
+  processOfflineSyncQueue,
+  queueOfflineAction,
+} from '../lib/offlineSync';
 
 export default function JournalScreen() {
   const { user } = useAuth();
@@ -27,26 +35,54 @@ export default function JournalScreen() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'published' | 'drafts'>('published');
   const [filterMood, setFilterMood] = useState<string | null>(null);
+  const [isOnline, setIsOnline] = useState(true);
 
   const fetchEntries = useCallback(async () => {
     if (!user) {
       setLoading(false);
       return;
     }
-    let query = supabase
-      .from('journal_entries')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('created_at', { ascending: false });
-    const { data } = await query;
-    if (data) setEntries(data as JournalEntry[]);
+
+    // 1. Instant load from local cache
+    const cached = await getCachedJournals(user.id);
+    if (cached && cached.length > 0) {
+      setEntries(cached);
+      setLoading(false);
+    }
+
+    // 2. Fetch fresh data from Supabase
+    try {
+      let query = supabase
+        .from('journal_entries')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('created_at', { ascending: false });
+      const { data } = await query;
+      if (data) {
+        setEntries(data as JournalEntry[]);
+        cacheJournalsLocally(user.id, data as JournalEntry[]);
+      }
+    } catch (e) {
+      console.log('fetchEntries offline fallback:', e);
+    }
     setLoading(false);
   }, [user]);
 
   useEffect(() => {
     fetchEntries();
 
-    if (!user) return;
+    const unsubscribeNetwork = subscribeNetworkStatus(async (online) => {
+      setIsOnline(online);
+      if (online && user) {
+        const { syncedCount } = await processOfflineSyncQueue(user.id);
+        if (syncedCount > 0) {
+          fetchEntries();
+          showAlert('Sinkronisasi Sukses 🔄', `${syncedCount} jurnal offline berhasil di-upload ke database!`);
+        }
+      }
+    });
+
+    if (!user) return () => unsubscribeNetwork();
 
     const channel = supabase
       .channel('journal_realtime_' + user.id)
@@ -65,6 +101,7 @@ export default function JournalScreen() {
       .subscribe();
 
     return () => {
+      unsubscribeNetwork();
       supabase.removeChannel(channel);
     };
   }, [user, fetchEntries]);
@@ -80,9 +117,28 @@ export default function JournalScreen() {
       isDraft ? 'Hapus Draf?' : 'Hapus Jurnal?',
       'Catatan ini akan dihapus permanen.',
       async () => {
-        setEntries(prev => prev.filter(e => e.id !== id));
+        const updated = entries.filter(e => e.id !== id);
+        setEntries(updated);
         if (user) {
-          await supabase.from('journal_entries').delete().eq('id', id);
+          cacheJournalsLocally(user.id, updated);
+          const online = await isDeviceOnline();
+          if (online) {
+            try {
+              await supabase.from('journal_entries').delete().eq('id', id);
+            } catch (e) {
+              queueOfflineAction({
+                userId: user.id,
+                type: 'DELETE_JOURNAL',
+                payload: { id },
+              });
+            }
+          } else {
+            queueOfflineAction({
+              userId: user.id,
+              type: 'DELETE_JOURNAL',
+              payload: { id },
+            });
+          }
         }
       },
       'Hapus'

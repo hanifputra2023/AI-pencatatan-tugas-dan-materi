@@ -27,6 +27,16 @@ import {
   notifyPomodoroFinished,
   sendImmediateNotification
 } from '../lib/notifications';
+import {
+  isDeviceOnline,
+  subscribeNetworkStatus,
+  cacheTasksLocally,
+  getCachedTasks,
+  cacheNotesLocally,
+  getCachedNotes,
+  queueOfflineAction,
+  processOfflineSyncQueue,
+} from '../lib/offlineSync';
 
 const POMODORO_DURATIONS = [
   { label: '25 Menit (Fokus)', value: 25 * 60 },
@@ -142,6 +152,7 @@ export default function StudyNotesScreen() {
 
   const [showDatePickerModal, setShowDatePickerModal] = useState(false);
   const [datePickerTarget, setDatePickerTarget] = useState<'create' | 'edit'>('create');
+  const [isOnline, setIsOnline] = useState(true);
 
   useEffect(() => {
     if (route.params?.initialTab) {
@@ -236,12 +247,28 @@ export default function StudyNotesScreen() {
       setLoadingNotes(false);
       return;
     }
-    const { data } = await supabase
-      .from('study_notes')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('updated_at', { ascending: false });
-    if (data) setNotes(data as StudyNote[]);
+
+    // 1. Instant load from local cache
+    const cached = await getCachedNotes(user.id);
+    if (cached && cached.length > 0) {
+      setNotes(cached);
+      setLoadingNotes(false);
+    }
+
+    // 2. Fetch fresh data from Supabase
+    try {
+      const { data } = await supabase
+        .from('study_notes')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('updated_at', { ascending: false });
+      if (data) {
+        setNotes(data as StudyNote[]);
+        cacheNotesLocally(user.id, data as StudyNote[]);
+      }
+    } catch (e) {
+      console.log('fetchNotes offline fallback:', e);
+    }
     setLoadingNotes(false);
   }, [user]);
 
@@ -264,20 +291,33 @@ export default function StudyNotesScreen() {
       if (rawNotes) localNotesMap = JSON.parse(rawNotes);
     } catch (e) {}
 
-    const { data } = await supabase
-      .from('student_tasks')
-      .select('*')
-      .eq('user_id', user.id)
-      .order('is_completed', { ascending: true })
-      .order('created_at', { ascending: false });
+    // 1. Instant load from local cache
+    const cached = await getCachedTasks(user.id);
+    if (cached && cached.length > 0) {
+      setTasks(cached);
+      setLoadingTasks(false);
+    }
 
-    if (data) {
-      const mergedTasks: StudentTask[] = (data as StudentTask[]).map(t => ({
-        ...t,
-        subtasks: t.subtasks || localSubtasksMap[t.id] || [],
-        notes: t.notes || localNotesMap[t.id] || '',
-      }));
-      setTasks(mergedTasks);
+    // 2. Fetch fresh data from Supabase
+    try {
+      const { data } = await supabase
+        .from('student_tasks')
+        .select('*')
+        .eq('user_id', user.id)
+        .order('is_completed', { ascending: true })
+        .order('created_at', { ascending: false });
+
+      if (data) {
+        const mergedTasks: StudentTask[] = (data as StudentTask[]).map(t => ({
+          ...t,
+          subtasks: t.subtasks || localSubtasksMap[t.id] || [],
+          notes: t.notes || localNotesMap[t.id] || '',
+        }));
+        setTasks(mergedTasks);
+        cacheTasksLocally(user.id, mergedTasks);
+      }
+    } catch (e) {
+      console.log('fetchTasks offline fallback:', e);
     }
     setLoadingTasks(false);
   }, [user]);
@@ -296,7 +336,9 @@ export default function StudyNotesScreen() {
   };
 
   const handleSaveTaskNotes = async (taskId: string, newNotes: string) => {
-    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, notes: newNotes } : t));
+    const updated = tasks.map(t => t.id === taskId ? { ...t, notes: newNotes } : t);
+    setTasks(updated);
+    if (user) cacheTasksLocally(user.id, updated);
     if (activeWorkpadTask && activeWorkpadTask.id === taskId) {
       setActiveWorkpadTask(prev => prev ? { ...prev, notes: newNotes } : null);
     }
@@ -326,7 +368,20 @@ export default function StudyNotesScreen() {
       requestNotificationPermissions();
     }
 
-    if (!user) return;
+    // Subscribe to online/offline network changes & trigger auto-sync
+    const unsubscribeNetwork = subscribeNetworkStatus(async (online) => {
+      setIsOnline(online);
+      if (online && user) {
+        const { syncedCount } = await processOfflineSyncQueue(user.id);
+        if (syncedCount > 0) {
+          fetchTasks();
+          fetchNotes();
+          showAlert('Sinkronisasi Sukses 🔄', `${syncedCount} aktivitas offline telah berhasil di-upload ke database!`);
+        }
+      }
+    });
+
+    if (!user) return () => unsubscribeNetwork();
 
     const channel = supabase
       .channel('study_realtime_' + user.id)
@@ -335,6 +390,7 @@ export default function StudyNotesScreen() {
       .subscribe();
 
     return () => {
+      unsubscribeNetwork();
       supabase.removeChannel(channel);
     };
   }, [user, fetchNotes, fetchTasks, checkDraft]);
@@ -435,26 +491,90 @@ export default function StudyNotesScreen() {
       is_completed: false,
     };
 
-    const { data, error } = await supabase.from('student_tasks').insert(dbPayload).select().single();
-    if (error) {
-      showAlert('Gagal Menyimpan', error.message);
-    } else if (data) {
-      const created = data as StudentTask;
+    const online = await isDeviceOnline();
+
+    if (!online) {
+      // Offline fallback: save locally and queue for upload
+      const tempId = `local_task_${Date.now()}`;
       const initialTask: StudentTask = {
-        ...created,
+        id: tempId,
+        user_id: user.id,
+        title: newTaskTitle.trim(),
+        subject: chosenSubject,
+        priority: newTaskPriority,
+        due_date: newTaskDueDate.trim() || null,
+        is_completed: false,
+        created_at: new Date().toISOString(),
         subtasks: [],
         notes: newTaskNotes.trim(),
       };
       if (newTaskNotes.trim()) {
-        handleSaveTaskNotes(created.id, newTaskNotes.trim());
+        handleSaveTaskNotes(tempId, newTaskNotes.trim());
       }
       scheduleTaskDeadlineNotification(initialTask);
-      setTasks(prev => [initialTask, ...prev]);
+      const updated = [initialTask, ...tasks];
+      setTasks(updated);
+      cacheTasksLocally(user.id, updated);
+      queueOfflineAction({
+        userId: user.id,
+        type: 'CREATE_TASK',
+        payload: dbPayload,
+      });
       setNewTaskTitle('');
       setNewTaskDueDate('');
       setNewTaskNotes('');
       if (isMobile) setShowTaskForm(false);
-      showAlert('Sukses', 'Tugas kuliah berhasil ditambahkan.');
+      showAlert('Tersimpan Offline 💾', 'Tugas disimpan di HP & otomatis di-upload ke database saat online.');
+      return;
+    }
+
+    try {
+      const { data, error } = await supabase.from('student_tasks').insert(dbPayload).select().single();
+      if (error) throw error;
+      if (data) {
+        const created = data as StudentTask;
+        const initialTask: StudentTask = {
+          ...created,
+          subtasks: [],
+          notes: newTaskNotes.trim(),
+        };
+        if (newTaskNotes.trim()) {
+          handleSaveTaskNotes(created.id, newTaskNotes.trim());
+        }
+        scheduleTaskDeadlineNotification(initialTask);
+        const updated = [initialTask, ...tasks];
+        setTasks(updated);
+        cacheTasksLocally(user.id, updated);
+        setNewTaskTitle('');
+        setNewTaskDueDate('');
+        setNewTaskNotes('');
+        if (isMobile) setShowTaskForm(false);
+        showAlert('Sukses', 'Tugas kuliah berhasil ditambahkan.');
+      }
+    } catch (err: any) {
+      // If error occurs due to network drop, fallback to queue
+      const tempId = `local_task_${Date.now()}`;
+      const initialTask: StudentTask = {
+        id: tempId,
+        user_id: user.id,
+        title: newTaskTitle.trim(),
+        subject: chosenSubject,
+        priority: newTaskPriority,
+        due_date: newTaskDueDate.trim() || null,
+        is_completed: false,
+        created_at: new Date().toISOString(),
+        subtasks: [],
+        notes: newTaskNotes.trim(),
+      };
+      const updated = [initialTask, ...tasks];
+      setTasks(updated);
+      cacheTasksLocally(user.id, updated);
+      queueOfflineAction({
+        userId: user.id,
+        type: 'CREATE_TASK',
+        payload: dbPayload,
+      });
+      showAlert('Tersimpan Offline 💾', 'Tugas disimpan di HP & otomatis di-upload saat online.');
     }
   };
 
@@ -466,9 +586,20 @@ export default function StudyNotesScreen() {
     } else {
       scheduleTaskDeadlineNotification({ ...task, is_completed: false });
     }
-    setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_completed: newStatus } : t));
+    const updated = tasks.map(t => t.id === task.id ? { ...t, is_completed: newStatus } : t);
+    setTasks(updated);
     if (user) {
-      await supabase.from('student_tasks').update({ is_completed: newStatus }).eq('id', task.id);
+      cacheTasksLocally(user.id, updated);
+      const online = await isDeviceOnline();
+      if (online) {
+        await supabase.from('student_tasks').update({ is_completed: newStatus }).eq('id', task.id);
+      } else {
+        queueOfflineAction({
+          userId: user.id,
+          type: 'UPDATE_TASK',
+          payload: { id: task.id, is_completed: newStatus },
+        });
+      }
     }
   };
 
@@ -634,7 +765,8 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
       notes: editNotes.trim(),
     };
 
-    setTasks(prev => prev.map(t => (t.id === editingTask.id ? updatedTask : t)));
+    const updated = tasks.map(t => (t.id === editingTask.id ? updatedTask : t));
+    setTasks(updated);
     handleSaveTaskNotes(editingTask.id, editNotes.trim());
     if (updatedTask.due_date && !updatedTask.is_completed) {
       scheduleTaskDeadlineNotification(updatedTask);
@@ -644,12 +776,30 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     setEditingTask(null);
 
     if (user) {
-      await supabase.from('student_tasks').update({
-        title: updatedTask.title,
-        subject: updatedTask.subject,
-        priority: updatedTask.priority,
-        due_date: updatedTask.due_date,
-      }).eq('id', editingTask.id);
+      cacheTasksLocally(user.id, updated);
+      const online = await isDeviceOnline();
+      if (online) {
+        try {
+          await supabase.from('student_tasks').update({
+            title: updatedTask.title,
+            subject: updatedTask.subject,
+            priority: updatedTask.priority,
+            due_date: updatedTask.due_date,
+          }).eq('id', editingTask.id);
+        } catch (e) {
+          queueOfflineAction({
+            userId: user.id,
+            type: 'UPDATE_TASK',
+            payload: updatedTask,
+          });
+        }
+      } else {
+        queueOfflineAction({
+          userId: user.id,
+          type: 'UPDATE_TASK',
+          payload: updatedTask,
+        });
+      }
     }
     showAlert('Tersimpan', 'Perubahan tugas berhasil disimpan.');
   };
@@ -658,12 +808,31 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
   const deleteTask = (taskId: string) => {
     confirmAction('Hapus Tugas?', 'Tugas ini akan dihapus dari daftar.', async () => {
       cancelTaskNotification(taskId);
-      setTasks(prev => prev.filter(t => t.id !== taskId));
+      const updated = tasks.filter(t => t.id !== taskId);
+      setTasks(updated);
       if (activePomodoroTask?.id === taskId) {
         setActivePomodoroTask(null);
       }
       if (user) {
-        await supabase.from('student_tasks').delete().eq('id', taskId);
+        cacheTasksLocally(user.id, updated);
+        const online = await isDeviceOnline();
+        if (online) {
+          try {
+            await supabase.from('student_tasks').delete().eq('id', taskId);
+          } catch (e) {
+            queueOfflineAction({
+              userId: user.id,
+              type: 'DELETE_TASK',
+              payload: { id: taskId },
+            });
+          }
+        } else {
+          queueOfflineAction({
+            userId: user.id,
+            type: 'DELETE_TASK',
+            payload: { id: taskId },
+          });
+        }
       }
     }, 'Hapus');
   };
@@ -756,6 +925,16 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
         </View>
       </View>
 
+      {/* Offline Status Warning Banner */}
+      {!isOnline && (
+        <View style={[styles.offlineBanner, { backgroundColor: isLightMode ? '#FEF3C7' : '#2D2008', borderColor: isLightMode ? '#FDE68A' : '#78350F' }]}>
+          <Ionicons name="cloud-offline" size={15} color="#D97706" />
+          <Text style={[styles.offlineBannerText, { color: isLightMode ? '#92400E' : '#FCD34D' }]}>
+            Mode Offline Aktif • Catatan & tugas tersimpan di HP & otomatis di-upload ke database saat online.
+          </Text>
+        </View>
+      )}
+
       {/* Mode Switcher Tabs */}
       <View style={[styles.tabsRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
         <TouchableOpacity
@@ -799,7 +978,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
           <View style={styles.controlsArea}>
 
             {/* Dedicated Search Input Bar */}
-            <View style={[styles.searchBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.searchBar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
               <Ionicons name="search-outline" size={16} color={theme.subtext} />
               <TextInput
                 style={[styles.searchInput, { color: theme.text }]}
@@ -1051,7 +1230,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 
           {/* Top Filter Bar: Subject Filter & Search */}
           <View style={[styles.taskTopFilterBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
-            <View style={styles.taskSearchBox}>
+            <View style={[styles.taskSearchBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
               <Ionicons name="search-outline" size={16} color={theme.subtext} />
               <TextInput
                 style={[styles.taskSearchInput, { color: theme.text }]}
@@ -1901,12 +2080,23 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 4,
   },
-  addBtnText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginHorizontal: 18,
+    marginBottom: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
   },
-
+  offlineBannerText: {
+    flex: 1,
+    fontSize: 11.5,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
   tabsRow: {
     flexDirection: 'row',
     backgroundColor: '#141822',
@@ -1945,17 +2135,14 @@ const styles = StyleSheet.create({
   searchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#141822',
     borderRadius: 12,
     paddingHorizontal: 14,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#202634',
     gap: 10,
   },
   searchInput: {
     flex: 1,
-    color: '#F3F4F6',
     fontSize: 13,
   },
   clearSearchBtn: {
@@ -2332,18 +2519,15 @@ const styles = StyleSheet.create({
   taskSearchBox: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0E1117',
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     gap: 8,
     borderWidth: 1,
-    borderColor: '#222836',
   },
   taskSearchInput: {
     flex: 1,
     fontSize: 12.5,
-    color: '#F3F4F6',
   },
   taskSubjectFilterScroll: {
     gap: 6,

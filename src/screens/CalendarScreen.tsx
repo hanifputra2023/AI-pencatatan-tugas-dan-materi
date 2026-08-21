@@ -14,6 +14,12 @@ import { JournalEntry, StudyNote, StudentTask } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 
+import {
+  getCachedJournals,
+  getCachedNotes,
+  getCachedTasks,
+} from '../lib/offlineSync';
+
 const DAYS = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
 
 type TabFilter = 'all' | 'study' | 'journal' | 'tasks';
@@ -38,6 +44,21 @@ export default function CalendarScreen() {
       setLoading(false);
       return;
     }
+
+    // 1. Instant load from offline cache
+    try {
+      const [cJournals, cNotes, cTasks] = await Promise.all([
+        getCachedJournals(user.id),
+        getCachedNotes(user.id),
+        getCachedTasks(user.id),
+      ]);
+      if (cJournals.length) setJournals(cJournals);
+      if (cNotes.length) setNotes(cNotes);
+      if (cTasks.length) setTasks(cTasks);
+      if (cJournals.length || cNotes.length || cTasks.length) {
+        setLoading(false);
+      }
+    } catch (e) {}
 
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
