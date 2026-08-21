@@ -1,12 +1,95 @@
-import React from 'react';
-import { View, Text, StyleSheet, Platform } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import { useTheme, AppTheme } from '../contexts/ThemeContext';
+import { copyToClipboard } from '../lib/clipboard';
 
 interface MarkdownRendererProps {
   content: string;
   fontSize?: number;
   textColor?: string;
   style?: any;
+}
+
+function MarkdownCodeBlock({
+  code,
+  lang,
+  isLightMode,
+}: {
+  code: string;
+  lang?: string;
+  isLightMode: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    const ok = await copyToClipboard(code);
+    if (ok) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
+  };
+
+  return (
+    <View
+      style={[
+        styles.codeBlock,
+        {
+          backgroundColor: isLightMode ? '#F8FAFC' : '#0F172A',
+          borderColor: isLightMode ? '#E2E8F0' : '#334155',
+        },
+      ]}
+    >
+      <View
+        style={[
+          styles.codeHeader,
+          { borderBottomColor: isLightMode ? '#E2E8F0' : '#1E293B' },
+        ]}
+      >
+        <Text
+          style={[
+            styles.codeLangText,
+            { color: isLightMode ? '#64748B' : '#94A3B8' },
+          ]}
+        >
+          {(lang || 'CODE').toUpperCase()}
+        </Text>
+        <TouchableOpacity
+          onPress={handleCopy}
+          style={[
+            styles.codeCopyBtn,
+            { backgroundColor: isLightMode ? '#F1F5F9' : '#1E293B' },
+            copied && { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B' },
+          ]}
+          hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+          accessibilityLabel="Salin Kode"
+        >
+          <Ionicons
+            name={copied ? 'checkmark-circle' : 'copy-outline'}
+            size={12}
+            color={copied ? '#16A34A' : isLightMode ? '#64748B' : '#94A3B8'}
+          />
+          <Text
+            style={[
+              styles.codeCopyBtnText,
+              { color: copied ? '#16A34A' : isLightMode ? '#64748B' : '#94A3B8' },
+            ]}
+          >
+            {copied ? 'Tersalin' : 'Salin'}
+          </Text>
+        </TouchableOpacity>
+      </View>
+      <Text
+        style={[
+          styles.codeBlockText,
+          { color: isLightMode ? '#0369A1' : '#38BDF8' },
+        ]}
+        selectable
+      >
+        {code}
+      </Text>
+    </View>
+  );
 }
 
 /**
@@ -152,43 +235,12 @@ export default function MarkdownRenderer({
       if (inCodeBlock) {
         // End code block
         renderedElements.push(
-          <View
+          <MarkdownCodeBlock
             key={`code-${i}`}
-            style={[
-              styles.codeBlock,
-              {
-                backgroundColor: isLightMode ? '#F8FAFC' : '#0F172A',
-                borderColor: isLightMode ? '#E2E8F0' : '#334155',
-              },
-            ]}
-          >
-            {codeBlockLang ? (
-              <View
-                style={[
-                  styles.codeHeader,
-                  { borderBottomColor: isLightMode ? '#E2E8F0' : '#1E293B' },
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.codeLangText,
-                    { color: isLightMode ? '#64748B' : '#94A3B8' },
-                  ]}
-                >
-                  {codeBlockLang.toUpperCase()}
-                </Text>
-              </View>
-            ) : null}
-            <Text
-              style={[
-                styles.codeBlockText,
-                { color: isLightMode ? '#0369A1' : '#38BDF8' },
-              ]}
-              selectable
-            >
-              {codeBlockBuffer.join('\n')}
-            </Text>
-          </View>
+            code={codeBlockBuffer.join('\n')}
+            lang={codeBlockLang}
+            isLightMode={isLightMode}
+          />
         );
         inCodeBlock = false;
         codeBlockBuffer = [];
@@ -346,26 +398,12 @@ export default function MarkdownRenderer({
   // Handle unclosed code block at end of content
   if (inCodeBlock && codeBlockBuffer.length > 0) {
     renderedElements.push(
-      <View
+      <MarkdownCodeBlock
         key="code-unclosed"
-        style={[
-          styles.codeBlock,
-          {
-            backgroundColor: isLightMode ? '#F8FAFC' : '#0F172A',
-            borderColor: isLightMode ? '#E2E8F0' : '#334155',
-          },
-        ]}
-      >
-        <Text
-          style={[
-            styles.codeBlockText,
-            { color: isLightMode ? '#0369A1' : '#38BDF8' },
-          ]}
-          selectable
-        >
-          {codeBlockBuffer.join('\n')}
-        </Text>
-      </View>
+        code={codeBlockBuffer.join('\n')}
+        lang={codeBlockLang}
+        isLightMode={isLightMode}
+      />
     );
   }
 
@@ -458,6 +496,9 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   codeHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
     borderBottomWidth: 1,
     paddingBottom: 6,
     marginBottom: 8,
@@ -466,6 +507,18 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
+  },
+  codeCopyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  codeCopyBtnText: {
+    fontSize: 10.5,
+    fontWeight: '600',
   },
   codeBlockText: {
     fontFamily: Platform.OS === 'ios' ? 'Menlo' : 'monospace',

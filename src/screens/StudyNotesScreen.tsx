@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, ActivityIndicator, FlatList
+  StyleSheet, SafeAreaView, ActivityIndicator, FlatList, Modal, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navigation/native';
@@ -10,18 +10,122 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
-import { StudyNote, StudentTask } from '../types';
+import { StudyNote, StudentTask, TaskSubtask } from '../types';
+import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { RootStackParamList, TabParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { confirmAction, showAlert } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
+import DateTimePickerModal from '../components/DateTimePickerModal';
+import TaskWorkpadModal from '../components/TaskWorkpadModal';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { parseDeadline, getDeadlinePresets } from '../lib/dateUtils';
+import {
+  requestNotificationPermissions,
+  scheduleTaskDeadlineNotification,
+  cancelTaskNotification,
+  notifyPomodoroFinished,
+  sendImmediateNotification
+} from '../lib/notifications';
 
 const POMODORO_DURATIONS = [
   { label: '25 Menit (Fokus)', value: 25 * 60 },
   { label: '50 Menit (Deep Work)', value: 50 * 60 },
   { label: '5 Menit (Istirahat)', value: 5 * 60 },
+  { label: '5 Detik (🧪 Tes Notifikasi Tab)', value: 5 },
 ];
+
+function DeadlineSelector({
+  value,
+  onChange,
+  onOpenCalendar,
+  theme,
+  isLightMode,
+}: {
+  value: string;
+  onChange: (val: string) => void;
+  onOpenCalendar: () => void;
+  theme: any;
+  isLightMode: boolean;
+}) {
+  const presets = getDeadlinePresets();
+  const parsed = parseDeadline(value);
+
+  return (
+    <View style={styles.deadlineSelectorBox}>
+      {/* Main Interactive Calendar Button */}
+      <TouchableOpacity
+        style={[
+          styles.deadlineInputRow,
+          { backgroundColor: theme.cardInner, borderColor: parsed ? theme.accent : theme.border }
+        ]}
+        onPress={onOpenCalendar}
+        activeOpacity={0.7}
+      >
+        <Ionicons name="calendar-outline" size={18} color={parsed ? theme.accentLight : theme.subtext} />
+        
+        <View style={{ flex: 1 }}>
+          {parsed ? (
+            <View>
+              <Text style={[styles.deadlineSelectedMainText, { color: theme.text }]}>
+                {parsed.formattedText}
+              </Text>
+              <Text style={[styles.deadlineSelectedSubText, { color: theme.accentLight }]}>
+                {parsed.badgeLabel} • Klik untuk ubah
+              </Text>
+            </View>
+          ) : (
+            <Text style={[styles.deadlinePlaceholderText, { color: theme.muted }]}>
+              Pilih batas tanggal & jam di kalender...
+            </Text>
+          )}
+        </View>
+
+        <View style={styles.deadlinePickerActionIcons}>
+          {value ? (
+            <TouchableOpacity
+              onPress={(e) => {
+                e.stopPropagation?.();
+                onChange('');
+              }}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              style={{ padding: 4 }}
+            >
+              <Ionicons name="close-circle" size={18} color={theme.muted} />
+            </TouchableOpacity>
+          ) : null}
+          <View style={[styles.pickCalendarMiniBtn, { backgroundColor: theme.accentBg }]}>
+            <Text style={[styles.pickCalendarMiniBtnText, { color: theme.accentLight }]}>
+              {parsed ? 'Ubah' : 'Pilih'}
+            </Text>
+          </View>
+        </View>
+      </TouchableOpacity>
+
+      {/* Quick Presets Row */}
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.deadlinePresetRow}>
+        {presets.map((p, idx) => {
+          const isSelected = value === p.iso;
+          return (
+            <TouchableOpacity
+              key={idx}
+              style={[
+                styles.deadlinePresetChip,
+                { backgroundColor: theme.cardInner, borderColor: theme.border },
+                isSelected && [styles.deadlinePresetChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+              ]}
+              onPress={() => onChange(p.iso)}
+            >
+              <Text style={[styles.deadlinePresetText, { color: theme.subtext }, isSelected && [styles.deadlinePresetTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                {p.label}
+              </Text>
+            </TouchableOpacity>
+          );
+        })}
+      </ScrollView>
+    </View>
+  );
+}
 
 export default function StudyNotesScreen() {
   const { user } = useAuth();
@@ -35,6 +139,9 @@ export default function StudyNotesScreen() {
   const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'pomodoro'>(
     route.params?.initialTab || 'notes'
   );
+
+  const [showDatePickerModal, setShowDatePickerModal] = useState(false);
+  const [datePickerTarget, setDatePickerTarget] = useState<'create' | 'edit'>('create');
 
   useEffect(() => {
     if (route.params?.initialTab) {
@@ -56,17 +163,36 @@ export default function StudyNotesScreen() {
   const [tasks, setTasks] = useState<StudentTask[]>([]);
   const [loadingTasks, setLoadingTasks] = useState(true);
   const [taskFilter, setTaskFilter] = useState<'all' | 'pending' | 'completed'>('pending');
+  const [taskSubjectFilter, setTaskSubjectFilter] = useState('Semua');
+  const [taskSearchQuery, setTaskSearchQuery] = useState('');
   const [newTaskTitle, setNewTaskTitle] = useState('');
   const [newTaskSubject, setNewTaskSubject] = useState('');
   const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
+  const [newTaskNotes, setNewTaskNotes] = useState('');
   const [showTaskForm, setShowTaskForm] = useState(false);
+
+  // Advanced Tasks state (AI Breakdown & Subtasks & Edit & Pomodoro & Workpad)
+  const [breakingDownTaskId, setBreakingDownTaskId] = useState<string | null>(null);
+  const [expandedTaskIds, setExpandedTaskIds] = useState<Record<string, boolean>>({});
+  const [newSubtaskInputs, setNewSubtaskInputs] = useState<Record<string, string>>({});
+  const [activePomodoroTask, setActivePomodoroTask] = useState<StudentTask | null>(null);
+  const [activeWorkpadTask, setActiveWorkpadTask] = useState<StudentTask | null>(null);
+
+  // Edit Task Modal State
+  const [editingTask, setEditingTask] = useState<StudentTask | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editSubject, setEditSubject] = useState('');
+  const [editPriority, setEditPriority] = useState<'high' | 'medium' | 'low'>('medium');
+  const [editDueDate, setEditDueDate] = useState('');
+  const [editNotes, setEditNotes] = useState('');
 
   // Pomodoro state
   const [pomoTimeLeft, setPomoTimeLeft] = useState(25 * 60);
   const [pomoTotalTime, setPomoTotalTime] = useState(25 * 60);
   const [pomoActive, setPomoActive] = useState(false);
   const pomoTimerRef = useRef<any>(null);
+  const pomoEndTimestampRef = useRef<number | null>(null);
 
   useEffect(() => {
     if (subjects.length > 0 && !newTaskSubject) {
@@ -124,20 +250,81 @@ export default function StudyNotesScreen() {
       setLoadingTasks(false);
       return;
     }
+
+    const localSubtasksKey = `@student_tasks_subtasks_${user.id}`;
+    const localNotesKey = `@student_tasks_notes_${user.id}`;
+    let localSubtasksMap: Record<string, TaskSubtask[]> = {};
+    let localNotesMap: Record<string, string> = {};
+    try {
+      const [rawSubtasks, rawNotes] = await Promise.all([
+        AsyncStorage.getItem(localSubtasksKey),
+        AsyncStorage.getItem(localNotesKey),
+      ]);
+      if (rawSubtasks) localSubtasksMap = JSON.parse(rawSubtasks);
+      if (rawNotes) localNotesMap = JSON.parse(rawNotes);
+    } catch (e) {}
+
     const { data } = await supabase
       .from('student_tasks')
       .select('*')
       .eq('user_id', user.id)
       .order('is_completed', { ascending: true })
       .order('created_at', { ascending: false });
-    if (data) setTasks(data as StudentTask[]);
+
+    if (data) {
+      const mergedTasks: StudentTask[] = (data as StudentTask[]).map(t => ({
+        ...t,
+        subtasks: t.subtasks || localSubtasksMap[t.id] || [],
+        notes: t.notes || localNotesMap[t.id] || '',
+      }));
+      setTasks(mergedTasks);
+    }
     setLoadingTasks(false);
   }, [user]);
+
+  const persistTaskSubtasks = async (taskId: string, newSubtasks: TaskSubtask[]) => {
+    if (!user) return;
+    try {
+      const localSubtasksKey = `@student_tasks_subtasks_${user.id}`;
+      const raw = await AsyncStorage.getItem(localSubtasksKey);
+      const map: Record<string, TaskSubtask[]> = raw ? JSON.parse(raw) : {};
+      map[taskId] = newSubtasks;
+      await AsyncStorage.setItem(localSubtasksKey, JSON.stringify(map));
+    } catch (e) {
+      console.log('Error persisting subtasks:', e);
+    }
+  };
+
+  const handleSaveTaskNotes = async (taskId: string, newNotes: string) => {
+    setTasks(prev => prev.map(t => t.id === taskId ? { ...t, notes: newNotes } : t));
+    if (activeWorkpadTask && activeWorkpadTask.id === taskId) {
+      setActiveWorkpadTask(prev => prev ? { ...prev, notes: newNotes } : null);
+    }
+    if (!user) return;
+    try {
+      const localNotesKey = `@student_tasks_notes_${user.id}`;
+      const raw = await AsyncStorage.getItem(localNotesKey);
+      const map: Record<string, string> = raw ? JSON.parse(raw) : {};
+      map[taskId] = newNotes;
+      await AsyncStorage.setItem(localNotesKey, JSON.stringify(map));
+
+      // Attempt supabase update if column exists
+      try {
+        await supabase.from('student_tasks').update({ notes: newNotes } as any).eq('id', taskId);
+      } catch (err) {}
+    } catch (e) {
+      console.log('Error persisting task notes:', e);
+    }
+  };
 
   useEffect(() => {
     fetchNotes();
     fetchTasks();
     checkDraft();
+
+    if (Platform.OS !== 'web') {
+      requestNotificationPermissions();
+    }
 
     if (!user) return;
 
@@ -160,38 +347,64 @@ export default function StudyNotesScreen() {
     }, [fetchNotes, fetchTasks, checkDraft])
   );
 
-  // Pomodoro Timer Controller
+  // Pomodoro Timer Controller (Timestamp-based for background tab persistence)
   useEffect(() => {
     if (pomoActive) {
+      if (!pomoEndTimestampRef.current) {
+        pomoEndTimestampRef.current = Date.now() + pomoTimeLeft * 1000;
+      }
+
       pomoTimerRef.current = setInterval(() => {
-        setPomoTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(pomoTimerRef.current);
-            setPomoActive(false);
-            showAlert('🎉 Sesi Selesai!', 'Kerja bagus! Waktunya istirahat sejenak untuk menyegarkan pikiran.');
-            return pomoTotalTime;
+        if (!pomoEndTimestampRef.current) return;
+        const remaining = Math.max(0, Math.round((pomoEndTimestampRef.current - Date.now()) / 1000));
+        setPomoTimeLeft(remaining);
+
+        if (Platform.OS === 'web' && typeof document !== 'undefined') {
+          const mins = Math.floor(remaining / 60);
+          const secs = remaining % 60;
+          document.title = `[ ${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')} ] ⏱️ Fokus Belajar`;
+        }
+
+        if (remaining <= 0) {
+          clearInterval(pomoTimerRef.current);
+          pomoEndTimestampRef.current = null;
+          setPomoActive(false);
+          if (Platform.OS === 'web' && typeof document !== 'undefined') {
+            document.title = '🔔 Sesi Selesai! - Belajar & Kuliah';
           }
-          return prev - 1;
-        });
-      }, 1000);
+          notifyPomodoroFinished(activePomodoroTask?.title, pomoTotalTime < 10 * 60);
+          showAlert('🎉 Sesi Selesai!', 'Kerja bagus! Waktunya istirahat sejenak untuk menyegarkan pikiran.');
+        }
+      }, 500);
     } else {
       if (pomoTimerRef.current) clearInterval(pomoTimerRef.current);
     }
     return () => {
       if (pomoTimerRef.current) clearInterval(pomoTimerRef.current);
     };
-  }, [pomoActive, pomoTotalTime]);
+  }, [pomoActive, pomoTotalTime, activePomodoroTask]);
 
   const togglePomodoro = () => {
-    setPomoActive(!pomoActive);
+    if (!pomoActive) {
+      pomoEndTimestampRef.current = Date.now() + pomoTimeLeft * 1000;
+      setPomoActive(true);
+    } else {
+      pomoEndTimestampRef.current = null;
+      setPomoActive(false);
+    }
   };
 
   const resetPomodoro = () => {
+    pomoEndTimestampRef.current = null;
     setPomoActive(false);
     setPomoTimeLeft(pomoTotalTime);
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      document.title = 'AI Curhat & Belajar Pintar';
+    }
   };
 
   const setPomoDuration = (seconds: number) => {
+    pomoEndTimestampRef.current = null;
     setPomoActive(false);
     setPomoTotalTime(seconds);
     setPomoTimeLeft(seconds);
@@ -213,7 +426,7 @@ export default function StudyNotesScreen() {
 
     const chosenSubject = newTaskSubject.trim() || (subjects.length > 0 ? subjects[0].name : 'Umum');
 
-    const newTask: Partial<StudentTask> = {
+    const dbPayload = {
       user_id: user.id,
       title: newTaskTitle.trim(),
       subject: chosenSubject,
@@ -222,13 +435,24 @@ export default function StudyNotesScreen() {
       is_completed: false,
     };
 
-    const { data, error } = await supabase.from('student_tasks').insert(newTask).select().single();
+    const { data, error } = await supabase.from('student_tasks').insert(dbPayload).select().single();
     if (error) {
       showAlert('Gagal Menyimpan', error.message);
     } else if (data) {
-      setTasks(prev => [data as StudentTask, ...prev]);
+      const created = data as StudentTask;
+      const initialTask: StudentTask = {
+        ...created,
+        subtasks: [],
+        notes: newTaskNotes.trim(),
+      };
+      if (newTaskNotes.trim()) {
+        handleSaveTaskNotes(created.id, newTaskNotes.trim());
+      }
+      scheduleTaskDeadlineNotification(initialTask);
+      setTasks(prev => [initialTask, ...prev]);
       setNewTaskTitle('');
       setNewTaskDueDate('');
+      setNewTaskNotes('');
       if (isMobile) setShowTaskForm(false);
       showAlert('Sukses', 'Tugas kuliah berhasil ditambahkan.');
     }
@@ -237,16 +461,207 @@ export default function StudyNotesScreen() {
   // Toggle Task Completion
   const toggleTask = async (task: StudentTask) => {
     const newStatus = !task.is_completed;
+    if (newStatus) {
+      cancelTaskNotification(task.id);
+    } else {
+      scheduleTaskDeadlineNotification({ ...task, is_completed: false });
+    }
     setTasks(prev => prev.map(t => t.id === task.id ? { ...t, is_completed: newStatus } : t));
     if (user) {
       await supabase.from('student_tasks').update({ is_completed: newStatus }).eq('id', task.id);
     }
   };
 
+  // AI Task Breakdown: Generate 3-5 Subtasks
+  const handleAiBreakdown = async (task: StudentTask) => {
+    setBreakingDownTaskId(task.id);
+    try {
+      const prompt = `Pecah tugas kuliah berikut menjadi 3 sampai 5 langkah pengerjaan (subtasks) konkret, terstruktur, dan jelas untuk mahasiswa:
+Judul Tugas: "${task.title}"
+Mata Kuliah: "${task.subject}"
+
+Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
+[
+  "1. Cari minimal 3 jurnal referensi materi",
+  "2. Susun kerangka bab dan rumusan masalah",
+  "3. Tulis naskah laporan & analisis data",
+  "4. Buat kesimpulan dan periksa daftar pustaka"
+]`;
+
+      const aiReply = await sendMessageToGemini([], prompt, null, 'Kamu adalah asisten pengurai tugas akademik berformat JSON array string murni.', {
+        isJsonMode: true,
+      });
+
+      const parsed: any = extractJsonFromText(aiReply);
+      let stepStrings: string[] = [];
+      if (Array.isArray(parsed)) {
+        stepStrings = parsed.map(s => typeof s === 'string' ? s : (s.title || s.step || JSON.stringify(s)));
+      } else if (parsed && Array.isArray(parsed.subtasks)) {
+        stepStrings = parsed.subtasks.map((s: any) => typeof s === 'string' ? s : (s.title || s.step || JSON.stringify(s)));
+      } else if (parsed && Array.isArray(parsed.steps)) {
+        stepStrings = parsed.steps.map((s: any) => typeof s === 'string' ? s : (s.title || s.step || JSON.stringify(s)));
+      }
+
+      if (stepStrings.length === 0) {
+        throw new Error('AI tidak mengembalikan langkah tugas. Coba klik sekali lagi.');
+      }
+
+      const generatedSubtasks: TaskSubtask[] = stepStrings.map((stepText, idx) => ({
+        id: `st_${Date.now()}_${idx}`,
+        title: stepText.replace(/^\d+[\.\)]\s*/, ''),
+        is_completed: false,
+      }));
+
+      const updatedTasks = tasks.map(t => {
+        if (t.id === task.id) {
+          const currentSubtasks = t.subtasks || [];
+          const combined = [...currentSubtasks, ...generatedSubtasks];
+          persistTaskSubtasks(t.id, combined);
+          return { ...t, subtasks: combined };
+        }
+        return t;
+      });
+
+      setTasks(updatedTasks);
+      setExpandedTaskIds(prev => ({ ...prev, [task.id]: true }));
+      showAlert('AI Breakdown Berhasil ✨', `${generatedSubtasks.length} langkah pengerjaan tugas telah dibuatkan.`);
+    } catch (e: any) {
+      showAlert('Gagal Memecah Tugas', e.message || 'Terjadi kesalahan saat memanggil AI.');
+    } finally {
+      setBreakingDownTaskId(null);
+    }
+  };
+
+  // Toggle Subtask Completion
+  const handleToggleSubtask = (taskId: string, subtaskId: string) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const currentList = t.subtasks || [];
+        const updatedSubtasks = currentList.map(st =>
+          st.id === subtaskId ? { ...st, is_completed: !st.is_completed } : st
+        );
+        persistTaskSubtasks(taskId, updatedSubtasks);
+
+        const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(st => st.is_completed);
+        if (allDone && !t.is_completed) {
+          toggleTask({ ...t, is_completed: false });
+        }
+
+        return { ...t, subtasks: updatedSubtasks };
+      }
+      return t;
+    }));
+  };
+
+  // Add Manual Subtask
+  const handleAddManualSubtask = (taskId: string) => {
+    const inputVal = (newSubtaskInputs[taskId] || '').trim();
+    if (!inputVal) return;
+
+    const newSub: TaskSubtask = {
+      id: `st_man_${Date.now()}`,
+      title: inputVal,
+      is_completed: false,
+    };
+
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const current = t.subtasks || [];
+        const combined = [...current, newSub];
+        persistTaskSubtasks(taskId, combined);
+        return { ...t, subtasks: combined };
+      }
+      return t;
+    }));
+
+    setNewSubtaskInputs(prev => ({ ...prev, [taskId]: '' }));
+  };
+
+  // Delete Subtask
+  const handleDeleteSubtask = (taskId: string, subtaskId: string) => {
+    setTasks(prev => prev.map(t => {
+      if (t.id === taskId) {
+        const updated = (t.subtasks || []).filter(st => st.id !== subtaskId);
+        persistTaskSubtasks(taskId, updated);
+        return { ...t, subtasks: updated };
+      }
+      return t;
+    }));
+  };
+
+  // Toggle Subtasks Accordion Expand/Collapse
+  const toggleExpandTask = (taskId: string) => {
+    setExpandedTaskIds(prev => ({ ...prev, [taskId]: !prev[taskId] }));
+  };
+
+  // Discuss Task in AI Chat
+  const handleDiscussTaskWithAi = (task: StudentTask) => {
+    navigation.navigate('Main', { screen: 'Chat' });
+    showAlert('Bahas dengan Ara 💬', `Tanyakan di chat: "Ara, bantu aku beri ide & panduan pengerjaan tugas '${task.title}' untuk mata kuliah ${task.subject} ya!"`);
+  };
+
+  // Focus Task in Pomodoro Timer
+  const handleFocusTaskWithPomodoro = (task: StudentTask) => {
+    setActivePomodoroTask(task);
+    setActiveTab('pomodoro');
+    resetPomodoro();
+    showAlert('Target Fokus Diatur ⏱️', `Timer Pomodoro disetel untuk tugas "${task.title}".`);
+  };
+
+  // Start Edit Task
+  const handleStartEditTask = (task: StudentTask) => {
+    setEditingTask(task);
+    setEditTitle(task.title);
+    setEditSubject(task.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
+    setEditPriority(task.priority || 'medium');
+    setEditDueDate(task.due_date || '');
+    setEditNotes(task.notes || '');
+  };
+
+  // Save Edit Task
+  const handleSaveEditTask = async () => {
+    if (!editingTask || !editTitle.trim()) {
+      showAlert('Perhatian', 'Judul tugas wajib diisi.');
+      return;
+    }
+
+    const updatedTask: StudentTask = {
+      ...editingTask,
+      title: editTitle.trim(),
+      subject: editSubject.trim() || (subjects.length > 0 ? subjects[0].name : 'Umum'),
+      priority: editPriority,
+      due_date: editDueDate.trim() || null,
+      notes: editNotes.trim(),
+    };
+
+    setTasks(prev => prev.map(t => (t.id === editingTask.id ? updatedTask : t)));
+    handleSaveTaskNotes(editingTask.id, editNotes.trim());
+    if (updatedTask.due_date && !updatedTask.is_completed) {
+      scheduleTaskDeadlineNotification(updatedTask);
+    } else {
+      cancelTaskNotification(updatedTask.id);
+    }
+    setEditingTask(null);
+
+    if (user) {
+      await supabase.from('student_tasks').update({
+        title: updatedTask.title,
+        subject: updatedTask.subject,
+        priority: updatedTask.priority,
+        due_date: updatedTask.due_date,
+      }).eq('id', editingTask.id);
+    }
+    showAlert('Tersimpan', 'Perubahan tugas berhasil disimpan.');
+  };
+
   // Delete Task
   const deleteTask = (taskId: string) => {
     confirmAction('Hapus Tugas?', 'Tugas ini akan dihapus dari daftar.', async () => {
+      cancelTaskNotification(taskId);
       setTasks(prev => prev.filter(t => t.id !== taskId));
+      if (activePomodoroTask?.id === taskId) {
+        setActivePomodoroTask(null);
+      }
       if (user) {
         await supabase.from('student_tasks').delete().eq('id', taskId);
       }
@@ -263,6 +678,23 @@ export default function StudyNotesScreen() {
     }, 'Hapus');
   };
 
+  // Toggle & Request Notification Permission
+  const handleToggleNotifications = async () => {
+    const granted = await requestNotificationPermissions();
+    if (granted) {
+      sendImmediateNotification(
+        '🔔 Notifikasi Berhasil Diaktifkan!',
+        'Pengingat batas waktu tugas dan alarm Pomodoro siap digunakan.'
+      );
+      showAlert('Notifikasi Aktif 🔔', 'Izin notifikasi telah aktif! Notifikasi pengingat tugas dan alarm timer Pomodoro akan berbunyi dan muncul otomatis.');
+    } else {
+      showAlert(
+        'Izin Notifikasi Ditolak / Diblokir ⚠️',
+        'Untuk mengaktifkannya di browser, klik ikon gembok di sebelah URL address bar (kiri atas), lalu ubah izin Notifikasi menjadi "Izinkan (Allow)".'
+      );
+    }
+  };
+
   const filteredNotes = notes.filter(n => {
     const matchSubject = selectedSubject === 'Semua' || n.subject?.toLowerCase() === selectedSubject.toLowerCase();
     const matchSearch = !searchQuery || n.title.toLowerCase().includes(searchQuery.toLowerCase()) || n.content.toLowerCase().includes(searchQuery.toLowerCase());
@@ -270,13 +702,14 @@ export default function StudyNotesScreen() {
   });
 
   const filteredTasks = tasks.filter(t => {
-    if (taskFilter === 'pending') return !t.is_completed;
-    if (taskFilter === 'completed') return t.is_completed;
-    return true;
+    const matchStatus = taskFilter === 'all' || (taskFilter === 'pending' ? !t.is_completed : t.is_completed);
+    const matchSubject = taskSubjectFilter === 'Semua' || t.subject?.toLowerCase() === taskSubjectFilter.toLowerCase();
+    const matchSearch = !taskSearchQuery || t.title.toLowerCase().includes(taskSearchQuery.toLowerCase()) || (t.subject && t.subject.toLowerCase().includes(taskSearchQuery.toLowerCase()));
+    return matchStatus && matchSubject && matchSearch;
   });
 
   // Collect all active subject names for top filters
-  const allFilterSubjects = ['Semua', ...Array.from(new Set([...subjects.map(s => s.name), ...notes.map(n => n.subject?.trim()).filter(Boolean)]))];
+  const allFilterSubjects = ['Semua', ...Array.from(new Set([...subjects.map(s => s.name), ...notes.map(n => n.subject?.trim()).filter(Boolean), ...tasks.map(t => t.subject?.trim()).filter(Boolean)]))];
 
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
@@ -289,10 +722,19 @@ export default function StudyNotesScreen() {
           <Text style={[styles.subtitle, { color: theme.subtext }]}>Catatan pintar AI, manajemen tugas & fokus nugas</Text>
         </View>
 
-        {activeTab === 'notes' && (
-          <View style={styles.topActionBtnGroup}>
-            
+        <View style={styles.topActionBtnGroup}>
+          {Platform.OS === 'web' && (
+            <TouchableOpacity
+              style={[styles.headerNotifBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+              onPress={handleToggleNotifications}
+              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            >
+              <Ionicons name="notifications-outline" size={16} color={theme.accentLight} />
+              <Text style={[styles.headerNotifBtnText, { color: theme.text }]}>Notifikasi</Text>
+            </TouchableOpacity>
+          )}
 
+          {activeTab === 'notes' && (
             <TouchableOpacity
               style={[styles.addBtn, { backgroundColor: theme.primary }]}
               onPress={() => navigation.navigate('StudyNoteDetail', {})}
@@ -300,19 +742,18 @@ export default function StudyNotesScreen() {
               <Ionicons name="add" size={17} color="#FFFFFF" />
               <Text style={styles.addBtnText}>Catatan Baru</Text>
             </TouchableOpacity>
-          </View>
-        )}
+          )}
 
-
-        {activeTab === 'tasks' && isMobile && (
-          <TouchableOpacity
-            style={[styles.addBtn, { backgroundColor: theme.primary }]}
-            onPress={() => setShowTaskForm(!showTaskForm)}
-          >
-            <Ionicons name={showTaskForm ? 'close' : 'add'} size={17} color="#FFFFFF" />
-            <Text style={styles.addBtnText}>{showTaskForm ? 'Tutup' : 'Tugas Baru'}</Text>
-          </TouchableOpacity>
-        )}
+          {activeTab === 'tasks' && isMobile && (
+            <TouchableOpacity
+              style={[styles.addBtn, { backgroundColor: theme.primary }]}
+              onPress={() => setShowTaskForm(!showTaskForm)}
+            >
+              <Ionicons name={showTaskForm ? 'close' : 'add'} size={17} color="#FFFFFF" />
+              <Text style={styles.addBtnText}>{showTaskForm ? 'Tutup' : 'Tugas Baru'}</Text>
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Mode Switcher Tabs */}
@@ -608,17 +1049,66 @@ export default function StudyNotesScreen() {
       {activeTab === 'tasks' && (
         <ScrollView style={styles.scrollArea} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
 
+          {/* Top Filter Bar: Subject Filter & Search */}
+          <View style={[styles.taskTopFilterBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={styles.taskSearchBox}>
+              <Ionicons name="search-outline" size={16} color={theme.subtext} />
+              <TextInput
+                style={[styles.taskSearchInput, { color: theme.text }]}
+                placeholder="Cari tugas atau mata kuliah..."
+                placeholderTextColor={theme.muted}
+                value={taskSearchQuery}
+                onChangeText={setTaskSearchQuery}
+              />
+              {taskSearchQuery ? (
+                <TouchableOpacity onPress={() => setTaskSearchQuery('')} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close-circle" size={16} color={theme.subtext} />
+                </TouchableOpacity>
+              ) : null}
+            </View>
+
+            {/* Subject horizontal filter chips */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.taskSubjectFilterScroll}>
+              {allFilterSubjects.map(sName => {
+                const isSel = taskSubjectFilter.toLowerCase() === sName.toLowerCase();
+                const taskCount = sName === 'Semua' ? tasks.length : tasks.filter(t => t.subject?.toLowerCase() === sName.toLowerCase()).length;
+                return (
+                  <TouchableOpacity
+                    key={sName}
+                    style={[
+                      styles.subjectFilterChip,
+                      { backgroundColor: theme.cardInner, borderColor: theme.border },
+                      isSel && [styles.subjectFilterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                    ]}
+                    onPress={() => setTaskSubjectFilter(sName)}
+                  >
+                    <Text style={[styles.subjectFilterText, { color: theme.subtext }, isSel && [styles.subjectFilterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                      {sName} ({taskCount})
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </ScrollView>
+          </View>
+
           <View style={[styles.taskLayout, isWide && styles.taskLayoutWide]}>
 
             {/* Left Column (Create Task Form - Permanent on Desktop, Collapsible on Mobile) */}
             {(isWide || showTaskForm) && (
               <View style={[styles.taskFormColumn, isWide && styles.taskFormColumnWide]}>
                 <View style={[styles.taskFormCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <Text style={[styles.taskFormTitle, { color: theme.text }]}>Tambah Tugas Kuliah</Text>
+                  <View style={styles.formHeaderRow}>
+                    <Text style={[styles.taskFormTitle, { color: theme.text }]}>Tambah Tugas Kuliah</Text>
+                    {isMobile && (
+                      <TouchableOpacity onPress={() => setShowTaskForm(false)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                        <Ionicons name="close" size={18} color={theme.subtext} />
+                      </TouchableOpacity>
+                    )}
+                  </View>
 
                   <TextInput
                     style={[styles.taskInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
-                    placeholder="Nama tugas (misal: Laporan Praktikum Bab 2)"
+                    placeholder="Nama tugas (misal: Makalah AI & Etika Bab 1)"
                     placeholderTextColor={theme.muted}
                     value={newTaskTitle}
                     onChangeText={setNewTaskTitle}
@@ -654,14 +1144,17 @@ export default function StudyNotesScreen() {
                     </TouchableOpacity>
                   </ScrollView>
 
-                  {/* Deadline Input */}
-                  <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Tenggat / Deadline:</Text>
-                  <TextInput
-                    style={[styles.taskInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
-                    placeholder="Misal: Besok 23:59, 25 Okt"
-                    placeholderTextColor={theme.muted}
+                  {/* Deadline Date & Time Picker */}
+                  <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Tenggat / Deadline Tugas:</Text>
+                  <DeadlineSelector
                     value={newTaskDueDate}
-                    onChangeText={setNewTaskDueDate}
+                    onChange={setNewTaskDueDate}
+                    onOpenCalendar={() => {
+                      setDatePickerTarget('create');
+                      setShowDatePickerModal(true);
+                    }}
+                    theme={theme}
+                    isLightMode={isLightMode}
                   />
 
                   {/* Priority Picker */}
@@ -683,6 +1176,18 @@ export default function StudyNotesScreen() {
                       </TouchableOpacity>
                     ))}
                   </View>
+
+                  {/* Task Notes / Lembar Kerja */}
+                  <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Catatan / Lembar Tugas (Opsional):</Text>
+                  <TextInput
+                    style={[styles.taskNotesFormInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                    placeholder="Tulis instruksi soal dosen, draft jawaban, atau catatan referensi..."
+                    placeholderTextColor={theme.muted}
+                    value={newTaskNotes}
+                    onChangeText={setNewTaskNotes}
+                    multiline
+                    numberOfLines={3}
+                  />
 
                   <TouchableOpacity style={[styles.saveTaskBtn, { backgroundColor: theme.primary }]} onPress={handleAddTask}>
                     <Text style={styles.saveTaskBtnText}>+ Simpan Tugas</Text>
@@ -742,55 +1247,309 @@ export default function StudyNotesScreen() {
                 <View style={[styles.emptyTaskWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <Ionicons name="checkbox-outline" size={32} color={theme.muted} style={{ marginBottom: 8 }} />
                   <Text style={[styles.emptyTitle, { color: theme.text }]}>Tidak ada tugas dalam kategori ini</Text>
-                  <Text style={[styles.emptySub, { color: theme.subtext }]}>Semua rapi dan terkontrol.</Text>
+                  <Text style={[styles.emptySub, { color: theme.subtext }]}>Semua rapi atau coba ubah kata kunci filter pencarian.</Text>
                 </View>
               ) : (
                 <View style={styles.taskListContainer}>
                   {filteredTasks.map(t => {
                     const isHigh = t.priority === 'high';
-                    return (
-                      <View key={t.id} style={[styles.taskCard, { backgroundColor: theme.card, borderColor: theme.border }, t.is_completed && styles.taskCardDone]}>
-                        <TouchableOpacity onPress={() => toggleTask(t)} style={styles.taskCheckbox}>
-                          <View style={[styles.taskCircle, { borderColor: theme.border }, t.is_completed && [styles.taskCircleActive, { backgroundColor: theme.primary, borderColor: theme.primary }]]}>
-                            {t.is_completed && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
-                          </View>
-                        </TouchableOpacity>
+                    const isMedium = t.priority === 'medium';
+                    const subtasks = t.subtasks || [];
+                    const hasSubtasks = subtasks.length > 0;
+                    const completedSubtasksCount = subtasks.filter(st => st.is_completed).length;
+                    const subtaskPercent = hasSubtasks ? Math.round((completedSubtasksCount / subtasks.length) * 100) : 0;
+                    const isExpanded = !!expandedTaskIds[t.id];
+                    const isBreakingDown = breakingDownTaskId === t.id;
 
-                        <View style={{ flex: 1 }}>
-                          <View style={styles.taskHeaderRow}>
-                            <View style={[styles.taskSubjectBadge, { backgroundColor: theme.accentBg }]}>
-                              <Text style={[styles.taskSubjectText, { color: theme.accentLight }]}>{t.subject}</Text>
+                    const isDueDateUrgent = t.due_date && (t.due_date.toLowerCase().includes('hari ini') || t.due_date.toLowerCase().includes('besok') || isHigh);
+
+                    return (
+                      <View
+                        key={t.id}
+                        style={[
+                          styles.taskCard,
+                          { backgroundColor: theme.card, borderColor: theme.border },
+                          t.is_completed && styles.taskCardDone
+                        ]}
+                      >
+                        {/* Task Main Header Row */}
+                        <View style={styles.taskMainRow}>
+                          <TouchableOpacity onPress={() => toggleTask(t)} style={styles.taskCheckbox}>
+                            <View style={[styles.taskCircle, { borderColor: theme.border }, t.is_completed && [styles.taskCircleActive, { backgroundColor: theme.primary, borderColor: theme.primary }]]}>
+                              {t.is_completed && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
                             </View>
-                            {t.due_date ? (
+                          </TouchableOpacity>
+
+                          <View style={{ flex: 1 }}>
+                            <View style={styles.taskHeaderRow}>
+                              <View style={[styles.taskSubjectBadge, { backgroundColor: theme.accentBg }]}>
+                                <Text style={[styles.taskSubjectText, { color: theme.accentLight }]}>{t.subject}</Text>
+                              </View>
+
+                              {/* Priority Chip */}
                               <View style={[
-                                styles.dueBadge,
-                                { backgroundColor: theme.cardInner },
-                                isHigh && {
-                                  backgroundColor: isLightMode ? '#FEE2E2' : '#2B1417',
-                                  borderColor: isLightMode ? '#FECACA' : '#451A20',
-                                  borderWidth: 1,
-                                }
+                                styles.taskPriorityBadge,
+                                { backgroundColor: isHigh ? (isLightMode ? '#FEE2E2' : '#2D1418') : isMedium ? (isLightMode ? '#FEF3C7' : '#2E2008') : (isLightMode ? '#F0FDF4' : '#0B291B') }
                               ]}>
-                                <Ionicons name="calendar-outline" size={11} color={isHigh ? (isLightMode ? '#DC2626' : '#EF4444') : theme.subtext} />
                                 <Text style={[
-                                  styles.dueText,
-                                  { color: theme.subtext },
-                                  isHigh && { color: isLightMode ? '#DC2626' : '#EF4444', fontWeight: '600' }
+                                  styles.taskPriorityBadgeText,
+                                  { color: isHigh ? (isLightMode ? '#DC2626' : '#F87171') : isMedium ? (isLightMode ? '#D97706' : '#FBBF24') : (isLightMode ? '#16A34A' : '#34D399') }
                                 ]}>
-                                  {t.due_date}
+                                  {t.priority === 'high' ? 'Mendesak' : t.priority === 'medium' ? 'Sedang' : 'Santai'}
                                 </Text>
                               </View>
+
+                              {/* Smart Dynamic Due Date Badge */}
+                              {(() => {
+                                const deadlineInfo = parseDeadline(t.due_date);
+                                if (!deadlineInfo) return null;
+
+                                const isOverdue = deadlineInfo.badgeType === 'overdue';
+                                const isToday = deadlineInfo.badgeType === 'today';
+                                const isTomorrow = deadlineInfo.badgeType === 'tomorrow';
+
+                                return (
+                                  <View style={[
+                                    styles.dueBadge,
+                                    { backgroundColor: theme.cardInner },
+                                    isOverdue && {
+                                      backgroundColor: isLightMode ? '#FEE2E2' : '#2B1417',
+                                      borderColor: isLightMode ? '#FECACA' : '#451A20',
+                                      borderWidth: 1,
+                                    },
+                                    isToday && {
+                                      backgroundColor: isLightMode ? '#FEF3C7' : '#2E2008',
+                                      borderColor: isLightMode ? '#FDE68A' : '#78350F',
+                                      borderWidth: 1,
+                                    },
+                                    isTomorrow && {
+                                      backgroundColor: isLightMode ? '#E0F2FE' : '#0C2A44',
+                                      borderColor: isLightMode ? '#BAE6FD' : '#164E63',
+                                      borderWidth: 1,
+                                    },
+                                  ]}>
+                                    <Ionicons
+                                      name={isOverdue ? 'alert-circle' : isToday ? 'flash' : 'calendar-outline'}
+                                      size={11}
+                                      color={
+                                        isOverdue ? (isLightMode ? '#DC2626' : '#EF4444') :
+                                        isToday ? (isLightMode ? '#D97706' : '#FBBF24') :
+                                        isTomorrow ? (isLightMode ? '#0284C7' : '#38BDF8') : theme.subtext
+                                      }
+                                    />
+                                    <Text style={[
+                                      styles.dueText,
+                                      { color: theme.subtext },
+                                      isOverdue && { color: isLightMode ? '#DC2626' : '#EF4444', fontWeight: '700' },
+                                      isToday && { color: isLightMode ? '#D97706' : '#FBBF24', fontWeight: '700' },
+                                      isTomorrow && { color: isLightMode ? '#0284C7' : '#38BDF8', fontWeight: '600' },
+                                    ]}>
+                                      {deadlineInfo.badgeLabel}
+                                    </Text>
+                                  </View>
+                                );
+                              })()}
+                            </View>
+
+                            <Text style={[styles.taskTitle, { color: theme.text }, t.is_completed && [styles.taskTitleDone, { color: theme.muted }]]}>
+                              {t.title}
+                            </Text>
+
+                            {/* Subtasks Mini Progress Bar */}
+                            {hasSubtasks && (
+                              <View style={styles.subtasksProgressWrap}>
+                                <View style={[styles.subtasksProgressBarBg, { backgroundColor: theme.cardInner }]}>
+                                  <View style={[styles.subtasksProgressBarFill, { width: `${subtaskPercent}%`, backgroundColor: subtaskPercent === 100 ? '#10B981' : theme.accent }]} />
+                                </View>
+                                <Text style={[styles.subtasksProgressText, { color: theme.subtext }]}>
+                                  {completedSubtasksCount}/{subtasks.length} langkah ({subtaskPercent}%)
+                                </Text>
+                              </View>
+                            )}
+
+                            {/* Task Notes Snippet Box (If task has notes) */}
+                            {t.notes ? (
+                              <TouchableOpacity
+                                style={[styles.taskNotesSnippetBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                                onPress={() => setActiveWorkpadTask(t)}
+                                activeOpacity={0.7}
+                              >
+                                <View style={styles.taskNotesSnippetHeader}>
+                                  <Ionicons name="document-text" size={11} color={theme.accentLight} />
+                                  <Text style={[styles.taskNotesSnippetHeaderTitle, { color: theme.accentLight }]}>
+                                    Lembar Kerja Tugas
+                                  </Text>
+                                  <Text style={[styles.taskNotesSnippetWordCount, { color: theme.muted }]}>
+                                    {t.notes.trim().split(/\s+/).length} kata • Buka ↗
+                                  </Text>
+                                </View>
+                                <Text style={[styles.taskNotesSnippetText, { color: theme.subtext }]} numberOfLines={2}>
+                                  {t.notes}
+                                </Text>
+                              </TouchableOpacity>
                             ) : null}
                           </View>
-
-                          <Text style={[styles.taskTitle, { color: theme.text }, t.is_completed && [styles.taskTitleDone, { color: theme.muted }]]}>
-                            {t.title}
-                          </Text>
                         </View>
 
-                        <TouchableOpacity onPress={() => deleteTask(t.id)} style={styles.deleteTaskBtn}>
-                          <Ionicons name="trash-outline" size={14} color={theme.muted} />
-                        </TouchableOpacity>
+                        {/* Task Action Buttons Toolbar */}
+                        <View style={[styles.taskActionToolbar, { borderTopColor: theme.cardInner }]}>
+                          
+                          {/* Workpad / Task Notes Action Button */}
+                          <TouchableOpacity
+                            style={[
+                              styles.taskActionBtn,
+                              { backgroundColor: t.notes ? theme.accentBg : theme.cardInner, borderColor: t.notes ? theme.accent : theme.border }
+                            ]}
+                            onPress={() => setActiveWorkpadTask(t)}
+                          >
+                            <Ionicons name="document-text-outline" size={12} color={t.notes ? theme.accentLight : theme.subtext} />
+                            <Text style={[styles.taskActionBtnText, { color: t.notes ? theme.accentLight : theme.subtext }]}>
+                              {t.notes ? 'Lembar Kerja ✍️' : 'Tulis Tugas'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {/* AI Breakdown Action Button */}
+                          <TouchableOpacity
+                            style={[styles.taskActionBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                            onPress={() => handleAiBreakdown(t)}
+                            disabled={isBreakingDown}
+                          >
+                            {isBreakingDown ? (
+                              <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                            ) : (
+                              <Ionicons name="sparkles" size={12} color={theme.accentLight} />
+                            )}
+                            <Text style={[styles.taskActionBtnText, { color: theme.accentLight }]}>
+                              {hasSubtasks ? 'Pecah Ulang AI' : 'Pecah Tugas (AI)'}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {/* Subtasks Toggle Accordion */}
+                          <TouchableOpacity
+                            style={[
+                              styles.taskActionBtn,
+                              { backgroundColor: theme.cardInner, borderColor: theme.border },
+                              isExpanded && { backgroundColor: theme.accentBg, borderColor: theme.accent }
+                            ]}
+                            onPress={() => toggleExpandTask(t.id)}
+                          >
+                            <Ionicons name="list-outline" size={12} color={isExpanded ? theme.accentLight : theme.subtext} />
+                            <Text style={[styles.taskActionBtnText, { color: isExpanded ? theme.accentLight : theme.subtext }]}>
+                              Langkah ({subtasks.length})
+                            </Text>
+                            <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={11} color={isExpanded ? theme.accentLight : theme.subtext} />
+                          </TouchableOpacity>
+
+                          {/* Focus with Pomodoro */}
+                          <TouchableOpacity
+                            style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                            onPress={() => handleFocusTaskWithPomodoro(t)}
+                          >
+                            <Ionicons name="timer-outline" size={12} color="#F59E0B" />
+                            <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Fokus Nugas</Text>
+                          </TouchableOpacity>
+
+                          {/* Discuss with AI Chat */}
+                          <TouchableOpacity
+                            style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                            onPress={() => handleDiscussTaskWithAi(t)}
+                          >
+                            <Ionicons name="chatbubble-ellipses-outline" size={12} color={theme.subtext} />
+                            <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Bahas AI</Text>
+                          </TouchableOpacity>
+
+                          {/* Edit Task */}
+                          <TouchableOpacity
+                            style={[styles.taskIconBtn, { backgroundColor: theme.cardInner }]}
+                            onPress={() => handleStartEditTask(t)}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons name="pencil-outline" size={13} color={theme.subtext} />
+                          </TouchableOpacity>
+
+                          {/* Delete Task */}
+                          <TouchableOpacity
+                            style={[styles.taskIconBtn, { backgroundColor: theme.cardInner }]}
+                            onPress={() => deleteTask(t.id)}
+                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                          >
+                            <Ionicons name="trash-outline" size={13} color={theme.muted} />
+                          </TouchableOpacity>
+
+                        </View>
+
+                        {/* Expanded Subtasks Checklist Section */}
+                        {isExpanded && (
+                          <View style={[styles.expandedSubtasksBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                            <Text style={[styles.subtaskSectionTitle, { color: theme.text }]}>
+                              📌 Rincian Langkah Pengerjaan:
+                            </Text>
+
+                            {subtasks.length === 0 ? (
+                              <Text style={[styles.subtaskEmptyText, { color: theme.subtext }]}>
+                                Belum ada langkah. Klik "Pecah Tugas (AI)" di atas atau tambahkan langkah manual di bawah.
+                              </Text>
+                            ) : (
+                              <View style={styles.subtasksList}>
+                                {subtasks.map((st, sIdx) => (
+                                  <View key={st.id || sIdx} style={[styles.subtaskItemRow, { borderBottomColor: theme.card }]}>
+                                    <TouchableOpacity
+                                      onPress={() => handleToggleSubtask(t.id, st.id)}
+                                      style={styles.subtaskCheckbox}
+                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                      <View style={[
+                                        styles.subtaskSquare,
+                                        { borderColor: theme.border },
+                                        st.is_completed && [styles.subtaskSquareActive, { backgroundColor: theme.accent, borderColor: theme.accent }]
+                                      ]}>
+                                        {st.is_completed && <Ionicons name="checkmark" size={11} color="#FFFFFF" />}
+                                      </View>
+                                    </TouchableOpacity>
+
+                                    <Text
+                                      style={[
+                                        styles.subtaskTitleText,
+                                        { color: theme.text },
+                                        st.is_completed && [styles.subtaskTitleDone, { color: theme.muted }]
+                                      ]}
+                                    >
+                                      {st.title}
+                                    </Text>
+
+                                    <TouchableOpacity
+                                      onPress={() => handleDeleteSubtask(t.id, st.id)}
+                                      style={styles.subtaskDeleteBtn}
+                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                      <Ionicons name="close" size={14} color={theme.muted} />
+                                    </TouchableOpacity>
+                                  </View>
+                                ))}
+                              </View>
+                            )}
+
+                            {/* Add Manual Subtask Input */}
+                            <View style={styles.addSubtaskRow}>
+                              <TextInput
+                                style={[styles.addSubtaskInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
+                                placeholder="Tambah langkah manual..."
+                                placeholderTextColor={theme.muted}
+                                value={newSubtaskInputs[t.id] || ''}
+                                onChangeText={(val) => setNewSubtaskInputs(prev => ({ ...prev, [t.id]: val }))}
+                                onSubmitEditing={() => handleAddManualSubtask(t.id)}
+                              />
+                              <TouchableOpacity
+                                style={[styles.addSubtaskBtn, { backgroundColor: theme.primary }]}
+                                onPress={() => handleAddManualSubtask(t.id)}
+                              >
+                                <Ionicons name="add" size={14} color="#FFFFFF" />
+                                <Text style={styles.addSubtaskBtnText}>Tambah</Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        )}
+
                       </View>
                     );
                   })}
@@ -810,6 +1569,58 @@ export default function StudyNotesScreen() {
       {activeTab === 'pomodoro' && (
         <ScrollView contentContainerStyle={styles.pomodoroContainer} showsVerticalScrollIndicator={false}>
           <View style={styles.pomodoroCenterBox}>
+
+            {/* Active Focus Target Banner (If Selected from Tasks) */}
+            {activePomodoroTask ? (
+              <View style={[styles.pomoTargetCard, { backgroundColor: theme.card, borderColor: theme.accent }]}>
+                <View style={styles.pomoTargetHeader}>
+                  <View style={[styles.pomoTargetTag, { backgroundColor: theme.accentBg }]}>
+                    <Ionicons name="radio-button-on" size={12} color={theme.accentLight} />
+                    <Text style={[styles.pomoTargetTagText, { color: theme.accentLight }]}>TARGET FOKUS AKTIF</Text>
+                  </View>
+                  <TouchableOpacity onPress={() => setActivePomodoroTask(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                    <Ionicons name="close" size={16} color={theme.subtext} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.pomoTargetTitle, { color: theme.text }]}>
+                  {activePomodoroTask.title}
+                </Text>
+                <Text style={[styles.pomoTargetSub, { color: theme.subtext }]}>
+                  Mata Kuliah: {activePomodoroTask.subject} {activePomodoroTask.due_date ? `• Deadline: ${activePomodoroTask.due_date}` : ''}
+                </Text>
+
+                <View style={styles.pomoTargetActions}>
+                  <TouchableOpacity
+                    style={[styles.pomoDoneBtn, { backgroundColor: '#10B981' }]}
+                    onPress={() => {
+                      toggleTask(activePomodoroTask);
+                      showAlert('Hebat! 🎉', `Tugas "${activePomodoroTask.title}" telah ditandai selesai!`);
+                    }}
+                  >
+                    <Ionicons name="checkmark-done" size={14} color="#FFFFFF" />
+                    <Text style={styles.pomoDoneBtnText}>Tandai Tugas Selesai</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.pomoChangeTargetBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => setActiveTab('tasks')}
+                  >
+                    <Text style={[styles.pomoChangeTargetText, { color: theme.subtext }]}>Ganti Tugas</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            ) : (
+              <TouchableOpacity
+                style={[styles.pomoPickTargetCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => setActiveTab('tasks')}
+              >
+                <Ionicons name="add-circle-outline" size={18} color={theme.accentLight} />
+                <Text style={[styles.pomoPickTargetText, { color: theme.accentLight }]}>
+                  Pilih tugas kuliah untuk difokuskan di Pomodoro ini
+                </Text>
+              </TouchableOpacity>
+            )}
 
             <Text style={[styles.pomoHeader, { color: theme.text }]}>Studio Fokus Belajar</Text>
             <Text style={[styles.pomoSub, { color: theme.subtext }]}>Tingkatkan konsentrasi belajar dengan teknik Pomodoro teruji.</Text>
@@ -837,7 +1648,7 @@ export default function StudyNotesScreen() {
             <View style={[styles.pomoClockCircle, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Text style={[styles.pomoTimerText, { color: theme.text }]}>{formatPomoTime(pomoTimeLeft)}</Text>
               <Text style={[styles.pomoStatusText, { color: theme.subtext }]}>
-                {pomoActive ? 'Sedang Fokus Nugas...' : 'Siap Mulai'}
+                {pomoActive ? (activePomodoroTask ? `Fokus: ${activePomodoroTask.title}` : 'Sedang Fokus Belajar...') : 'Siap Mulai'}
               </Text>
             </View>
 
@@ -861,7 +1672,7 @@ export default function StudyNotesScreen() {
             <View style={[styles.pomoTipCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
               <Ionicons name="bulb-outline" size={18} color="#F59E0B" />
               <Text style={[styles.pomoTipText, { color: theme.subtext }]}>
-                “Matikan notifikasi media sosial selama 25 menit ini. Fokus selesaikan 1 tugas kuliah.”
+                “Fokus pada satu langkah kecil di depanmu. Setiap langkah membawamu lebih dekat pada keberhasilan.”
               </Text>
             </View>
 
@@ -869,11 +1680,143 @@ export default function StudyNotesScreen() {
         </ScrollView>
       )}
 
+      {/* Edit Task Modal */}
+      {editingTask && (
+        <Modal
+          visible={!!editingTask}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setEditingTask(null)}
+        >
+          <View style={styles.modalOverlay}>
+            <View style={[styles.editTaskModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={styles.modalHeaderRow}>
+                <Text style={[styles.modalTitle, { color: theme.text }]}>Edit Tugas Kuliah</Text>
+                <TouchableOpacity onPress={() => setEditingTask(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close" size={20} color={theme.subtext} />
+                </TouchableOpacity>
+              </View>
+
+              <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Nama Tugas:</Text>
+              <TextInput
+                style={[styles.taskInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                value={editTitle}
+                onChangeText={setEditTitle}
+                placeholder="Nama tugas..."
+                placeholderTextColor={theme.muted}
+              />
+
+              <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Pilih Mata Kuliah:</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={[styles.subjectRow, { marginBottom: 10 }]}>
+                {subjects.map(s => {
+                  const isSel = editSubject.toLowerCase() === s.name.toLowerCase();
+                  return (
+                    <TouchableOpacity
+                      key={s.id}
+                      style={[
+                        styles.subjectChip,
+                        { backgroundColor: theme.cardInner, borderColor: theme.border },
+                        isSel && [styles.subjectChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                      ]}
+                      onPress={() => setEditSubject(s.name)}
+                    >
+                      <Text style={[styles.subjectChipText, { color: theme.subtext }, isSel && [styles.subjectChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                        {s.name}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+
+              <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Tenggat / Deadline:</Text>
+              <DeadlineSelector
+                value={editDueDate}
+                onChange={setEditDueDate}
+                onOpenCalendar={() => {
+                  setDatePickerTarget('edit');
+                  setShowDatePickerModal(true);
+                }}
+                theme={theme}
+                isLightMode={isLightMode}
+              />
+
+              <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Tingkat Prioritas:</Text>
+              <View style={styles.priorityRow}>
+                {(['high', 'medium', 'low'] as const).map(p => (
+                  <TouchableOpacity
+                    key={p}
+                    style={[
+                      styles.priorityChip,
+                      { backgroundColor: theme.cardInner, borderColor: theme.border },
+                      editPriority === p && [styles.priorityChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                    ]}
+                    onPress={() => setEditPriority(p)}
+                  >
+                    <Text style={[styles.priorityText, { color: theme.subtext }, editPriority === p && [styles.priorityTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                      {p === 'high' ? '🔥 Mendesak' : p === 'medium' ? '⚡ Sedang' : '🍃 Santai'}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Catatan / Lembar Tugas:</Text>
+              <TextInput
+                style={[styles.taskNotesFormInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                placeholder="Tulis catatan, instruksi, atau draft tugas..."
+                placeholderTextColor={theme.muted}
+                value={editNotes}
+                onChangeText={setEditNotes}
+                multiline
+                numberOfLines={3}
+              />
+
+              <View style={styles.modalActionsRow}>
+                <TouchableOpacity
+                  style={[styles.modalCancelBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  onPress={() => setEditingTask(null)}
+                >
+                  <Text style={[styles.modalCancelBtnText, { color: theme.subtext }]}>Batal</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.modalSaveBtn, { backgroundColor: theme.primary }]}
+                  onPress={handleSaveEditTask}
+                >
+                  <Text style={styles.modalSaveBtnText}>Simpan Perubahan</Text>
+                </TouchableOpacity>
+              </View>
+            </View>
+          </View>
+        </Modal>
+      )}
+
       {/* Subject Manager Modal */}
       <SubjectManagerModal
         visible={showSubjectModal}
         onClose={() => setShowSubjectModal(false)}
         onSelectSubject={(name) => setSelectedSubject(name)}
+      />
+
+      {/* Interactive Calendar & Time Picker Modal */}
+      <DateTimePickerModal
+        visible={showDatePickerModal}
+        onClose={() => setShowDatePickerModal(false)}
+        value={datePickerTarget === 'create' ? newTaskDueDate : editDueDate}
+        onSelect={(val) => {
+          if (datePickerTarget === 'create') {
+            setNewTaskDueDate(val);
+          } else {
+            setEditDueDate(val);
+          }
+        }}
+      />
+
+      {/* Task Workpad & Notes Modal */}
+      <TaskWorkpadModal
+        visible={!!activeWorkpadTask}
+        task={activeWorkpadTask}
+        onClose={() => setActiveWorkpadTask(null)}
+        onSaveNotes={handleSaveTaskNotes}
       />
 
       </View>
@@ -935,6 +1878,19 @@ const styles = StyleSheet.create({
   scanQuickTopText: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  headerNotifBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    gap: 4,
+  },
+  headerNotifBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   addBtn: {
     flexDirection: 'row',
@@ -1342,16 +2298,146 @@ const styles = StyleSheet.create({
     color: '#F3F4F6',
     fontWeight: '600',
   },
+  taskNotesFormInput: {
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 12,
+    lineHeight: 18,
+    textAlignVertical: 'top',
+    minHeight: 60,
+  },
   saveTaskBtn: {
     backgroundColor: '#2563EB',
     paddingVertical: 10,
     borderRadius: 8,
     alignItems: 'center',
+    marginTop: 4,
   },
   saveTaskBtnText: {
     color: '#FFFFFF',
     fontSize: 13,
     fontWeight: '600',
+  },
+  taskTopFilterBar: {
+    backgroundColor: '#141822',
+    borderRadius: 14,
+    padding: 12,
+    marginBottom: 14,
+    borderWidth: 1,
+    borderColor: '#202634',
+    gap: 10,
+  },
+  taskSearchBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#0E1117',
+    borderRadius: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: '#222836',
+  },
+  taskSearchInput: {
+    flex: 1,
+    fontSize: 12.5,
+    color: '#F3F4F6',
+  },
+  taskSubjectFilterScroll: {
+    gap: 6,
+    paddingVertical: 2,
+  },
+  subjectFilterChip: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
+    backgroundColor: '#141822',
+    borderWidth: 1,
+    borderColor: '#202634',
+  },
+  subjectFilterChipActive: {
+    backgroundColor: '#1E293B',
+    borderColor: '#3B82F6',
+  },
+  subjectFilterText: {
+    color: '#6B7280',
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  subjectFilterTextActive: {
+    color: '#F3F4F6',
+    fontWeight: '600',
+  },
+  formHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  deadlineSelectorBox: {
+    marginBottom: 12,
+    gap: 8,
+  },
+  deadlinePresetRow: {
+    gap: 6,
+    paddingVertical: 2,
+  },
+  deadlinePresetChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  deadlinePresetChipActive: {
+    borderWidth: 1,
+  },
+  deadlinePresetText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  deadlinePresetTextActive: {
+    fontWeight: '700',
+  },
+  deadlineInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  deadlineSelectedMainText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  deadlineSelectedSubText: {
+    fontSize: 11,
+    fontWeight: '500',
+    marginTop: 2,
+  },
+  deadlinePlaceholderText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  deadlinePickerActionIcons: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pickCalendarMiniBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  pickCalendarMiniBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
   },
   taskFilterRow: {
     flexDirection: 'row',
@@ -1380,28 +2466,31 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   taskListContainer: {
-    gap: 8,
+    gap: 10,
   },
   taskCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
     backgroundColor: '#141822',
-    borderRadius: 12,
-    padding: 12,
+    borderRadius: 14,
+    padding: 14,
     borderWidth: 1,
     borderColor: '#202634',
     gap: 10,
   },
   taskCardDone: {
-    opacity: 0.5,
+    opacity: 0.6,
+  },
+  taskMainRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
   },
   taskCheckbox: {
-    padding: 2,
+    paddingTop: 2,
   },
   taskCircle: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
     borderWidth: 1.5,
     borderColor: '#263042',
     justifyContent: 'center',
@@ -1414,51 +2503,337 @@ const styles = StyleSheet.create({
   taskHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
-    marginBottom: 2,
+    marginBottom: 4,
   },
   taskSubjectBadge: {
     backgroundColor: '#1C2230',
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderRadius: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 5,
   },
   taskSubjectText: {
-    color: '#9CA3AF',
+    color: '#60A5FA',
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  taskPriorityBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+  },
+  taskPriorityBadgeText: {
     fontSize: 10,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   dueBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-  },
-  dueBadgeHigh: {
-    backgroundColor: '#2B1417',
+    backgroundColor: '#141822',
     paddingHorizontal: 6,
-    paddingVertical: 1,
+    paddingVertical: 2,
     borderRadius: 4,
   },
   dueText: {
     color: '#6B7280',
     fontSize: 10,
   },
-  dueTextHigh: {
-    color: '#EF4444',
-    fontWeight: '600',
-  },
   taskTitle: {
     color: '#F3F4F6',
-    fontSize: 13,
-    fontWeight: '500',
+    fontSize: 13.5,
+    fontWeight: '600',
+    lineHeight: 19,
   },
   taskTitleDone: {
     textDecorationLine: 'line-through',
     color: '#6B7280',
   },
-  deleteTaskBtn: {
-    padding: 4,
+  subtasksProgressWrap: {
+    marginTop: 6,
+    gap: 4,
   },
+  subtasksProgressBarBg: {
+    height: 4,
+    backgroundColor: '#1E2430',
+    borderRadius: 2,
+    overflow: 'hidden',
+  },
+  subtasksProgressBarFill: {
+    height: '100%',
+    backgroundColor: '#3B82F6',
+    borderRadius: 2,
+  },
+  subtasksProgressText: {
+    color: '#6B7280',
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  taskNotesSnippetBox: {
+    marginTop: 6,
+    padding: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 4,
+  },
+  taskNotesSnippetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 4,
+  },
+  taskNotesSnippetHeaderTitle: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  taskNotesSnippetWordCount: {
+    fontSize: 10,
+    fontWeight: '500',
+    marginLeft: 'auto',
+  },
+  taskNotesSnippetText: {
+    fontSize: 11,
+    lineHeight: 16,
+  },
+  taskActionToolbar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+    paddingTop: 8,
+    borderTopWidth: 1,
+  },
+  taskActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  taskActionBtnText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  taskIconBtn: {
+    padding: 5,
+    borderRadius: 6,
+  },
+  expandedSubtasksBox: {
+    marginTop: 4,
+    padding: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+    gap: 8,
+  },
+  subtaskSectionTitle: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  subtaskEmptyText: {
+    fontSize: 11,
+    fontStyle: 'italic',
+    lineHeight: 16,
+  },
+  subtasksList: {
+    gap: 6,
+  },
+  subtaskItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingVertical: 4,
+    borderBottomWidth: 1,
+  },
+  subtaskCheckbox: {
+    padding: 2,
+  },
+  subtaskSquare: {
+    width: 16,
+    height: 16,
+    borderRadius: 4,
+    borderWidth: 1.5,
+    borderColor: '#3B475D',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  subtaskSquareActive: {
+    backgroundColor: '#3B82F6',
+    borderColor: '#3B82F6',
+  },
+  subtaskTitleText: {
+    fontSize: 11.5,
+    flex: 1,
+    lineHeight: 16,
+  },
+  subtaskTitleDone: {
+    textDecorationLine: 'line-through',
+  },
+  subtaskDeleteBtn: {
+    padding: 2,
+  },
+  addSubtaskRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 4,
+  },
+  addSubtaskInput: {
+    flex: 1,
+    fontSize: 11.5,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  addSubtaskBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 2,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  addSubtaskBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '600',
+  },
+
+  /* Pomodoro Active Target */
+  pomoTargetCard: {
+    width: '100%',
+    borderRadius: 12,
+    padding: 14,
+    borderWidth: 1.5,
+    marginBottom: 16,
+    gap: 6,
+  },
+  pomoTargetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  pomoTargetTag: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  pomoTargetTagText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  pomoTargetTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  pomoTargetSub: {
+    fontSize: 11,
+  },
+  pomoTargetActions: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 6,
+  },
+  pomoDoneBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  pomoDoneBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  pomoChangeTargetBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  pomoChangeTargetText: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  pomoPickTargetCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    width: '100%',
+    padding: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    marginBottom: 16,
+  },
+  pomoPickTargetText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+
+  /* Edit Task Modal Styles */
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.7)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  editTaskModalCard: {
+    width: '100%',
+    maxWidth: 480,
+    borderRadius: 16,
+    padding: 20,
+    borderWidth: 1,
+    gap: 4,
+  },
+  modalHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  modalTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  modalActionsRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    gap: 10,
+    marginTop: 14,
+  },
+  modalCancelBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  modalCancelBtnText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  modalSaveBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  modalSaveBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+
   emptyWrap: {
     alignItems: 'center',
     paddingVertical: 40,

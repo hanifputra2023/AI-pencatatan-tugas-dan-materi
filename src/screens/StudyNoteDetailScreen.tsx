@@ -15,6 +15,7 @@ import { StudyNote, QuizQuestion } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
+import { copyToClipboard } from '../lib/clipboard';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import ScanNoteModal from '../components/ScanNoteModal';
@@ -676,13 +677,13 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
   };
 
   // Copy Note Content
-  const handleCopyNote = () => {
+  const handleCopyNote = async () => {
     const fullText = `${title}\n\nMata Kuliah: ${subject}\n\n${content}${summary ? `\n\n---\nRangkuman AI:\n${summary}` : ''}`;
-    if (typeof navigator !== 'undefined' && navigator.clipboard) {
-      navigator.clipboard.writeText(fullText);
+    const ok = await copyToClipboard(fullText);
+    if (ok) {
       showAlert('Tersalin 📋', 'Materi catatan kuliah berhasil disalin ke clipboard.');
     } else {
-      showAlert('Info', 'Fitur salin aktif pada perangkatmu.');
+      showAlert('Info', 'Gagal menyalin teks ke clipboard.');
     }
   };
 

@@ -70,6 +70,12 @@ export interface StudyNote {
   updated_at?: string;
 }
 
+export interface TaskSubtask {
+  id: string;
+  title: string;
+  is_completed: boolean;
+}
+
 export interface StudentTask {
   id: string;
   user_id: string;
@@ -78,6 +84,8 @@ export interface StudentTask {
   due_date: string | null;
   priority: 'high' | 'medium' | 'low';
   is_completed: boolean;
+  subtasks?: TaskSubtask[] | null;
+  notes?: string | null;
   created_at: string;
 }
 

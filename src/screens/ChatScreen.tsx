@@ -18,6 +18,7 @@ import { ChatMessage, ChatAttachment, ChatSession } from '../types';
 import * as FileSystem from 'expo-file-system';
 import { confirmAction, showAlert } from '../lib/alert';
 import { safeSaveChatMessages, safeSaveSessions, safeRemoveChatCache } from '../lib/safeStorage';
+import { copyToClipboard } from '../lib/clipboard';
 
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
@@ -83,6 +84,7 @@ export default function ChatScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
+  const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
 
   // Attachment state
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
@@ -664,9 +666,21 @@ export default function ChatScreen() {
     );
   };
 
+  const handleCopyMessage = async (msg: ChatMessage) => {
+    if (!msg.content) return;
+    const ok = await copyToClipboard(msg.content);
+    if (ok) {
+      setCopiedMsgId(msg.id);
+      setTimeout(() => {
+        setCopiedMsgId(prev => (prev === msg.id ? null : prev));
+      }, 2000);
+    }
+  };
+
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isUser = item.role === 'user';
     const isAi = item.role === 'assistant';
+    const isCopied = copiedMsgId === item.id;
 
     return (
       <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAssistant]}>
@@ -720,6 +734,26 @@ export default function ChatScreen() {
             <Text style={[styles.timeText, { color: theme.muted }]}>
               {new Date(item.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
             </Text>
+
+            {/* Copy Action Button */}
+            <TouchableOpacity
+              onPress={() => handleCopyMessage(item)}
+              style={[
+                styles.actionMsgBtn,
+                isCopied && [styles.copiedBadgeBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]
+              ]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+              accessibilityLabel="Salin Pesan"
+            >
+              {isCopied ? (
+                <View style={styles.copiedInline}>
+                  <Ionicons name="checkmark-circle" size={12} color={theme.accentLight} />
+                  <Text style={[styles.copiedInlineText, { color: theme.accentLight }]}>Tersalin</Text>
+                </View>
+              ) : (
+                <Ionicons name="copy-outline" size={12} color={theme.subtext} />
+              )}
+            </TouchableOpacity>
 
             {isUser && (
               <TouchableOpacity onPress={() => handleStartEdit(item)} style={styles.editMsgBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -1339,6 +1373,26 @@ const styles = StyleSheet.create({
   },
   editMsgBtn: {
     padding: 2,
+  },
+  actionMsgBtn: {
+    padding: 2,
+    borderRadius: 6,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  copiedBadgeBtn: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderWidth: 1,
+  },
+  copiedInline: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  copiedInlineText: {
+    fontSize: 9.5,
+    fontWeight: '600',
   },
   deleteMsgBtn: {
     padding: 2,
