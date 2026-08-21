@@ -8,7 +8,7 @@ import { useNavigation, useFocusEffect, useRoute, RouteProp } from '@react-navig
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { StudyNote, StudentTask, TaskSubtask } from '../types';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
@@ -42,7 +42,6 @@ const POMODORO_DURATIONS = [
   { label: '25 Menit (Fokus)', value: 25 * 60 },
   { label: '50 Menit (Deep Work)', value: 50 * 60 },
   { label: '5 Menit (Istirahat)', value: 5 * 60 },
-  { label: '5 Detik (🧪 Tes Notifikasi Tab)', value: 5 },
 ];
 
 function DeadlineSelector({
@@ -139,12 +138,14 @@ function DeadlineSelector({
 
 export default function StudyNotesScreen() {
   const { user } = useAuth();
-  const { subjects } = useSubjects();
+  const { subjects, addSubject } = useSubjects();
   const { theme, isLightMode } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<TabParamList, 'Study'>>();
   const { isDesktop, isTablet, isMobile } = useResponsive();
   const isWide = isDesktop || isTablet;
+
+  const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
   const [activeTab, setActiveTab] = useState<'notes' | 'tasks' | 'pomodoro'>(
     route.params?.initialTab || 'notes'
@@ -908,8 +909,8 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
               style={[styles.addBtn, { backgroundColor: theme.primary }]}
               onPress={() => navigation.navigate('StudyNoteDetail', {})}
             >
-              <Ionicons name="add" size={17} color="#FFFFFF" />
-              <Text style={styles.addBtnText}>Catatan Baru</Text>
+              <Ionicons name="add" size={17} color={primaryBtnTextColor} />
+              <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]}>Catatan Baru</Text>
             </TouchableOpacity>
           )}
 
@@ -918,8 +919,8 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
               style={[styles.addBtn, { backgroundColor: theme.primary }]}
               onPress={() => setShowTaskForm(!showTaskForm)}
             >
-              <Ionicons name={showTaskForm ? 'close' : 'add'} size={17} color="#FFFFFF" />
-              <Text style={styles.addBtnText}>{showTaskForm ? 'Tutup' : 'Tugas Baru'}</Text>
+              <Ionicons name={showTaskForm ? 'close' : 'add'} size={17} color={primaryBtnTextColor} />
+              <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]}>{showTaskForm ? 'Tutup' : 'Tugas Baru'}</Text>
             </TouchableOpacity>
           )}
         </View>
@@ -1093,11 +1094,11 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                     </View>
 
                     <TouchableOpacity
-                      style={[styles.draftContinueBtn, { backgroundColor: isLightMode ? '#D97706' : '#D97706' }]}
+                      style={[styles.draftContinueBtn, { backgroundColor: theme.primary }]}
                       onPress={() => navigation.navigate('StudyNoteDetail', {})}
                     >
-                      <Ionicons name="create" size={13} color="#FFFFFF" />
-                      <Text style={styles.draftContinueText}>Lanjutkan Menulis</Text>
+                      <Ionicons name="create" size={13} color={primaryBtnTextColor} />
+                      <Text style={[styles.draftContinueText, { color: primaryBtnTextColor }]}>Lanjutkan Menulis</Text>
                     </TouchableOpacity>
                   </View>
                 </View>
@@ -1112,7 +1113,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                 style={[styles.emptyAddBtn, { backgroundColor: theme.primary }]}
                 onPress={() => navigation.navigate('StudyNoteDetail', {})}
               >
-                <Text style={styles.emptyAddText}>+ Buat Catatan Pertama</Text>
+                <Text style={[styles.emptyAddText, { color: primaryBtnTextColor }]}>+ Buat Catatan Pertama</Text>
               </TouchableOpacity>
             </View>
           ) : (
@@ -1369,7 +1370,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                   />
 
                   <TouchableOpacity style={[styles.saveTaskBtn, { backgroundColor: theme.primary }]} onPress={handleAddTask}>
-                    <Text style={styles.saveTaskBtnText}>+ Simpan Tugas</Text>
+                    <Text style={[styles.saveTaskBtnText, { color: primaryBtnTextColor }]}>+ Simpan Tugas</Text>
                   </TouchableOpacity>
                 </View>
               </View>
@@ -1961,7 +1962,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                   style={[styles.modalSaveBtn, { backgroundColor: theme.primary }]}
                   onPress={handleSaveEditTask}
                 >
-                  <Text style={styles.modalSaveBtnText}>Simpan Perubahan</Text>
+                  <Text style={[styles.modalSaveBtnText, { color: primaryBtnTextColor }]}>Simpan Perubahan</Text>
                 </TouchableOpacity>
               </View>
             </View>

@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { StudyNote, QuizQuestion } from '../types';
@@ -39,6 +39,8 @@ export default function StudyNoteDetailScreen() {
   const navigation = useNavigation();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
+
+  const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
   const noteId = route.params?.noteId;
 
@@ -836,11 +838,11 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
               disabled={loading || !title.trim() || !content.trim()}
             >
               {loading ? (
-                <ActivityIndicator color="#FFFFFF" size="small" />
+                <ActivityIndicator color={primaryBtnTextColor} size="small" />
               ) : (
                 <>
-                  <Ionicons name="checkmark" size={15} color="#FFFFFF" />
-                  <Text style={styles.headerSaveText}>Simpan</Text>
+                  <Ionicons name="checkmark" size={15} color={primaryBtnTextColor} />
+                  <Text style={[styles.headerSaveText, { color: primaryBtnTextColor }]}>Simpan</Text>
                 </>
               )}
             </TouchableOpacity>

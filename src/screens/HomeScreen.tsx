@@ -231,10 +231,20 @@ export default function HomeScreen() {
       fetchedTotalNotes = typeof allNotesCountRes.count === 'number' ? allNotesCountRes.count : (notesRes.data?.length || 0);
       setTotalNotesCount(fetchedTotalNotes);
 
+      // Real streak calculator across all user activities (journals, chats, study notes, tasks)
+      const allTimestamps: string[] = [
+        ...(journalDatesRes.data?.map(d => d.created_at) || []),
+        ...(chatDatesRes.data?.map(d => d.created_at) || []),
+        ...(notesRes.data?.map(d => d.created_at) || []),
+        ...(tasksRes.data?.map(d => d.created_at) || []),
+      ];
+      const calculatedStreak = calculateRealStreak(allTimestamps);
+      setStreak(calculatedStreak);
+
       // Cache all dashboard data for instant offline loading
       cacheDashboardLocally(user.id, {
         username: fetchedUsername,
-        streak,
+        streak: calculatedStreak,
         todayMood: calculatedTodayMood,
         recentEntries: fetchedEntries,
         upcomingTasks: fetchedTasks,

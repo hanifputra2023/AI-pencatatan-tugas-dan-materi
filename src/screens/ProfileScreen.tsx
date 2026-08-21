@@ -109,16 +109,22 @@ export default function ProfileScreen() {
   const fetchStats = useCallback(async () => {
     if (!user) return;
     try {
-      const [journalRes, chatRes] = await Promise.all([
+      const [journalRes, chatRes, notesRes, tasksRes] = await Promise.all([
         supabase.from('journal_entries').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
         supabase.from('chat_messages').select('id, created_at').eq('user_id', user.id).eq('role', 'user').order('created_at', { ascending: false }),
+        supabase.from('study_notes').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
+        supabase.from('student_tasks').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
       ]);
       const entries = journalRes.data ?? [];
       const chats = chatRes.data ?? [];
+      const notes = notesRes.data ?? [];
+      const tasks = tasksRes.data ?? [];
 
       const allTimestamps: string[] = [
         ...entries.map(d => d.created_at),
         ...chats.map(d => d.created_at),
+        ...notes.map(d => d.created_at),
+        ...tasks.map(d => d.created_at),
       ];
 
       const streak = calculateRealStreak(allTimestamps);

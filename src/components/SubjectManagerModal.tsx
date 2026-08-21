@@ -5,7 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useSubjects } from '../contexts/SubjectContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { confirmAction, showAlert } from '../lib/alert';
 
 interface SubjectManagerModalProps {
@@ -23,6 +23,8 @@ export default function SubjectManagerModal({
   const { theme, isLightMode } = useTheme();
   const [newSubjName, setNewSubjName] = useState('');
   const [saving, setSaving] = useState(false);
+
+  const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
   const handleAdd = async () => {
     if (!newSubjName.trim()) {
@@ -94,8 +96,8 @@ export default function SubjectManagerModal({
                   onPress={handleAdd}
                   disabled={saving}
                 >
-                  <Ionicons name="add" size={18} color="#FFFFFF" />
-                  <Text style={styles.addBtnText}>Tambah</Text>
+                  <Ionicons name="add" size={18} color={primaryBtnTextColor} />
+                  <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]}>Tambah</Text>
                 </TouchableOpacity>
               </View>
 
