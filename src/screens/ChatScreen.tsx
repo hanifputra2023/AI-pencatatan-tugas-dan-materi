@@ -15,6 +15,7 @@ import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
 import { ChatMessage, ChatAttachment, ChatSession } from '../types';
+import * as FileSystem from 'expo-file-system';
 import { confirmAction, showAlert } from '../lib/alert';
 import { safeSaveChatMessages, safeSaveSessions, safeRemoveChatCache } from '../lib/safeStorage';
 
@@ -22,6 +23,28 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { compressImage } from '../lib/imageCompressor';
+
+async function uriToBase64(uri: string): Promise<string> {
+  if (uri.startsWith('data:')) {
+    return uri.split(',')[1] || '';
+  }
+  if (Platform.OS === 'web') {
+    const response = await fetch(uri);
+    const blob = await response.blob();
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        resolve(result.split(',')[1] || '');
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+  return await FileSystem.readAsStringAsync(uri, {
+    encoding: FileSystem.EncodingType.Base64,
+  });
+}
 
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
@@ -322,12 +345,14 @@ export default function ChatScreen() {
       if (!res.canceled && res.assets[0]) {
         const asset = res.assets[0];
         const compressedUri = await compressImage(asset.uri, { maxWidth: 800, quality: 0.55 });
+        const base64Data = await uriToBase64(compressedUri);
         setAttachment({
           type: 'image',
           uri: compressedUri,
           name: asset.fileName || 'Foto.jpg',
           size: asset.fileSize,
           mimeType: asset.mimeType || 'image/jpeg',
+          base64: base64Data,
         });
       }
     } catch (e: any) {
@@ -350,12 +375,14 @@ export default function ChatScreen() {
       if (!res.canceled && res.assets[0]) {
         const asset = res.assets[0];
         const compressedUri = await compressImage(asset.uri, { maxWidth: 800, quality: 0.55 });
+        const base64Data = await uriToBase64(compressedUri);
         setAttachment({
           type: 'image',
           uri: compressedUri,
           name: 'Kamera_' + Date.now() + '.jpg',
           size: asset.fileSize,
           mimeType: 'image/jpeg',
+          base64: base64Data,
         });
       }
     } catch (e: any) {
@@ -372,12 +399,14 @@ export default function ChatScreen() {
       });
       if (!res.canceled && res.assets && res.assets[0]) {
         const file = res.assets[0];
+        const base64Data = await uriToBase64(file.uri);
         setAttachment({
           type: 'audio',
           uri: file.uri,
           name: file.name || 'Audio.mp3',
           size: file.size,
           mimeType: file.mimeType || 'audio/mpeg',
+          base64: base64Data,
         });
       }
     } catch (e: any) {
@@ -394,12 +423,22 @@ export default function ChatScreen() {
       });
       if (!res.canceled && res.assets && res.assets[0]) {
         const file = res.assets[0];
+        const mime = file.mimeType || '';
+        let attachType: ChatAttachment['type'] = 'document';
+        if (mime.startsWith('image/')) attachType = 'image';
+        else if (mime.startsWith('audio/')) attachType = 'audio';
+        else if (mime === 'application/pdf') attachType = 'document';
+
+        const needsBase64 = attachType === 'image' || attachType === 'audio' || mime === 'application/pdf';
+        const base64Data = needsBase64 ? await uriToBase64(file.uri) : undefined;
+
         setAttachment({
-          type: file.mimeType?.startsWith('image/') ? 'image' : file.mimeType?.startsWith('audio/') ? 'audio' : 'document',
+          type: attachType,
           uri: file.uri,
           name: file.name || 'Dokumen',
           size: file.size,
-          mimeType: file.mimeType,
+          mimeType: mime,
+          base64: base64Data,
         });
       }
     } catch (e: any) {

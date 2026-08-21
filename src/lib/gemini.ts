@@ -220,17 +220,18 @@ export async function sendMessageToGemini(
 
   const userParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
-  if (attachment && attachment.base64 && attachment.type === 'image') {
+  const MULTIMODAL_TYPES = ['image', 'audio', 'document'];
+  if (attachment && attachment.base64 && MULTIMODAL_TYPES.includes(attachment.type)) {
     userParts.push({
       inlineData: {
-        mimeType: attachment.mimeType || 'image/jpeg',
+        mimeType: attachment.mimeType || 'application/octet-stream',
         data: attachment.base64,
       },
     });
   }
 
   let fullPrompt = newMessage;
-  if (attachment && attachment.type !== 'image') {
+  if (attachment && !attachment.base64) {
     fullPrompt = `[Pengguna melampirkan file ${attachment.type}: ${attachment.name || 'Dokumen'}]\n${newMessage || 'Tolong perhatikan lampiran ini ya'}`;
   }
 
