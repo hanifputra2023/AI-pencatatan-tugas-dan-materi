@@ -25,6 +25,7 @@ import {
   processOfflineSyncQueue,
   queueOfflineAction,
 } from '../lib/offlineSync';
+import { scheduleDailyRoutineReminders } from '../lib/notifications';
 
 const DEFAULT_DAILY_QUESTS = [
   { id: '1', title: 'Curhat atau refleksi sejenak ke AI', completed: false, icon: 'chatbubble-ellipses-outline' },
@@ -281,6 +282,7 @@ export default function HomeScreen() {
 
   useEffect(() => {
     fetchData();
+    scheduleDailyRoutineReminders();
 
     // Subscribe to network online/offline and process queue
     const unsubscribeNetwork = subscribeNetworkStatus(async (online) => {

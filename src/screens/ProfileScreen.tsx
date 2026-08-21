@@ -56,7 +56,7 @@ const ACCENT_COLOR_PALETTE = [
 
 export default function ProfileScreen() {
   const { user, signOut, isAdmin, role, claimAdminRole, refreshProfileRole } = useAuth();
-  const { allPersonas, activePersona, selectPersona } = useMoods();
+  const { allPersonas, activePersona, selectPersona, refreshMoodsAndSettings } = useMoods();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -160,7 +160,8 @@ export default function ProfileScreen() {
       fetchProfile();
       fetchStats();
       refreshProfileRole();
-    }, [fetchProfile, fetchStats, refreshProfileRole])
+      refreshMoodsAndSettings();
+    }, [fetchProfile, fetchStats, refreshProfileRole, refreshMoodsAndSettings])
   );
 
   const pickAvatar = async () => {
@@ -403,6 +404,7 @@ export default function ProfileScreen() {
                 <TouchableOpacity
                   style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
                   onPress={() => {
+                    refreshMoodsAndSettings();
                     setPersonaSearchQuery('');
                     setShowPersonaModal(true);
                   }}

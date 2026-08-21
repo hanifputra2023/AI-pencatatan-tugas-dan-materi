@@ -13,7 +13,8 @@ import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey, setInMemoryApiKeys } from '../lib/gemini';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
-import { PersonaPreset, DEFAULT_PERSONAS } from '../types';
+import { PersonaPreset, DEFAULT_PERSONAS, DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
+import { sendImmediateNotification, scheduleDailyRoutineReminders } from '../lib/notifications';
 
 const COLOR_PALETTE = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
@@ -33,6 +34,7 @@ export default function AdminScreen() {
   const navigation = useNavigation();
   const { isAdmin } = useAuth();
   const { theme, isLightMode } = useTheme();
+  const styles = React.useMemo(() => getStyles(theme, isLightMode), [theme, isLightMode]);
   const {
     moods, addMood, updateMood, deleteMood, resetToDefaults,
     aiPersona, updateAiPersona,
@@ -41,13 +43,18 @@ export default function AdminScreen() {
     geminiApiKey, updateGeminiApiKey,
     geminiApiKeys, updateGeminiApiKeys,
     appSettings, updateSetting,
+    refreshMoodsAndSettings,
   } = useMoods();
 
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
 
-  const [activeTab, setActiveTab] = useState<'stats' | 'ai' | 'features' | 'moods' | 'broadcast' | 'users'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'ai' | 'features' | 'reminders' | 'moods' | 'broadcast' | 'users'>('stats');
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  // Daily Routine Reminders State
+  const [dailyRoutines, setDailyRoutines] = useState<DailyRoutineReminder[]>(DEFAULT_DAILY_ROUTINES);
+  const [savingRoutines, setSavingRoutines] = useState(false);
 
   // Mood Form State
   const [newEmoji, setNewEmoji] = useState('✨');
@@ -115,6 +122,16 @@ export default function AdminScreen() {
   const [usersList, setUsersList] = useState<UserProfile[]>([]);
   const [loadingUsers, setLoadingUsers] = useState(false);
   const [userSearch, setUserSearch] = useState('');
+
+  const filteredUsers = React.useMemo(() => {
+    if (!userSearch.trim()) return usersList;
+    const q = userSearch.toLowerCase().trim();
+    return usersList.filter(u =>
+      (u.username && u.username.toLowerCase().includes(q)) ||
+      (u.id && u.id.toLowerCase().includes(q))
+    );
+  }, [usersList, userSearch]);
+
   const fetchCustomPresets = async () => {
     try {
       const cached = await AsyncStorage.getItem('@custom_ai_presets');
@@ -154,9 +171,27 @@ export default function AdminScreen() {
     }
   }, [globalAnnouncement]);
 
+  const fetchDailyRoutines = async () => {
+    try {
+      const cached = await AsyncStorage.getItem('@custom_daily_routine_reminders');
+      if (cached) {
+        setDailyRoutines(JSON.parse(cached));
+      }
+      const { data } = await supabase.from('app_settings').select('*').eq('key', 'daily_routine_reminders').single();
+      if (data?.value) {
+        const parsed = JSON.parse(data.value);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setDailyRoutines(parsed);
+          await AsyncStorage.setItem('@custom_daily_routine_reminders', data.value);
+        }
+      }
+    } catch (e) {}
+  };
+
   useEffect(() => {
     fetchStats();
     fetchCustomPresets();
+    fetchDailyRoutines();
     if (activeTab === 'users') fetchUsers();
   }, [activeTab]);
 
@@ -192,12 +227,21 @@ export default function AdminScreen() {
   const fetchUsers = async () => {
     setLoadingUsers(true);
     try {
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('profiles')
-        .select('id, username, created_at')
+        .select('*')
         .order('created_at', { ascending: false });
-      if (data) {
-        setUsersList(data as UserProfile[]);
+      if (error) {
+        console.log('Error fetching users:', error);
+      }
+      if (data && Array.isArray(data)) {
+        setUsersList(
+          data.map((u: any) => ({
+            id: u.id,
+            username: u.username || 'Mahasiswa',
+            created_at: u.created_at || new Date().toISOString(),
+          }))
+        );
       }
     } catch (e) {
       console.log('Error fetching users:', e);
@@ -304,6 +348,7 @@ export default function AdminScreen() {
         value: JSON.stringify(updated),
       });
       if (error) throw error;
+      await refreshMoodsAndSettings();
       // Automatically apply this preset to the prompt textarea!
       handleSelectPreset(newPreset);
       setShowAddPresetModal(false);
@@ -333,6 +378,7 @@ export default function AdminScreen() {
             value: JSON.stringify(updated),
           });
           if (error) throw error;
+          await refreshMoodsAndSettings();
           showAlert('Terhapus', `Preset "${presetName}" berhasil dihapus dari database cloud.`);
         } catch (e: any) {
           showAlert('Gagal Menghapus', e.message || 'Gagal menghapus preset dari database.');
@@ -358,6 +404,7 @@ export default function AdminScreen() {
         updateSetting('ai_temp', aiTempSelected),
         updateSetting('ai_max_tokens', aiMaxTokens),
       ]);
+      await refreshMoodsAndSettings();
       showAlert('Sukses', `Nama Bot "${finalName}" dan seluruh konfigurasi AI berhasil disimpan!`);
     } catch (e) {
       showAlert('Gagal', 'Terjadi kesalahan saat menyimpan pengaturan AI.');
@@ -498,16 +545,38 @@ export default function AdminScreen() {
       'Nonaktifkan'
     );
   };
+    const handleToggleRoutine = (id: string) => {
+    setDailyRoutines(prev => prev.map(r => r.id === id ? { ...r, enabled: !r.enabled } : r));
+  };
 
-  const filteredUsers = usersList.filter(u =>
-    (u.username || '').toLowerCase().includes(userSearch.toLowerCase()) ||
-    u.id.toLowerCase().includes(userSearch.toLowerCase())
-  );
+  const handleUpdateRoutineField = (id: string, field: 'hour' | 'minute' | 'title' | 'body', value: any) => {
+    setDailyRoutines(prev => prev.map(r => r.id === id ? { ...r, [field]: value } : r));
+  };
+
+  const handleSaveAllRoutines = async () => {
+    setSavingRoutines(true);
+    try {
+      await updateSetting('daily_routine_reminders', JSON.stringify(dailyRoutines));
+      await scheduleDailyRoutineReminders(dailyRoutines);
+      await refreshMoodsAndSettings();
+      showAlert('Pengingat Disimpan! 🔔', 'Seluruh pengingat rutin harian mahasiswa berhasil disimpan dan disinkronkan ke semua perangkat secara real-time!');
+    } catch (e) {
+      showAlert('Gagal', 'Gagal menyimpan konfigurasi pengingat ke database cloud.');
+    } finally {
+      setSavingRoutines(false);
+    }
+  };
+
+  const handleTestRoutineNotification = (r: DailyRoutineReminder) => {
+    sendImmediateNotification(r.title, r.body);
+    showAlert('Uji Notifikasi Dikirim 🔔', `Preview notifikasi "${r.title}" telah dikirim ke perangkat ini.`);
+  };
 
   const NAV_ITEMS = [
     { key: 'stats', label: 'Ringkasan & Metrik', icon: 'bar-chart', tag: 'KPI' },
     { key: 'ai', label: 'Fine-Tuning AI & Tester', icon: 'sparkles', tag: 'CORE' },
     { key: 'features', label: 'Sakelar Fitur & Maintenance', icon: 'toggle', tag: 'SYS' },
+    { key: 'reminders', label: 'Pengingat Rutin Harian', icon: 'notifications', tag: 'ALARM' },
     { key: 'moods', label: 'Kelola Mood & Emosi', icon: 'heart', tag: 'UX' },
     { key: 'broadcast', label: 'Broadcast Pengumuman', icon: 'megaphone', tag: 'FEED' },
     { key: 'users', label: 'Direktori Mahasiswa', icon: 'people', tag: 'DB' },
@@ -1359,6 +1428,211 @@ export default function AdminScreen() {
             )}
 
             {/* ========================================================================= */}
+            {/* TAB: DAILY ROUTINE REMINDERS (DYNAMIC REALTIME CLOUD CONFIG) */}
+            {/* ========================================================================= */}
+            {activeTab === 'reminders' && (
+              <View style={styles.tabContent}>
+                <View style={styles.card}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.cardTitle}>Pengingat Rutin Harian Mahasiswa (Real-Time Cloud)</Text>
+                      <Text style={styles.cardSub}>
+                        Atur jadwal jam alarm dan pesan pengingat otomatis untuk seluruh mahasiswa di aplikasi (Pagi, Sore, & Malam).
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      style={[styles.saveActionBtn, { backgroundColor: '#2563EB', paddingHorizontal: 16 }]}
+                      onPress={handleSaveAllRoutines}
+                      disabled={savingRoutines}
+                    >
+                      {savingRoutines ? (
+                        <ActivityIndicator color="#fff" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="checkmark-done" size={16} color="#FFFFFF" />
+                          <Text style={styles.saveActionText}>Simpan & Terapkan</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={{ gap: 14 }}>
+                    {dailyRoutines.map((routine, idx) => (
+                      <View
+                        key={routine.id}
+                        style={{
+                          backgroundColor: routine.enabled ? (isLightMode ? '#F8FAFC' : '#111724') : (isLightMode ? '#F1F5F9' : '#0B0E14'),
+                          borderRadius: 12,
+                          padding: 16,
+                          borderWidth: 1,
+                          borderColor: routine.enabled ? '#3B82F6' : (isLightMode ? '#E2E8F0' : '#1F2937'),
+                        }}
+                      >
+                        {/* Routine Header */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                            <View style={{ width: 32, height: 32, borderRadius: 8, backgroundColor: routine.enabled ? '#1E293B' : '#374151', alignItems: 'center', justifyContent: 'center' }}>
+                              <Ionicons
+                                name={routine.id === 'morning' ? 'sunny' : routine.id === 'afternoon' ? 'book' : 'moon'}
+                                size={18}
+                                color={routine.enabled ? '#F59E0B' : '#9CA3AF'}
+                              />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>
+                                {routine.name || `Pengingat #${idx + 1}`}
+                              </Text>
+                              <Text style={{ fontSize: 11, color: routine.enabled ? '#10B981' : '#EF4444', fontWeight: '600' }}>
+                                {routine.enabled ? '● AKTIF (Otomatis Dikirim Tiap Hari)' : '○ NONAKTIF'}
+                              </Text>
+                            </View>
+                          </View>
+
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                            <TouchableOpacity
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 4,
+                                backgroundColor: isLightMode ? '#EFF6FF' : '#1E293B',
+                                paddingHorizontal: 10,
+                                paddingVertical: 6,
+                                borderRadius: 6,
+                                borderWidth: 1,
+                                borderColor: '#3B82F6',
+                              }}
+                              onPress={() => handleTestRoutineNotification(routine)}
+                            >
+                              <Ionicons name="paper-plane-outline" size={13} color="#3B82F6" />
+                              <Text style={{ fontSize: 11, color: '#3B82F6', fontWeight: '700' }}>Tes Preview</Text>
+                            </TouchableOpacity>
+
+                            <Switch
+                              value={routine.enabled}
+                              onValueChange={() => handleToggleRoutine(routine.id)}
+                              trackColor={{ false: '#374151', true: '#2563EB' }}
+                              thumbColor={routine.enabled ? '#FFFFFF' : '#9CA3AF'}
+                            />
+                          </View>
+                        </View>
+
+                        {/* Time Config (Hour & Minute) */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                          <Text style={{ fontSize: 12, fontWeight: '600', color: theme.subtext }}>Waktu Kirim:</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <TextInput
+                              style={{
+                                backgroundColor: isLightMode ? '#FFFFFF' : '#0E1117',
+                                borderWidth: 1,
+                                borderColor: theme.border,
+                                color: theme.text,
+                                borderRadius: 8,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                fontSize: 13,
+                                fontWeight: '700',
+                                width: 44,
+                                textAlign: 'center',
+                              }}
+                              value={String(routine.hour)}
+                              onChangeText={(v) => {
+                                const num = parseInt(v) || 0;
+                                handleUpdateRoutineField(routine.id, 'hour', Math.min(23, Math.max(0, num)));
+                              }}
+                              keyboardType="numeric"
+                              maxLength={2}
+                            />
+                            <Text style={{ fontSize: 14, fontWeight: '700', color: theme.text }}>:</Text>
+                            <TextInput
+                              style={{
+                                backgroundColor: isLightMode ? '#FFFFFF' : '#0E1117',
+                                borderWidth: 1,
+                                borderColor: theme.border,
+                                color: theme.text,
+                                borderRadius: 8,
+                                paddingHorizontal: 10,
+                                paddingVertical: 4,
+                                fontSize: 13,
+                                fontWeight: '700',
+                                width: 44,
+                                textAlign: 'center',
+                              }}
+                              value={String(routine.minute).padStart(2, '0')}
+                              onChangeText={(v) => {
+                                const num = parseInt(v) || 0;
+                                handleUpdateRoutineField(routine.id, 'minute', Math.min(59, Math.max(0, num)));
+                              }}
+                              keyboardType="numeric"
+                              maxLength={2}
+                            />
+                            <Text style={{ fontSize: 11, color: theme.muted }}>WIB</Text>
+                          </View>
+                        </View>
+
+                        {/* Title Input */}
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: theme.subtext, marginBottom: 4 }}>Judul Notifikasi:</Text>
+                        <TextInput
+                          style={{
+                            backgroundColor: isLightMode ? '#FFFFFF' : '#0E1117',
+                            borderWidth: 1,
+                            borderColor: theme.border,
+                            color: theme.text,
+                            borderRadius: 8,
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            fontSize: 12.5,
+                            marginBottom: 8,
+                          }}
+                          value={routine.title}
+                          onChangeText={(t) => handleUpdateRoutineField(routine.id, 'title', t)}
+                          placeholder="Judul notifikasi..."
+                          placeholderTextColor="#6B7280"
+                        />
+
+                        {/* Body Input */}
+                        <Text style={{ fontSize: 11, fontWeight: '600', color: theme.subtext, marginBottom: 4 }}>Isi Pesan Notifikasi:</Text>
+                        <TextInput
+                          style={{
+                            backgroundColor: isLightMode ? '#FFFFFF' : '#0E1117',
+                            borderWidth: 1,
+                            borderColor: theme.border,
+                            color: theme.text,
+                            borderRadius: 8,
+                            paddingHorizontal: 12,
+                            paddingVertical: 8,
+                            fontSize: 12,
+                            lineHeight: 18,
+                            minHeight: 50,
+                          }}
+                          value={routine.body}
+                          onChangeText={(b) => handleUpdateRoutineField(routine.id, 'body', b)}
+                          placeholder="Isi pesan pengingat..."
+                          placeholderTextColor="#6B7280"
+                          multiline
+                        />
+                      </View>
+                    ))}
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.saveActionBtn, { backgroundColor: '#2563EB', marginTop: 16, width: '100%', paddingVertical: 12, borderRadius: 10 }]}
+                    onPress={handleSaveAllRoutines}
+                    disabled={savingRoutines}
+                  >
+                    {savingRoutines ? (
+                      <ActivityIndicator color="#fff" size="small" />
+                    ) : (
+                      <>
+                        <Ionicons name="cloud-upload-outline" size={18} color="#FFFFFF" />
+                        <Text style={[styles.saveActionText, { fontSize: 13 }]}>Simpan & Terapkan Pengingat Real-Time</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+            )}
+
+            {/* ========================================================================= */}
             {/* TAB 5: GLOBAL CAMPUS ANNOUNCEMENT */}
             {/* ========================================================================= */}
             {activeTab === 'broadcast' && (
@@ -1482,7 +1756,7 @@ export default function AdminScreen() {
 
                           <View style={styles.userJoinedWrap}>
                             <Ionicons name="time-outline" size={12} color="#6B7280" />
-                            <Text style={styles.userJoinedText}>
+                              <Text style={styles.userJoinedText}>
                               {new Date(u.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
                             </Text>
                           </View>
@@ -1605,15 +1879,15 @@ export default function AdminScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   portalContainer: {
     flex: 1,
-    backgroundColor: '#090B0E',
+    backgroundColor: theme.bg,
   },
   portalLayout: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: '#0E1117',
+    backgroundColor: theme.bg,
   },
 
   /* ========================================================= */
@@ -1621,16 +1895,16 @@ const styles = StyleSheet.create({
   /* ========================================================= */
   desktopSidebar: {
     width: 250,
-    backgroundColor: '#11141C',
+    backgroundColor: theme.card,
     borderRightWidth: 1,
-    borderRightColor: '#1E2430',
+    borderRightColor: theme.border,
   },
   sidebarInner: {
     flex: 1,
     paddingVertical: 18,
     paddingHorizontal: 14,
     justifyContent: 'space-between',
-    backgroundColor: '#11141C',
+    backgroundColor: theme.card,
   },
   sidebarBrand: {
     flexDirection: 'row',
@@ -1638,27 +1912,27 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingBottom: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A202C',
+    borderBottomColor: theme.border,
     marginBottom: 14,
   },
   brandIconBox: {
     width: 36,
     height: 36,
     borderRadius: 10,
-    backgroundColor: '#16233B',
+    backgroundColor: theme.accentBg,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#253856',
+    borderColor: theme.border,
   },
   brandTitle: {
-    color: '#F3F4F6',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.8,
   },
   brandSubtitle: {
-    color: '#60A5FA',
+    color: theme.accentLight,
     fontSize: 10.5,
     fontWeight: '500',
   },
@@ -1669,7 +1943,7 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   sidebarSectionLabel: {
-    color: '#4B5565',
+    color: theme.muted,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.8,
@@ -1686,43 +1960,43 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   sidebarNavItemActive: {
-    backgroundColor: '#162032',
+    backgroundColor: theme.accentBg,
     borderWidth: 1,
-    borderColor: '#253856',
+    borderColor: theme.border,
   },
   sidebarNavText: {
-    color: '#8B98AD',
+    color: theme.subtext,
     fontSize: 12.5,
     fontWeight: '500',
     flex: 1,
   },
   sidebarNavTextActive: {
-    color: '#F3F4F6',
-    fontWeight: '600',
+    color: theme.accentLight,
+    fontWeight: '700',
   },
   navItemBadge: {
-    backgroundColor: '#141822',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: theme.border,
   },
   navItemBadgeActive: {
-    backgroundColor: '#1E293B',
-    borderColor: '#3B82F6',
+    backgroundColor: theme.primary,
+    borderColor: theme.primary,
   },
   navItemBadgeText: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 9,
     fontWeight: '700',
   },
   navItemBadgeTextActive: {
-    color: '#60A5FA',
+    color: '#FFFFFF',
   },
   sidebarFooter: {
     borderTopWidth: 1,
-    borderTopColor: '#1A202C',
+    borderTopColor: theme.border,
     paddingTop: 14,
     gap: 8,
   },
@@ -1731,19 +2005,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#141822',
+    backgroundColor: theme.cardInner,
     paddingVertical: 10,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: theme.border,
   },
   switchModeText: {
-    color: '#9CA3AF',
+    color: theme.subtext,
     fontSize: 11.5,
     fontWeight: '600',
   },
   sidebarVersionText: {
-    color: '#4B5565',
+    color: theme.muted,
     fontSize: 10,
     textAlign: 'center',
   },
@@ -1767,9 +2041,9 @@ const styles = StyleSheet.create({
     width: '80%',
     maxWidth: 290,
     height: '100%',
-    backgroundColor: '#11141C',
+    backgroundColor: theme.card,
     borderRightWidth: 1,
-    borderRightColor: '#1E2430',
+    borderRightColor: theme.border,
     shadowColor: '#000',
     shadowOffset: { width: 4, height: 0 },
     shadowOpacity: 0.5,
@@ -1782,7 +2056,7 @@ const styles = StyleSheet.create({
   /* ========================================================= */
   mainCanvas: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: theme.bg,
   },
   topCommandBar: {
     flexDirection: 'row',
@@ -1790,9 +2064,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 12,
-    backgroundColor: '#11141C',
+    backgroundColor: theme.card,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E2430',
+    borderBottomColor: theme.border,
   },
   commandLeft: {
     flexDirection: 'row',
@@ -1804,19 +2078,19 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#141822',
+    backgroundColor: theme.cardInner,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: theme.border,
   },
   commandTitle: {
-    color: '#F3F4F6',
+    color: theme.text,
     fontSize: 15,
     fontWeight: '700',
   },
   commandSub: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 10.5,
     marginTop: 1,
   },
@@ -1829,12 +2103,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#101F1A',
+    backgroundColor: isLightMode ? '#ECFDF5' : '#101F1A',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#19382B',
+    borderColor: isLightMode ? '#A7F3D0' : '#19382B',
   },
   liveDot: {
     width: 6,
@@ -1843,7 +2117,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#10B981',
   },
   liveText: {
-    color: '#34D399',
+    color: isLightMode ? '#059669' : '#34D399',
     fontSize: 10.5,
     fontWeight: '600',
   },
@@ -1851,15 +2125,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#141822',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 10,
     paddingVertical: 6,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: theme.border,
   },
   exitPortalText: {
-    color: '#9CA3AF',
+    color: theme.subtext,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -1883,7 +2157,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   sectionTitle: {
-    color: '#F3F4F6',
+    color: theme.text,
     fontSize: 14.5,
     fontWeight: '700',
   },
@@ -1891,13 +2165,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#16233B',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 8,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   refreshBtnText: {
-    color: '#60A5FA',
+    color: theme.accentLight,
     fontSize: 11,
     fontWeight: '600',
   },
@@ -1913,11 +2189,11 @@ const styles = StyleSheet.create({
   metricCard: {
     flex: 1,
     minWidth: 150,
-    backgroundColor: '#141822',
+    backgroundColor: theme.card,
     borderRadius: 14,
     padding: 14,
     borderWidth: 1,
-    borderColor: '#202634',
+    borderColor: theme.border,
   },
   metricIconWrap: {
     width: 32,
@@ -1928,34 +2204,34 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   metricNum: {
-    color: '#111827',
+    color: theme.text,
     fontSize: 22,
     fontWeight: '800',
   },
   metricLabel: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 11,
     marginTop: 2,
   },
   card: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   cardMaintenanceActive: {
     borderColor: '#FECACA',
-    backgroundColor: '#FEF2F2',
+    backgroundColor: isLightMode ? '#FEF2F2' : '#2D1214',
   },
   cardTitle: {
-    color: '#111827',
+    color: theme.text,
     fontSize: 14,
     fontWeight: '700',
     marginBottom: 4,
   },
   cardSub: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 12,
     lineHeight: 18,
     marginBottom: 14,
@@ -1967,26 +2243,26 @@ const styles = StyleSheet.create({
     marginTop: 8,
   },
   infoRowText: {
-    color: '#4B5563',
+    color: theme.subtext,
     fontSize: 12,
     flex: 1,
   },
   inputLabel: {
-    color: '#4B5563',
+    color: theme.subtext,
     fontSize: 11.5,
     fontWeight: '600',
     marginBottom: 6,
     marginTop: 10,
   },
   textInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#111827',
+    color: theme.text,
     fontSize: 13,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   paramChipsRow: {
     flexDirection: 'row',
@@ -1995,25 +2271,25 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   paramChip: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   paramChipActive: {
-    backgroundColor: '#EFF6FF',
-    borderColor: '#BFDBFE',
+    backgroundColor: theme.accentBg,
+    borderColor: theme.primary,
   },
   paramChipText: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 11,
     fontWeight: '500',
   },
   paramChipTextActive: {
-    color: '#2563EB',
-    fontWeight: '600',
+    color: theme.accentLight,
+    fontWeight: '700',
   },
   presetSectionHeaderRow: {
     flexDirection: 'row',
@@ -2026,37 +2302,37 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 7,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: theme.border,
   },
   addPresetActionText: {
-    color: '#2563EB',
+    color: theme.accentLight,
     fontSize: 11,
     fontWeight: '600',
   },
   customPresetBadge: {
-    backgroundColor: '#EEF2FF',
+    backgroundColor: theme.accentBg,
     paddingHorizontal: 6,
     paddingVertical: 1.5,
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#C7D2FE',
+    borderColor: theme.border,
   },
   customPresetBadgeText: {
-    color: '#4338CA',
+    color: theme.accentLight,
     fontSize: 9,
     fontWeight: '700',
   },
   deletePresetIconBtn: {
     padding: 3,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: isLightMode ? '#FEF2F2' : '#3B1214',
     borderRadius: 4,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: isLightMode ? '#FECACA' : '#6B2124',
   },
   presetGrid: {
     flexDirection: 'row',
@@ -2067,15 +2343,15 @@ const styles = StyleSheet.create({
   presetCard: {
     flex: 1,
     minWidth: 200,
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   presetCardActive: {
-    borderColor: '#BFDBFE',
-    backgroundColor: '#EFF6FF',
+    borderColor: theme.primary,
+    backgroundColor: theme.accentBg,
   },
   presetTop: {
     flexDirection: 'row',
@@ -2084,15 +2360,15 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   presetTitle: {
-    color: '#4B5563',
+    color: theme.text,
     fontSize: 12,
     fontWeight: '600',
   },
   presetTitleActive: {
-    color: '#2563EB',
+    color: theme.accentLight,
   },
   presetDesc: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 10.5,
     lineHeight: 15,
   },
@@ -2100,7 +2376,7 @@ const styles = StyleSheet.create({
   /* Custom Preset Modal Styles */
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.4)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
     padding: 16,
@@ -2116,14 +2392,14 @@ const styles = StyleSheet.create({
     width: '100%',
     maxWidth: 540,
     maxHeight: '90%',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.card,
     borderRadius: 16,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     padding: 20,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 10 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 0.3,
     shadowRadius: 20,
     elevation: 25,
   },
@@ -2133,26 +2409,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: 14,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: theme.border,
     marginBottom: 14,
   },
   presetModalIconWrap: {
     width: 34,
     height: 34,
     borderRadius: 10,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: theme.accentBg,
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: theme.border,
     justifyContent: 'center',
     alignItems: 'center',
   },
   presetModalTitle: {
-    color: '#111827',
+    color: theme.text,
     fontSize: 14.5,
     fontWeight: '700',
   },
   presetModalSub: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 11,
   },
   closeModalBtn: {
@@ -2162,37 +2438,37 @@ const styles = StyleSheet.create({
     maxHeight: 400,
   },
   modalFieldLabel: {
-    color: '#4B5563',
+    color: theme.subtext,
     fontSize: 11.5,
     fontWeight: '600',
     marginBottom: 6,
     marginTop: 10,
   },
   modalFieldHint: {
-    color: '#6B7280',
+    color: theme.muted,
     fontSize: 10.5,
     marginBottom: 6,
   },
   modalInput: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.cardInner,
     borderRadius: 8,
     paddingHorizontal: 12,
     paddingVertical: 9,
-    color: '#111827',
+    color: theme.text,
     fontSize: 12.5,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   modalPromptArea: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.cardInner,
     borderRadius: 8,
     padding: 12,
-    color: '#111827',
+    color: theme.text,
     fontSize: 12,
     lineHeight: 18,
     minHeight: 140,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     marginBottom: 10,
   },
   modalBtnRow: {
@@ -2200,19 +2476,21 @@ const styles = StyleSheet.create({
     gap: 10,
     paddingTop: 14,
     borderTopWidth: 1,
-    borderTopColor: '#F3F4F6',
+    borderTopColor: theme.border,
     marginTop: 10,
   },
   modalCancelBtn: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.cardInner,
     paddingVertical: 11,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   modalCancelText: {
-    color: '#4B5563',
+    color: theme.subtext,
     fontSize: 12.5,
     fontWeight: '600',
   },
@@ -2222,7 +2500,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#2563EB',
+    backgroundColor: theme.primary,
     paddingVertical: 11,
     borderRadius: 8,
   },
@@ -2232,15 +2510,15 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   promptArea: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     padding: 12,
-    color: '#111827',
+    color: theme.text,
     fontSize: 12,
     lineHeight: 18,
     minHeight: 160,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     marginBottom: 16,
   },
   saveActionBtn: {
@@ -2248,37 +2526,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#2563EB',
+    backgroundColor: theme.primary,
     borderRadius: 10,
     paddingVertical: 12,
   },
   saveActionText: {
     color: '#FFFFFF',
-    fontWeight: '600',
+    fontWeight: '700',
     fontSize: 13,
   },
   latencyBadge: {
-    backgroundColor: '#ECFDF5',
+    backgroundColor: isLightMode ? '#ECFDF5' : '#101F1A',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#A7F3D0',
+    borderColor: isLightMode ? '#A7F3D0' : '#19382B',
   },
   latencyText: {
-    color: '#065F46',
+    color: isLightMode ? '#065F46' : '#34D399',
     fontSize: 11,
     fontWeight: '600',
   },
   testInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    color: '#111827',
+    color: theme.text,
     fontSize: 13,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     marginBottom: 10,
   },
   runTestBtn: {
@@ -2286,24 +2564,24 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.cardInner,
     borderRadius: 8,
     paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     marginBottom: 12,
   },
   runTestText: {
-    color: '#2563EB',
+    color: theme.accentLight,
     fontSize: 12.5,
     fontWeight: '600',
   },
   testResponseCard: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   testResponseHeader: {
     flexDirection: 'row',
@@ -2312,12 +2590,12 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   testResponseTitle: {
-    color: '#2563EB',
+    color: theme.accentLight,
     fontSize: 11.5,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   testResponseText: {
-    color: '#374151',
+    color: theme.text,
     fontSize: 12.5,
     lineHeight: 19,
   },
@@ -2332,16 +2610,16 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#F3F4F6',
+    borderBottomColor: theme.border,
   },
   switchItemTitle: {
-    color: '#111827',
+    color: theme.text,
     fontSize: 13,
     fontWeight: '600',
     marginBottom: 2,
   },
   switchItemSub: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 11,
   },
   mainLayout: {
@@ -2356,14 +2634,14 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   emojiInput: {
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     paddingHorizontal: 10,
     paddingVertical: 6,
-    color: '#111827',
+    color: theme.text,
     fontSize: 20,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     textAlign: 'center',
     width: 64,
   },
@@ -2380,7 +2658,7 @@ const styles = StyleSheet.create({
   },
   colorCircleActive: {
     borderWidth: 2,
-    borderColor: '#111827',
+    borderColor: theme.text,
   },
   formBtnRow: {
     flexDirection: 'row',
@@ -2389,19 +2667,21 @@ const styles = StyleSheet.create({
   },
   cancelEditBtn: {
     flex: 1,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.cardInner,
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   cancelEditText: {
-    color: '#4B5563',
+    color: theme.subtext,
     fontWeight: '500',
     fontSize: 12,
   },
   saveMoodBtn: {
     flex: 2,
-    backgroundColor: '#2563EB',
+    backgroundColor: theme.primary,
     borderRadius: 8,
     paddingVertical: 10,
     alignItems: 'center',
@@ -2414,7 +2694,7 @@ const styles = StyleSheet.create({
   resetText: {
     color: '#DC2626',
     fontSize: 11,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   moodList: {
     gap: 8,
@@ -2422,11 +2702,11 @@ const styles = StyleSheet.create({
   moodItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   moodEmojiBox: {
     width: 36,
@@ -2436,12 +2716,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   moodItemLabel: {
-    color: '#111827',
+    color: theme.text,
     fontSize: 13,
-    fontWeight: '500',
+    fontWeight: '600',
   },
   moodItemKey: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 10,
   },
   colorIndicator: {
@@ -2456,14 +2736,16 @@ const styles = StyleSheet.create({
   },
   iconBtn: {
     padding: 6,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.cardInner,
     borderRadius: 6,
+    borderWidth: 1,
+    borderColor: theme.border,
   },
   previewBox: {
     marginBottom: 14,
   },
   previewLabel: {
-    color: '#4B5563',
+    color: theme.subtext,
     fontSize: 11,
     fontWeight: '600',
     marginBottom: 6,
@@ -2472,34 +2754,34 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: isLightMode ? '#FFFBEB' : '#2C2210',
     borderRadius: 10,
     padding: 12,
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: isLightMode ? '#FDE68A' : '#785412',
   },
   bannerBadgeText: {
-    color: '#B45309',
+    color: isLightMode ? '#B45309' : '#FBBF24',
     fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.5,
     marginBottom: 2,
   },
   bannerPreviewText: {
-    color: '#92400E',
+    color: isLightMode ? '#92400E' : '#FDE68A',
     fontSize: 12,
     lineHeight: 18,
   },
   broadcastInput: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     padding: 12,
-    color: '#111827',
+    color: theme.text,
     fontSize: 13,
     lineHeight: 20,
     minHeight: 100,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     marginBottom: 6,
   },
   broadcastActionRow: {
@@ -2516,13 +2798,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#2563EB',
+    backgroundColor: theme.primary,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
   saveBroadcastBtnDisabled: {
-    backgroundColor: '#E5E7EB',
+    opacity: 0.5,
   },
   saveBroadcastText: {
     color: '#FFFFFF',
@@ -2534,33 +2816,33 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 6,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: isLightMode ? '#FEF2F2' : '#3B1214',
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: isLightMode ? '#FECACA' : '#6B2124',
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 16,
   },
   clearBannerText: {
-    color: '#DC2626',
+    color: '#EF4444',
     fontSize: 12.5,
     fontWeight: '600',
   },
   userSearchBar: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     gap: 8,
     marginBottom: 14,
   },
   userSearchInput: {
     flex: 1,
-    color: '#111827',
+    color: theme.text,
     fontSize: 12.5,
   },
   userListWrap: {
@@ -2569,34 +2851,34 @@ const styles = StyleSheet.create({
   userRowCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     padding: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   userAvatarSquare: {
     width: 36,
     height: 36,
     borderRadius: 8,
-    backgroundColor: '#EFF6FF',
+    backgroundColor: theme.accentBg,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#BFDBFE',
+    borderColor: theme.border,
   },
   userAvatarInitial: {
-    color: '#2563EB',
+    color: theme.accentLight,
     fontSize: 14,
     fontWeight: '700',
   },
   userNameText: {
-    color: '#111827',
+    color: theme.text,
     fontSize: 13,
     fontWeight: '600',
   },
   userIdText: {
-    color: '#6B7280',
+    color: theme.muted,
     fontSize: 10,
     marginTop: 2,
   },
@@ -2606,7 +2888,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   userJoinedText: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 11,
   },
   emptyWrap: {
@@ -2614,19 +2896,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyText: {
-    color: '#6B7280',
+    color: theme.muted,
     fontSize: 12,
   },
   badgeKpi: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   badgeKpiText: {
-    color: '#2563EB',
+    color: theme.accentLight,
     fontSize: 10,
     fontWeight: '700',
     letterSpacing: 0.5,
@@ -2635,16 +2917,16 @@ const styles = StyleSheet.create({
   apiKeyInputRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     paddingHorizontal: 12,
     marginBottom: 10,
   },
   apiKeyInput: {
     flex: 1,
-    color: '#111827',
+    color: theme.text,
     fontSize: 13,
     paddingVertical: 10,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
@@ -2663,12 +2945,12 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   apiResultSuccess: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
+    backgroundColor: isLightMode ? '#ECFDF5' : '#101F1A',
+    borderColor: isLightMode ? '#A7F3D0' : '#19382B',
   },
   apiResultError: {
-    backgroundColor: '#FEF2F2',
-    borderColor: '#FECACA',
+    backgroundColor: isLightMode ? '#FEF2F2' : '#3B1214',
+    borderColor: isLightMode ? '#FECACA' : '#6B2124',
   },
   apiResultText: {
     fontSize: 12,
@@ -2676,17 +2958,17 @@ const styles = StyleSheet.create({
     lineHeight: 17,
   },
   apiResultTextSuccess: {
-    color: '#065F46',
+    color: isLightMode ? '#065F46' : '#34D399',
   },
   apiResultTextError: {
-    color: '#991B1B',
+    color: '#EF4444',
   },
   /* Multi-Key Pool & Fallback Routing Studio Styles */
   addKeyToPoolBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#2563EB',
+    backgroundColor: theme.primary,
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 7,
@@ -2701,16 +2983,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 20,
-    backgroundColor: '#F9FAFB',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     borderStyle: 'dashed',
     marginBottom: 12,
     gap: 6,
   },
   emptyPoolText: {
-    color: '#6B7280',
+    color: theme.subtext,
     fontSize: 12,
     textAlign: 'center',
     maxWidth: 280,
@@ -2720,10 +3002,10 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   keyItemCard: {
-    backgroundColor: '#FFFFFF',
+    backgroundColor: theme.cardInner,
     borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
     padding: 10,
   },
   keyItemTop: {
@@ -2739,28 +3021,28 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   keyIndexBadge: {
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 7,
     paddingVertical: 2.5,
     borderRadius: 5,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   keyIndexBadgePrimary: {
-    backgroundColor: '#ECFDF5',
-    borderColor: '#A7F3D0',
+    backgroundColor: isLightMode ? '#ECFDF5' : '#101F1A',
+    borderColor: isLightMode ? '#A7F3D0' : '#19382B',
   },
   keyIndexText: {
-    color: '#4B5563',
+    color: theme.subtext,
     fontSize: 9.5,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
   keyIndexTextPrimary: {
-    color: '#065F46',
+    color: isLightMode ? '#065F46' : '#34D399',
   },
   keyPreviewText: {
-    color: '#111827',
+    color: theme.text,
     fontSize: 12.5,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
     flex: 1,
@@ -2774,24 +3056,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
-    backgroundColor: '#F3F4F6',
+    backgroundColor: theme.cardInner,
     paddingHorizontal: 8,
     paddingVertical: 5,
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: theme.border,
   },
   testSmallText: {
-    color: '#2563EB',
+    color: theme.accentLight,
     fontSize: 11,
     fontWeight: '600',
   },
   deleteSmallBtn: {
     padding: 5,
-    backgroundColor: '#FEF2F2',
+    backgroundColor: isLightMode ? '#FEF2F2' : '#3B1214',
     borderRadius: 6,
     borderWidth: 1,
-    borderColor: '#FECACA',
+    borderColor: isLightMode ? '#FECACA' : '#6B2124',
   },
   keyItemResultBox: {
     flexDirection: 'row',
@@ -2813,7 +3095,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    backgroundColor: '#2563EB',
+    backgroundColor: theme.primary,
     borderRadius: 10,
     paddingVertical: 12,
     paddingHorizontal: 16,

@@ -2081,6 +2081,11 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 4,
   },
+  addBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
   offlineBanner: {
     flexDirection: 'row',
     alignItems: 'center',

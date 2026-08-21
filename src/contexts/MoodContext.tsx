@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { MoodOption, MOOD_OPTIONS as DEFAULT_MOOD_OPTIONS, PersonaPreset, DEFAULT_PERSONAS } from '../types';
 import { setInMemoryApiKeys } from '../lib/gemini';
+import { scheduleDailyRoutineReminders } from '../lib/notifications';
 
 interface MoodContextType {
   moods: MoodOption[];
@@ -26,6 +27,7 @@ interface MoodContextType {
   updateGeminiApiKeys: (keys: string[]) => Promise<void>;
   appSettings: Record<string, string>;
   updateSetting: (key: string, value: string) => Promise<void>;
+  refreshMoodsAndSettings: () => Promise<void>;
 }
 
 const MoodContext = createContext<MoodContextType>({
@@ -50,6 +52,7 @@ const MoodContext = createContext<MoodContextType>({
   updateGeminiApiKeys: async () => {},
   appSettings: {},
   updateSetting: async () => {},
+  refreshMoodsAndSettings: async () => {},
 });
 
 export function MoodProvider({ children }: { children: React.ReactNode }) {
@@ -129,6 +132,15 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
           if (item.key === 'global_announcement') {
             setGlobalAnnouncement(item.value || '');
             foundAnnouncement = true;
+          }
+          if (item.key === 'daily_routine_reminders') {
+            try {
+              const parsed = JSON.parse(item.value);
+              if (Array.isArray(parsed) && parsed.length > 0) {
+                scheduleDailyRoutineReminders(parsed);
+                AsyncStorage.setItem('@custom_daily_routine_reminders', item.value);
+              }
+            } catch (e) {}
           }
         });
 
@@ -328,6 +340,7 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         updateGeminiApiKeys,
         appSettings,
         updateSetting,
+        refreshMoodsAndSettings: fetchMoodsAndSettings,
       }}
     >
       {children}

@@ -159,3 +159,43 @@ export const MOOD_OPTIONS: MoodOption[] = [
   { type: 'sad',     emoji: '😢', label: 'Sedih',    color: '#60A5FA' },
   { type: 'angry',   emoji: '😠', label: 'Marah',    color: '#F87171' },
 ];
+
+export interface DailyRoutineReminder {
+  id: string;
+  name: string;
+  enabled: boolean;
+  hour: number;
+  minute: number;
+  title: string;
+  body: string;
+}
+
+export const DEFAULT_DAILY_ROUTINES: DailyRoutineReminder[] = [
+  {
+    id: 'morning',
+    name: '☀️ Pengingat Pagi (Semangat Belajar)',
+    enabled: true,
+    hour: 8,
+    minute: 0,
+    title: '☀️ Semangat Belajar Pagi Ini!',
+    body: 'Cek jadwal kuliah & tugasmu hari ini. Luangkan waktu 25 menit untuk fokus bersama Ara!',
+  },
+  {
+    id: 'afternoon',
+    name: '📚 Pengingat Sore (Progress Tugas)',
+    enabled: true,
+    hour: 16,
+    minute: 30,
+    title: '📚 Cek Progress Tugas Kuliah',
+    body: 'Ada tugas yang mendekati deadline? Yuk cicil santai agar tidak menumpuk di akhir.',
+  },
+  {
+    id: 'evening',
+    name: '🌙 Pengingat Malam (Refleksi Jurnal)',
+    enabled: true,
+    hour: 20,
+    minute: 0,
+    title: '🌙 Waktunya Refleksi & Jurnal',
+    body: 'Bagaimana harimu hari ini? Luangkan 2 menit untuk mencatat rasa syukur & uneg-unegmu bersama Ara.',
+  },
+];

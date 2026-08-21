@@ -13,6 +13,23 @@ try {
       }),
     });
   }
+
+  // Setup Android MAX Importance Channel for Heads-up & Background Notifications
+  if (Platform.OS === 'android' && ExpoNotifications && typeof ExpoNotifications.setNotificationChannelAsync === 'function') {
+    ExpoNotifications.setNotificationChannelAsync('default', {
+      name: 'Pengingat Tugas & Belajar',
+      importance: ExpoNotifications.AndroidImportance?.MAX || 5,
+      vibrationPattern: [0, 250, 250, 250],
+      lightColor: '#2563EB',
+      lockscreenVisibility: ExpoNotifications.AndroidNotificationVisibility?.PUBLIC || 1,
+      bypassDnd: false,
+      sound: 'default',
+      enableVibrate: true,
+      enableLights: true,
+    }).catch((err: any) => {
+      console.log('Error creating android notification channel:', err);
+    });
+  }
 } catch (e) {
   // Expo notifications not available or running in web preview
 }
@@ -84,6 +101,64 @@ export function getNotificationPermissionStatus(): 'granted' | 'denied' | 'defau
   return 'default';
 }
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
+
+/**
+ * Schedule daily smart student routines:
+ * Dynamically configured by Administrator and synced in real-time across all devices.
+ */
+export async function scheduleDailyRoutineReminders(customList?: DailyRoutineReminder[]) {
+  if (Platform.OS === 'web' || !ExpoNotifications) return;
+
+  try {
+    let routines = customList;
+    if (!routines || routines.length === 0) {
+      const cached = await AsyncStorage.getItem('@custom_daily_routine_reminders');
+      if (cached) {
+        try {
+          const parsed = JSON.parse(cached);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            routines = parsed;
+          }
+        } catch (e) {}
+      }
+    }
+
+    if (!routines || routines.length === 0) {
+      routines = DEFAULT_DAILY_ROUTINES;
+    }
+
+    // Cancel all previously scheduled routine reminders first
+    const allKnownIds = ['morning', 'afternoon', 'evening', ...routines.map(r => r.id)];
+    for (const id of allKnownIds) {
+      await ExpoNotifications.cancelScheduledNotificationAsync(`daily-routine-${id}`).catch(() => {});
+    }
+
+    // Schedule each active routine
+    for (const r of routines) {
+      if (r.enabled !== false && typeof r.hour === 'number' && typeof r.minute === 'number') {
+        await ExpoNotifications.scheduleNotificationAsync({
+          identifier: `daily-routine-${r.id}`,
+          content: {
+            title: r.title || '🔔 Pengingat Belajar',
+            body: r.body || 'Waktunya cek aktivitas belajarmu hari ini!',
+            sound: true,
+            channelId: 'default',
+          },
+          trigger: {
+            hour: Number(r.hour),
+            minute: Number(r.minute),
+            repeats: true,
+          },
+        }).catch((err: any) => console.log(`Error scheduling ${r.id}:`, err));
+      }
+    }
+  } catch (e) {
+    console.log('Error scheduling daily routine reminders:', e);
+  }
+}
+
 /**
  * Request notification permissions across Mobile and Web
  */
@@ -97,6 +172,12 @@ export async function requestNotificationPermissions(): Promise<boolean> {
         const { status } = await ExpoNotifications.requestPermissionsAsync();
         finalStatus = status;
       }
+
+      if (finalStatus === 'granted') {
+        // Schedule daily recurring smart reminders
+        scheduleDailyRoutineReminders();
+      }
+
       return finalStatus === 'granted';
     } catch (e) {
       console.log('Mobile notification permission error:', e);
@@ -135,6 +216,7 @@ export async function sendImmediateNotification(title: string, body: string) {
           body,
           sound: true,
           vibrate: [0, 250, 250, 250],
+          channelId: 'default',
         },
         trigger: null, // immediate
       });
@@ -170,9 +252,9 @@ export async function sendImmediateNotification(title: string, body: string) {
 
 /**
  * Schedule smart reminders for a task deadline:
- * - 1 Day Before (if still in future)
- * - 2 Hours Before
- * - At exact deadline
+ * - 1 Day Before (if target is > 24 hours away)
+ * - 2 Hours Before (if target is > 2 hours away)
+ * - At exact deadline (in the future)
  */
 export async function scheduleTaskDeadlineNotification(task: StudentTask) {
   if (!task.due_date || task.is_completed) return;
@@ -181,54 +263,69 @@ export async function scheduleTaskDeadlineNotification(task: StudentTask) {
   if (isNaN(targetDate.getTime())) return;
 
   const now = new Date();
-  const timeDiffMs = targetDate.getTime() - now.getTime();
-  if (timeDiffMs <= 0) return; // Already passed
+  const timeDiffSeconds = Math.floor((targetDate.getTime() - now.getTime()) / 1000);
+  
+  // If deadline has already passed, do NOT schedule anything
+  if (timeDiffSeconds <= 0) return;
 
-  // 1. Mobile Expo Notifications
+  // Mobile Expo Notifications
   if (Platform.OS !== 'web' && ExpoNotifications) {
     try {
       // Cancel previous scheduled notifications for this task first
       await cancelTaskNotification(task.id);
 
-      // Notification 1: Exact Deadline
-      await ExpoNotifications.scheduleNotificationAsync({
-        identifier: `task-deadline-${task.id}-exact`,
-        content: {
-          title: `🚨 Waktu Deadline Habis!`,
-          body: `Tugas "${task.title}" (${task.subject}) sudah mencapai batas waktu pengumpulan!`,
-          sound: true,
-          data: { taskId: task.id },
-        },
-        trigger: { date: targetDate },
-      });
+      // Notification 1: Exact Deadline (in future)
+      if (timeDiffSeconds > 10) {
+        await ExpoNotifications.scheduleNotificationAsync({
+          identifier: `task-deadline-${task.id}-exact`,
+          content: {
+            title: `🚨 Waktu Deadline Habis!`,
+            body: `Tugas "${task.title}" (${task.subject || 'Kuliah'}) sudah mencapai batas waktu pengumpulan!`,
+            sound: true,
+            channelId: 'default',
+            data: { taskId: task.id },
+          },
+          trigger: {
+            seconds: timeDiffSeconds,
+          },
+        });
+      }
 
       // Notification 2: 2 Hours Before (if time left > 2 hours)
-      const twoHoursBefore = new Date(targetDate.getTime() - 2 * 60 * 60 * 1000);
-      if (twoHoursBefore.getTime() > now.getTime()) {
+      const twoHoursInSeconds = 2 * 60 * 60;
+      if (timeDiffSeconds > twoHoursInSeconds + 60) {
+        const secondsUntil2h = timeDiffSeconds - twoHoursInSeconds;
         await ExpoNotifications.scheduleNotificationAsync({
           identifier: `task-deadline-${task.id}-2h`,
           content: {
             title: `⏳ 2 Jam Menuju Deadline!`,
-            body: `Tugas "${task.title}" (${task.subject}) harus segera dikumpulkan dalam 2 jam.`,
+            body: `Tugas "${task.title}" (${task.subject || 'Kuliah'}) harus segera dikumpulkan dalam 2 jam.`,
             sound: true,
+            channelId: 'default',
             data: { taskId: task.id },
           },
-          trigger: { date: twoHoursBefore },
+          trigger: {
+            seconds: secondsUntil2h,
+          },
         });
       }
 
       // Notification 3: 1 Day Before (if time left > 24 hours)
-      const oneDayBefore = new Date(targetDate.getTime() - 24 * 60 * 60 * 1000);
-      if (oneDayBefore.getTime() > now.getTime()) {
+      const oneDayInSeconds = 24 * 60 * 60;
+      if (timeDiffSeconds > oneDayInSeconds + 60) {
+        const secondsUntil1d = timeDiffSeconds - oneDayInSeconds;
         await ExpoNotifications.scheduleNotificationAsync({
           identifier: `task-deadline-${task.id}-1d`,
           content: {
             title: `⏰ Pengingat Tugas (Besok Deadline)`,
-            body: `Tugas "${task.title}" (${task.subject}) jatuh tempo besok. Siapkan pengerjaanmu!`,
+            body: `Tugas "${task.title}" (${task.subject || 'Kuliah'}) jatuh tempo besok. Siapkan pengerjaanmu!`,
             sound: true,
+            channelId: 'default',
             data: { taskId: task.id },
           },
-          trigger: { date: oneDayBefore },
+          trigger: {
+            seconds: secondsUntil1d,
+          },
         });
       }
     } catch (e) {
@@ -243,9 +340,9 @@ export async function scheduleTaskDeadlineNotification(task: StudentTask) {
 export async function cancelTaskNotification(taskId: string) {
   if (Platform.OS !== 'web' && ExpoNotifications) {
     try {
-      await ExpoNotifications.cancelScheduledNotificationAsync(`task-deadline-${taskId}-exact`);
-      await ExpoNotifications.cancelScheduledNotificationAsync(`task-deadline-${taskId}-2h`);
-      await ExpoNotifications.cancelScheduledNotificationAsync(`task-deadline-${taskId}-1d`);
+      await ExpoNotifications.cancelScheduledNotificationAsync(`task-deadline-${taskId}-exact`).catch(() => {});
+      await ExpoNotifications.cancelScheduledNotificationAsync(`task-deadline-${taskId}-2h`).catch(() => {});
+      await ExpoNotifications.cancelScheduledNotificationAsync(`task-deadline-${taskId}-1d`).catch(() => {});
     } catch (e) {
       console.log('Error cancelling task notification:', e);
     }
