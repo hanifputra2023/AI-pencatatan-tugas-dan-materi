@@ -666,18 +666,7 @@ export default function ProfileScreen() {
 
               
 
-              {/* 7. LOGOUT BUTTON */}
-              {user && (
-                <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={handleSignOut}>
-                  <Ionicons name="log-out-outline" size={16} color="#EF4444" />
-                  <Text style={styles.logoutText}>Keluar dari Akun</Text>
-                </TouchableOpacity>
-              )}
-
-              {/* 8. VERSION / SECRET ADMIN TRIGGER */}
-              <TouchableOpacity onPress={handleSecretTap} activeOpacity={0.7} style={{ marginTop: 12, alignItems: 'center' }}>
-                <Text style={[styles.versionText, { color: theme.muted }]}>Aplikasi Teman Belajar & AI v2.4 • Supabase DB</Text>
-              </TouchableOpacity>
+              
 
             </View>
 
@@ -1214,6 +1203,18 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
               </View>
+{/* 7. LOGOUT BUTTON */}
+              {user && (
+                <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={handleSignOut}>
+                  <Ionicons name="log-out-outline" size={16} color="#EF4444" />
+                  <Text style={styles.logoutText}>Keluar dari Akun</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* 8. VERSION / SECRET ADMIN TRIGGER */}
+              <TouchableOpacity onPress={handleSecretTap} activeOpacity={0.7} style={{ marginTop: 12, alignItems: 'center' }}>
+                <Text style={[styles.versionText, { color: theme.muted }]}>Aplikasi Teman Belajar & AI v2.4 • Supabase DB</Text>
+              </TouchableOpacity>
 
             </View>
 
