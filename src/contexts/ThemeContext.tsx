@@ -290,6 +290,63 @@ export const LIGHT_THEMES: AppTheme[] = [
 
 export const ALL_THEMES = [...DARK_THEMES, ...LIGHT_THEMES];
 
+// -------------------------------------------------------------
+// SEMANTIC COLOR TOKENS (success / warning / danger / info)
+// Single source of truth so banners, badges & status colors stay
+// consistent across every screen and follow light/dark mode.
+// -------------------------------------------------------------
+export interface SemanticColors {
+  success: string;
+  successBg: string;
+  successBorder: string;
+  warning: string;
+  warningStrong: string;
+  warningSoft: string;
+  warningBg: string;
+  warningBorder: string;
+  danger: string;
+  dangerBg: string;
+  dangerBorder: string;
+  info: string;
+  infoBg: string;
+  infoBorder: string;
+}
+
+export const getSemanticColors = (isLightMode: boolean): SemanticColors =>
+  isLightMode
+    ? {
+        success: '#16A34A',
+        successBg: '#F0FDF4',
+        successBorder: '#BBF7D0',
+        warning: '#D97706',
+        warningStrong: '#92400E',
+        warningSoft: '#78350F',
+        warningBg: '#FEF3C7',
+        warningBorder: '#FDE68A',
+        danger: '#DC2626',
+        dangerBg: '#FEE2E2',
+        dangerBorder: '#FECACA',
+        info: '#0284C7',
+        infoBg: '#E0F2FE',
+        infoBorder: '#BAE6FD',
+      }
+    : {
+        success: '#34D399',
+        successBg: '#0D1A16',
+        successBorder: '#192823',
+        warning: '#FBBF24',
+        warningStrong: '#FCD34D',
+        warningSoft: '#FDE68A',
+        warningBg: '#261C08',
+        warningBorder: '#3E2E10',
+        danger: '#F87171',
+        dangerBg: '#2D1418',
+        dangerBorder: '#451A20',
+        info: '#60A5FA',
+        infoBg: '#101B2E',
+        infoBorder: '#1E2D4A',
+      };
+
 // Helper to check luminance of a hex color
 export function isColorLight(hex: string): boolean {
   if (!hex || typeof hex !== 'string') return false;
@@ -416,8 +473,8 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Background Art & Wallpaper State
   const [bgArtStyle, setLocalBgArtStyle] = useState<BgArtStyle>('aurora-ribbons');
   const [bgCustomImage, setLocalBgCustomImage] = useState<string | null>(null);
-  const [bgBlurRadius, setLocalBgBlurRadius] = useState<number>(18);
-  const [bgDimmingOpacity, setLocalBgDimmingOpacity] = useState<number>(0.55);
+  const [bgBlurRadius, setLocalBgBlurRadius] = useState<number>(0);
+  const [bgDimmingOpacity, setLocalBgDimmingOpacity] = useState<number>(0.30);
   const [bgFitMode, setLocalBgFitMode] = useState<'cover' | 'contain'>('cover');
 
   // Sync to database

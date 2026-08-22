@@ -123,6 +123,7 @@ export default function JournalEntryScreen() {
   };
 
   useEffect(() => {
+    const passedMood = route.params?.initialMood || route.params?.mood;
     if (entryId) {
       setFetching(true);
       fetchEntry();
@@ -133,7 +134,7 @@ export default function JournalEntryScreen() {
       // Always start fresh and clean for NEW JOURNAL
       setTitle('');
       setContent('');
-      setMood(moods[0]?.type || 'neutral');
+      setMood(passedMood || moods[0]?.type || 'neutral');
       setTags([]);
       setImageUri(null);
       setCreatedAt(new Date().toISOString());
@@ -144,14 +145,15 @@ export default function JournalEntryScreen() {
       setFetching(false);
       checkDraft();
     }
-  }, [entryId, fetchEntry, checkDraft, moods]);
+  }, [entryId, fetchEntry, checkDraft, moods, route.params?.initialMood, route.params?.mood]);
 
   useFocusEffect(
     useCallback(() => {
+      const passedMood = route.params?.initialMood || route.params?.mood;
       if (!entryId) {
         setTitle('');
         setContent('');
-        setMood(moods[0]?.type || 'neutral');
+        setMood(passedMood || moods[0]?.type || 'neutral');
         setTags([]);
         setImageUri(null);
         setCreatedAt(new Date().toISOString());
@@ -162,7 +164,7 @@ export default function JournalEntryScreen() {
         setFetching(false);
         checkDraft();
       }
-    }, [entryId, checkDraft, moods])
+    }, [entryId, checkDraft, moods, route.params?.initialMood, route.params?.mood])
   );
 
   // -------------------------------------------------------------
@@ -907,7 +909,7 @@ const styles = StyleSheet.create({
   },
   topHeaderSub: {
     color: '#6B7280',
-    fontSize: 10.5,
+    fontSize: 12,
   },
   headerRightActions: {
     flexDirection: 'row',
@@ -1235,7 +1237,7 @@ const styles = StyleSheet.create({
   },
   moodLabel: {
     color: '#9CA3AF',
-    fontSize: 10,
+    fontSize: 11,
     marginTop: 3,
   },
   moodLabelActive: {
@@ -1386,7 +1388,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   draftBadgeText: {
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '700',
   },
 });

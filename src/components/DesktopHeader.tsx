@@ -1,21 +1,24 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Platform } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, Platform, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useNavigation, useNavigationState } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
+import { useMoods } from '../contexts/MoodContext';
 import { useTheme } from '../contexts/ThemeContext';
+import AppLogo from './AppLogo';
 
 const DESKTOP_NAV_ITEMS = [
   { name: 'Home', label: 'Beranda', icon: 'grid-outline', activeIcon: 'grid' },
   { name: 'Chat', label: 'Teman Cerita', icon: 'chatbubble-ellipses-outline', activeIcon: 'chatbubble-ellipses' },
   { name: 'Study', label: 'Kuliah & Tugas', icon: 'school-outline', activeIcon: 'school' },
   { name: 'Journal', label: 'Jurnal', icon: 'book-outline', activeIcon: 'book' },
-  { name: 'Calendar', label: 'Statistik', icon: 'calendar-outline', activeIcon: 'calendar' },
+  { name: 'Calendar', label: 'Statistik', icon: 'stats-chart-outline', activeIcon: 'stats-chart' },
 ];
 
 export default function DesktopHeader() {
   const navigation = useNavigation<any>();
-  const { user, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
+  const { appBrandName, appBrandTagline } = useMoods();
   const { theme } = useTheme();
 
   // Get current active route name
@@ -39,12 +42,10 @@ export default function DesktopHeader() {
           onPress={() => navigation.navigate('Home')}
           activeOpacity={0.8}
         >
-          <View style={[styles.logoBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-            <Ionicons name="sparkles" size={16} color={theme.accentLight} />
-          </View>
+          <AppLogo size={34} borderRadius={9} />
           <View>
-            <Text style={[styles.brandTitle, { color: theme.text }]}>StudyBot AI</Text>
-            <Text style={[styles.brandSub, { color: theme.subtext }]}>Smart Academic & Journal</Text>
+            <Text style={[styles.brandTitle, { color: theme.text }]}>{appBrandName || 'StudyBot AI'}</Text>
+            <Text style={[styles.brandSub, { color: theme.subtext }]}>{appBrandTagline || 'Smart Academic & Journal'}</Text>
           </View>
         </TouchableOpacity>
 
@@ -89,13 +90,20 @@ export default function DesktopHeader() {
             onPress={() => navigation.navigate('Profile')}
             activeOpacity={0.7}
           >
-            <View style={[styles.avatarCircle, { backgroundColor: theme.primary }]}>
-              <Text style={styles.avatarLetter}>
-                {(user?.email?.[0] || 'U').toUpperCase()}
-              </Text>
+            <View style={[styles.avatarCircle, { backgroundColor: theme.primary, overflow: 'hidden' }]}>
+              {profile?.avatar_url || user?.user_metadata?.avatar_url ? (
+                <Image
+                  source={{ uri: profile?.avatar_url || user?.user_metadata?.avatar_url }}
+                  style={{ width: '100%', height: '100%', borderRadius: 12 }}
+                />
+              ) : (
+                <Text style={styles.avatarLetter}>
+                  {(profile?.username?.[0] || user?.user_metadata?.username?.[0] || user?.email?.[0] || 'M').toUpperCase()}
+                </Text>
+              )}
             </View>
             <Text style={[styles.profileText, { color: theme.text }]} numberOfLines={1}>
-              {user?.user_metadata?.username || user?.email?.split('@')[0] || 'Akun'}
+              {profile?.username || user?.user_metadata?.username || user?.email?.split('@')[0] || 'Akun'}
             </Text>
           </TouchableOpacity>
         </View>
@@ -128,15 +136,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
   },
-  logoBadge: {
+  brandLogoImage: {
     width: 34,
     height: 34,
-    borderRadius: 10,
-    backgroundColor: '#16233B',
-    borderWidth: 1,
-    borderColor: '#253856',
-    justifyContent: 'center',
-    alignItems: 'center',
+    borderRadius: 9,
   },
   brandTitle: {
     color: '#F9FAFB',
@@ -146,7 +149,7 @@ const styles = StyleSheet.create({
   },
   brandSub: {
     color: '#6B7280',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
   },
   navLinksRow: {

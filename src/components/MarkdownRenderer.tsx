@@ -517,7 +517,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   codeCopyBtnText: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '600',
   },
   codeBlockText: {

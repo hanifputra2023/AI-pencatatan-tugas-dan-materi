@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
-  StyleSheet, SafeAreaView, ActivityIndicator, Switch, Modal, Platform,
+  StyleSheet, SafeAreaView, ActivityIndicator, Switch, Modal, Platform, Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
@@ -15,6 +16,8 @@ import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import { PersonaPreset, DEFAULT_PERSONAS, DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
 import { sendImmediateNotification, scheduleDailyRoutineReminders } from '../lib/notifications';
+import { compressImage } from '../lib/imageCompressor';
+import AppLogo from '../components/AppLogo';
 
 const COLOR_PALETTE = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
@@ -40,6 +43,9 @@ export default function AdminScreen() {
     aiPersona, updateAiPersona,
     aiBotName, updateAiBotName,
     globalAnnouncement, updateGlobalAnnouncement,
+    appLogoUrl, updateAppLogoUrl,
+    appBrandName, updateAppBrandName,
+    appBrandTagline, updateAppBrandTagline,
     geminiApiKey, updateGeminiApiKey,
     geminiApiKeys, updateGeminiApiKeys,
     appSettings, updateSetting,
@@ -49,8 +55,28 @@ export default function AdminScreen() {
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
 
-  const [activeTab, setActiveTab] = useState<'stats' | 'ai' | 'features' | 'reminders' | 'moods' | 'broadcast' | 'users'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'ai' | 'branding' | 'features' | 'reminders' | 'moods' | 'broadcast' | 'users'>('stats');
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  // Branding & Logo State
+  const [customLogoUrlInput, setCustomLogoUrlInput] = useState(appLogoUrl || '');
+  const [brandNameInput, setBrandNameInput] = useState(appBrandName || 'StudyBot AI');
+  const [brandTaglineInput, setBrandTaglineInput] = useState(appBrandTagline || 'Smart Academic & Journal');
+  const [previewLogoUri, setPreviewLogoUri] = useState<string | null>(appLogoUrl || null);
+  const [savingBranding, setSavingBranding] = useState(false);
+
+  useEffect(() => {
+    setCustomLogoUrlInput(appLogoUrl || '');
+    setPreviewLogoUri(appLogoUrl || null);
+  }, [appLogoUrl]);
+
+  useEffect(() => {
+    setBrandNameInput(appBrandName || 'StudyBot AI');
+  }, [appBrandName]);
+
+  useEffect(() => {
+    setBrandTaglineInput(appBrandTagline || 'Smart Academic & Journal');
+  }, [appBrandTagline]);
 
   // Daily Routine Reminders State
   const [dailyRoutines, setDailyRoutines] = useState<DailyRoutineReminder[]>(DEFAULT_DAILY_ROUTINES);
@@ -572,8 +598,76 @@ export default function AdminScreen() {
     showAlert('Uji Notifikasi Dikirim 🔔', `Preview notifikasi "${r.title}" telah dikirim ke perangkat ini.`);
   };
 
+  // -------------------------------------------------------------
+  // Branding & Logo Handlers
+  // -------------------------------------------------------------
+  const handlePickLogoImage = async () => {
+    try {
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const rawUri = result.assets[0].uri;
+        const compressedUri = await compressImage(rawUri, { maxWidth: 300, quality: 0.7 });
+        setPreviewLogoUri(compressedUri);
+        setCustomLogoUrlInput(compressedUri);
+      }
+    } catch (e) {
+      showAlert('Gagal', 'Tidak dapat memilih gambar logo.');
+    }
+  };
+
+  const handleSaveBranding = async () => {
+    setSavingBranding(true);
+    try {
+      const cleanUrl = customLogoUrlInput.trim();
+      const cleanName = brandNameInput.trim() || 'StudyBot AI';
+      const cleanTagline = brandTaglineInput.trim() || 'Smart Academic & Journal';
+
+      await Promise.all([
+        updateAppLogoUrl(cleanUrl.length > 0 ? cleanUrl : null),
+        updateAppBrandName(cleanName),
+        updateAppBrandTagline(cleanTagline),
+      ]);
+
+      await refreshMoodsAndSettings();
+      showAlert('Branding Disimpan! ✨', 'Logo dan identitas brand aplikasi berhasil diperbarui ke seluruh klien & web secara realtime!');
+    } catch (e) {
+      showAlert('Gagal', 'Terjadi kesalahan saat menyimpan pengaturan branding.');
+    } finally {
+      setSavingBranding(false);
+    }
+  };
+
+  const handleResetLogoToDefault = () => {
+    confirmAction(
+      'Kembalikan Logo Default?',
+      'Logo aplikasi akan dikembalikan ke icon default bawaan aplikasi.',
+      async () => {
+        setSavingBranding(true);
+        try {
+          setCustomLogoUrlInput('');
+          setPreviewLogoUri(null);
+          await updateAppLogoUrl(null);
+          await refreshMoodsAndSettings();
+          showAlert('Sukses', 'Logo aplikasi telah dikembalikan ke logo default.');
+        } catch (e) {
+          showAlert('Gagal', 'Gagal mereset logo.');
+        } finally {
+          setSavingBranding(false);
+        }
+      },
+      'Reset Logo'
+    );
+  };
+
   const NAV_ITEMS = [
     { key: 'stats', label: 'Ringkasan & Metrik', icon: 'bar-chart', tag: 'KPI' },
+    { key: 'branding', label: 'Identitas & Logo Brand', icon: 'color-palette', tag: 'LOGO' },
     { key: 'ai', label: 'Fine-Tuning AI & Tester', icon: 'sparkles', tag: 'CORE' },
     { key: 'features', label: 'Sakelar Fitur & Maintenance', icon: 'toggle', tag: 'SYS' },
     { key: 'reminders', label: 'Pengingat Rutin Harian', icon: 'notifications', tag: 'ALARM' },
@@ -862,6 +956,155 @@ export default function AdminScreen() {
                     <Ionicons name="speedometer" size={16} color="#A78BFA" />
                     <Text style={styles.infoRowText}>Latensi API Database: {dbPing || 38} ms (Optimal)</Text>
                   </View>
+                </View>
+
+              </View>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: BRANDING & LOGO IDENTITAS APLIKASI */}
+            {/* ========================================================================= */}
+            {activeTab === 'branding' && (
+              <View style={styles.tabContent}>
+                
+                {/* 1. Live Preview Card */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="eye-outline" size={18} color={theme.accentLight} />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Live Preview Header & Navbar</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: theme.accentBg }]}>
+                      <Text style={[styles.badgeKpiText, { color: theme.accentLight }]}>GLOBAL SYNC</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.cardSub, { color: theme.subtext }]}>
+                    Ini adalah tampilan visual logo dan identitas brand yang akan muncul di Top Navbar mobile, desktop header, dan layar login.
+                  </Text>
+
+                  {/* Header Mockup Preview */}
+                  <View style={[styles.brandingMockupBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <View style={styles.brandingMockupHeader}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        {previewLogoUri ? (
+                          <Image
+                            source={{ uri: previewLogoUri }}
+                            style={styles.brandingPreviewLogoImg}
+                            resizeMode="cover"
+                          />
+                        ) : (
+                          <AppLogo size={36} borderRadius={9} />
+                        )}
+                        <View>
+                          <Text style={[styles.brandingMockupTitle, { color: theme.text }]}>
+                            {brandNameInput || 'StudyBot AI'}
+                          </Text>
+                          <Text style={[styles.brandingMockupTagline, { color: theme.subtext }]}>
+                            {brandTaglineInput || 'Smart Academic & Journal'}
+                          </Text>
+                        </View>
+                      </View>
+
+                      <View style={[styles.brandingMockupRightBadge, { backgroundColor: theme.accentBg }]}>
+                        <Ionicons name="sparkles" size={13} color={theme.accentLight} />
+                        <Text style={[styles.brandingMockupRightBadgeText, { color: theme.accentLight }]}>App Preview</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+
+                {/* 2. Form Setting Logo & Brand */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="image-outline" size={18} color="#10B981" />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Kustomisasi Logo Aplikasi</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.cardSub, { color: theme.subtext }]}>
+                    Pilih logo baru dari galeri foto atau masukkan tautan URL gambar (PNG/JPG/WebP).
+                  </Text>
+
+                  {/* Logo Source Buttons */}
+                  <View style={styles.brandingLogoActionRow}>
+                    <TouchableOpacity
+                      style={[styles.brandingUploadBtn, { backgroundColor: theme.primary }]}
+                      onPress={handlePickLogoImage}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
+                      <Text style={styles.brandingUploadBtnText}>Pilih Foto dari Galeri</Text>
+                    </TouchableOpacity>
+
+                    {previewLogoUri && (
+                      <TouchableOpacity
+                        style={[styles.brandingResetBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        onPress={handleResetLogoToDefault}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="refresh-outline" size={15} color={theme.subtext} />
+                        <Text style={[styles.brandingResetBtnText, { color: theme.subtext }]}>Gunakan Default</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+
+                  {/* URL Input */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 12 }]}>Atau Masukkan URL Gambar Logo (Opsional):</Text>
+                  <View style={[styles.apiKeyInputRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <TextInput
+                      style={[styles.apiKeyInput, { color: theme.text }]}
+                      value={customLogoUrlInput}
+                      onChangeText={(val) => {
+                        setCustomLogoUrlInput(val);
+                        setPreviewLogoUri(val.trim() || null);
+                      }}
+                      placeholder="https://domain.com/logo.png atau data URI"
+                      placeholderTextColor={theme.muted}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                  </View>
+
+                  {/* Brand Name Input */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14 }]}>Nama Aplikasi / Brand Title:</Text>
+                  <View style={[styles.apiKeyInputRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <TextInput
+                      style={[styles.apiKeyInput, { color: theme.text }]}
+                      value={brandNameInput}
+                      onChangeText={setBrandNameInput}
+                      placeholder="Contoh: StudyBot AI"
+                      placeholderTextColor={theme.muted}
+                    />
+                  </View>
+
+                  {/* Brand Tagline Input */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14 }]}>Slogan / Tagline Brand:</Text>
+                  <View style={[styles.apiKeyInputRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <TextInput
+                      style={[styles.apiKeyInput, { color: theme.text }]}
+                      value={brandTaglineInput}
+                      onChangeText={setBrandTaglineInput}
+                      placeholder="Contoh: Smart Academic & Journal"
+                      placeholderTextColor={theme.muted}
+                    />
+                  </View>
+
+                  {/* Save Branding Action Button */}
+                  <TouchableOpacity
+                    style={[styles.saveActionBtn, { backgroundColor: theme.primary, marginTop: 16 }]}
+                    onPress={handleSaveBranding}
+                    disabled={savingBranding}
+                    activeOpacity={0.8}
+                  >
+                    {savingBranding ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
+                        <Text style={styles.saveActionText}>Simpan & Terapkan ke Seluruh Aplikasi</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 </View>
 
               </View>
@@ -1933,7 +2176,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   brandSubtitle: {
     color: theme.accentLight,
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '500',
   },
   drawerCloseBtn: {
@@ -1944,7 +2187,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   sidebarSectionLabel: {
     color: theme.muted,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.8,
     marginBottom: 8,
@@ -1988,7 +2231,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   navItemBadgeText: {
     color: theme.subtext,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
   },
   navItemBadgeTextActive: {
@@ -2018,7 +2261,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   sidebarVersionText: {
     color: theme.muted,
-    fontSize: 10,
+    fontSize: 11,
     textAlign: 'center',
   },
 
@@ -2091,7 +2334,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   commandSub: {
     color: theme.subtext,
-    fontSize: 10.5,
+    fontSize: 12,
     marginTop: 1,
   },
   commandRight: {
@@ -2118,7 +2361,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   liveText: {
     color: isLightMode ? '#059669' : '#34D399',
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '600',
   },
   exitPortalBtn: {
@@ -2324,7 +2567,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   customPresetBadgeText: {
     color: theme.accentLight,
-    fontSize: 9,
+    fontSize: 11,
     fontWeight: '700',
   },
   deletePresetIconBtn: {
@@ -2369,7 +2612,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   presetDesc: {
     color: theme.subtext,
-    fontSize: 10.5,
+    fontSize: 12,
     lineHeight: 15,
   },
 
@@ -2446,7 +2689,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   modalFieldHint: {
     color: theme.muted,
-    fontSize: 10.5,
+    fontSize: 12,
     marginBottom: 6,
   },
   modalInput: {
@@ -2722,7 +2965,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   moodItemKey: {
     color: theme.subtext,
-    fontSize: 10,
+    fontSize: 11,
   },
   colorIndicator: {
     width: 10,
@@ -2762,7 +3005,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   bannerBadgeText: {
     color: isLightMode ? '#B45309' : '#FBBF24',
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
     marginBottom: 2,
@@ -2879,7 +3122,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   userIdText: {
     color: theme.muted,
-    fontSize: 10,
+    fontSize: 11,
     marginTop: 2,
   },
   userJoinedWrap: {
@@ -2909,7 +3152,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   badgeKpiText: {
     color: theme.accentLight,
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -3034,7 +3277,7 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   },
   keyIndexText: {
     color: theme.subtext,
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -3089,6 +3332,76 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
     fontSize: 11,
     flex: 1,
     lineHeight: 15,
+  },
+  brandingMockupBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 14,
+    marginTop: 10,
+  },
+  brandingMockupHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  brandingPreviewLogoImg: {
+    width: 36,
+    height: 36,
+    borderRadius: 9,
+  },
+  brandingMockupTitle: {
+    fontSize: 14.5,
+    fontWeight: '800',
+    letterSpacing: -0.3,
+  },
+  brandingMockupTagline: {
+    fontSize: 11,
+    fontWeight: '500',
+  },
+  brandingMockupRightBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  brandingMockupRightBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  brandingLogoActionRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 6,
+    flexWrap: 'wrap',
+  },
+  brandingUploadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 9,
+    borderRadius: 8,
+  },
+  brandingUploadBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  brandingResetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  brandingResetBtnText: {
+    fontSize: 11.5,
+    fontWeight: '600',
   },
   saveAllPoolBtn: {
     flexDirection: 'row',

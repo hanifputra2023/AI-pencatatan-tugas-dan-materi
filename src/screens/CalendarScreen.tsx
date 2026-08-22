@@ -674,13 +674,11 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   title: {
-    color: '#F9FAFB',
     fontSize: 22,
     fontWeight: '700',
     letterSpacing: -0.3,
   },
   subtitle: {
-    color: '#6B7280',
     fontSize: 12,
     marginTop: 2,
   },
@@ -753,7 +751,7 @@ const styles = StyleSheet.create({
   },
   summarySub: {
     color: '#6B7280',
-    fontSize: 10,
+    fontSize: 11,
     marginTop: 2,
   },
   mainLayout: {
@@ -812,7 +810,7 @@ const styles = StyleSheet.create({
   },
   legendText: {
     color: '#6B7280',
-    fontSize: 9.5,
+    fontSize: 11,
   },
   grid: {
     flexDirection: 'row',
@@ -862,7 +860,7 @@ const styles = StyleSheet.create({
     borderRadius: 2,
   },
   gridEmojiSmall: {
-    fontSize: 9,
+    fontSize: 11,
     marginTop: 1,
   },
   badgeEventsCount: {
@@ -871,7 +869,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
   },
   emptyDayWrap: {
@@ -913,7 +911,7 @@ const styles = StyleSheet.create({
   eventSubjectBadge: {
     backgroundColor: '#16233B',
     color: '#60A5FA',
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '700',
     paddingHorizontal: 6,
     paddingVertical: 2,
@@ -923,7 +921,7 @@ const styles = StyleSheet.create({
   },
   eventTimeText: {
     color: '#6B7280',
-    fontSize: 9.5,
+    fontSize: 11,
   },
   eventTitle: {
     color: '#F9FAFB',
@@ -956,7 +954,7 @@ const styles = StyleSheet.create({
   },
   barDay: {
     color: '#6B7280',
-    fontSize: 10,
+    fontSize: 11,
   },
   statRow: {
     flexDirection: 'row',
@@ -985,7 +983,7 @@ const styles = StyleSheet.create({
   },
   statCount: {
     color: '#6B7280',
-    fontSize: 10.5,
+    fontSize: 12,
     minWidth: 50,
     textAlign: 'right',
   },

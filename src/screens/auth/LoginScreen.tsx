@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator,
-  KeyboardAvoidingView, Platform, ScrollView,
+  KeyboardAvoidingView, Platform, ScrollView, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,7 @@ import { supabase } from '../../lib/supabase';
 import { showAlert } from '../../lib/alert';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useTheme, isColorLight } from '../../contexts/ThemeContext';
+import AppLogo from '../../components/AppLogo';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Login'> };
 
@@ -64,7 +65,7 @@ export default function LoginScreen({ navigation }: Props) {
 
             {/* Brand Header */}
             <View style={styles.brandHeader}>
-              
+              <AppLogo size={60} borderRadius={16} style={{ marginBottom: 16 }} />
               <Text style={[styles.brandHeading, { color: theme.text }]}>Selamat Datang Kembali</Text>
               <Text style={[styles.brandSubtitle, { color: theme.subtext }]}>
                 Masuk untuk melanjutkan catatan kuliah, tugas, dan refleksi harianmu.
@@ -181,6 +182,18 @@ export default function LoginScreen({ navigation }: Props) {
               </TouchableOpacity>
             </View>
 
+            {/* Tour & Features Link */}
+            <TouchableOpacity
+              onPress={() => navigation.navigate('Onboarding')}
+              style={styles.tourLinkBtn}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="sparkles-outline" size={14} color={theme.subtext} />
+              <Text style={[styles.tourLinkText, { color: theme.subtext }]}>
+                Pelajari Fitur & Panduan Aplikasi
+              </Text>
+            </TouchableOpacity>
+
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -225,13 +238,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 28,
   },
-  logoIconCircle: {
-    width: 56,
-    height: 56,
+  brandLogoImg: {
+    width: 60,
+    height: 60,
     borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
     marginBottom: 16,
   },
   brandHeading: {
@@ -321,5 +331,17 @@ const styles = StyleSheet.create({
   footerSwitchAction: {
     fontSize: 13,
     fontWeight: '700',
+  },
+  tourLinkBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 14,
+    paddingVertical: 6,
+  },
+  tourLinkText: {
+    fontSize: 12,
+    fontWeight: '500',
   },
 });

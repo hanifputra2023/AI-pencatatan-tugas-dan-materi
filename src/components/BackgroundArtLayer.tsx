@@ -22,61 +22,67 @@ export const BackgroundArtLayer: React.FC<BackgroundArtLayerProps> = ({ children
   const primaryColor = theme.primary || '#2563EB';
   const accentColor = theme.accentLight || theme.accent || '#3B82F6';
 
-  // Custom Photo Wallpaper with Frosted Blur & Dimming Overlay
+  // Custom Photo Wallpaper (Sharp, Clear or user-controlled Frosted Blur)
   if (bgArtStyle === 'custom-photo' && bgCustomImage) {
+    const activeBlur = bgBlurRadius ?? 0;
+    const activeDimming = bgDimmingOpacity ?? 0.30;
+
     return (
       <View style={[styles.container, { backgroundColor: theme.bg }]}>
-        {/* Layer 1: Ambient Full Background (Always covers entire screen with blur to avoid empty borders) */}
-        <ImageBackground
-          source={{ uri: bgCustomImage }}
-          style={StyleSheet.absoluteFillObject}
-          resizeMode="cover"
-          blurRadius={Platform.OS === 'ios' ? Math.max(bgBlurRadius, 16) : Math.max(bgBlurRadius * 0.7, 12)}
-        >
-          <View
-            style={[
-              StyleSheet.absoluteFillObject,
-              {
-                backgroundColor: theme.bg,
-                opacity: Math.min(bgDimmingOpacity + 0.15, 0.9),
-              },
-            ]}
-          />
-        </ImageBackground>
-
-        {/* Layer 2: Main Photo Wallpaper (Cover or Uncropped Full Contain Mode) */}
+        {/* Main Photo Wallpaper */}
         {bgFitMode === 'contain' ? (
-          <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]} pointerEvents="none">
+          <>
+            {/* Ambient Background for Borders */}
             <ImageBackground
               source={{ uri: bgCustomImage }}
-              style={{ width: '100%', height: '100%' }}
-              resizeMode="contain"
-              blurRadius={Platform.OS === 'ios' ? bgBlurRadius * 0.4 : bgBlurRadius * 0.3}
+              style={StyleSheet.absoluteFillObject}
+              resizeMode="cover"
+              blurRadius={Math.max(activeBlur, 12)}
             >
               <View
                 style={[
                   StyleSheet.absoluteFillObject,
                   {
                     backgroundColor: theme.bg,
-                    opacity: bgDimmingOpacity * 0.6,
+                    opacity: 0.65,
                   },
                 ]}
               />
             </ImageBackground>
-          </View>
+
+            {/* Sharp Contained Image in Center */}
+            <View style={[StyleSheet.absoluteFillObject, { justifyContent: 'center', alignItems: 'center' }]} pointerEvents="none">
+              <ImageBackground
+                source={{ uri: bgCustomImage }}
+                style={{ width: '100%', height: '100%' }}
+                resizeMode="contain"
+                blurRadius={activeBlur}
+              >
+                <View
+                  style={[
+                    StyleSheet.absoluteFillObject,
+                    {
+                      backgroundColor: theme.bg,
+                      opacity: activeDimming,
+                    },
+                  ]}
+                />
+              </ImageBackground>
+            </View>
+          </>
         ) : (
           <ImageBackground
             source={{ uri: bgCustomImage }}
             style={StyleSheet.absoluteFillObject}
             resizeMode="cover"
-            blurRadius={Platform.OS === 'ios' ? bgBlurRadius : bgBlurRadius * 0.7}
+            blurRadius={activeBlur}
           >
             <View
               style={[
                 StyleSheet.absoluteFillObject,
                 {
                   backgroundColor: theme.bg,
-                  opacity: bgDimmingOpacity,
+                  opacity: activeDimming,
                 },
               ]}
             />
@@ -90,7 +96,7 @@ export const BackgroundArtLayer: React.FC<BackgroundArtLayerProps> = ({ children
 
   return (
     <View style={[styles.container, { backgroundColor: theme.bg }]}>
-      {/* 1. Aurora Ribbon Mesh Style (Curved Glowing Ribbons) */}
+      {/* 1. Aurora Ribbon Mesh Style (Soft Ambient Glowing Ribbons) */}
       {bgArtStyle === 'aurora-ribbons' && (
         <View style={StyleSheet.absoluteFillObject} pointerEvents="none">
           <Svg
@@ -102,24 +108,24 @@ export const BackgroundArtLayer: React.FC<BackgroundArtLayerProps> = ({ children
           >
             <Defs>
               <SvgGradient id="ribbonGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.45' : '0.60'} />
-                <Stop offset="50%" stopColor={accentColor} stopOpacity={isLightMode ? '0.25' : '0.40'} />
+                <Stop offset="0%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.14' : '0.22'} />
+                <Stop offset="50%" stopColor={accentColor} stopOpacity={isLightMode ? '0.08' : '0.14'} />
                 <Stop offset="100%" stopColor={theme.bg} stopOpacity="0" />
               </SvgGradient>
 
               <SvgGradient id="ribbonGrad2" x1="100%" y1="0%" x2="0%" y2="100%">
-                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.40' : '0.55'} />
-                <Stop offset="60%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.20' : '0.30'} />
+                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.12' : '0.20'} />
+                <Stop offset="60%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.06' : '0.10'} />
                 <Stop offset="100%" stopColor={theme.bg} stopOpacity="0" />
               </SvgGradient>
 
               <SvgGradient id="glowCircleGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.40' : '0.50'} />
+                <Stop offset="0%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.12' : '0.18'} />
                 <Stop offset="100%" stopColor={theme.bg} stopOpacity="0" />
               </SvgGradient>
 
               <SvgGradient id="glowCircleGrad2" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.35' : '0.45'} />
+                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.10' : '0.15'} />
                 <Stop offset="100%" stopColor={theme.bg} stopOpacity="0" />
               </SvgGradient>
             </Defs>
@@ -161,8 +167,8 @@ export const BackgroundArtLayer: React.FC<BackgroundArtLayerProps> = ({ children
           >
             <Defs>
               <SvgGradient id="fluidGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.45' : '0.55'} />
-                <Stop offset="100%" stopColor={primaryColor} stopOpacity="0.05" />
+                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.15' : '0.20'} />
+                <Stop offset="100%" stopColor={primaryColor} stopOpacity="0.02" />
               </SvgGradient>
             </Defs>
 
@@ -171,28 +177,28 @@ export const BackgroundArtLayer: React.FC<BackgroundArtLayerProps> = ({ children
               d="M -20 120 C 120 40 280 220 430 140"
               stroke={accentColor}
               strokeWidth="2.5"
-              strokeOpacity={isLightMode ? 0.6 : 0.7}
+              strokeOpacity={isLightMode ? 0.22 : 0.30}
               fill="none"
             />
             <Path
               d="M -20 160 C 140 80 260 260 430 180"
               stroke={primaryColor}
               strokeWidth="2"
-              strokeOpacity={isLightMode ? 0.45 : 0.55}
+              strokeOpacity={isLightMode ? 0.16 : 0.22}
               fill="none"
             />
             <Path
               d="M -20 520 C 140 680 300 460 430 600"
               stroke={accentColor}
               strokeWidth="2.5"
-              strokeOpacity={isLightMode ? 0.55 : 0.65}
+              strokeOpacity={isLightMode ? 0.20 : 0.28}
               fill="none"
             />
             <Path
               d="M -20 560 C 160 720 280 500 430 640"
               stroke={primaryColor}
               strokeWidth="2"
-              strokeOpacity={isLightMode ? 0.4 : 0.5}
+              strokeOpacity={isLightMode ? 0.15 : 0.20}
               fill="none"
             />
 
@@ -217,12 +223,12 @@ export const BackgroundArtLayer: React.FC<BackgroundArtLayerProps> = ({ children
           >
             <Defs>
               <SvgGradient id="geoGrad1" x1="0%" y1="0%" x2="100%" y2="100%">
-                <Stop offset="0%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.40' : '0.50'} />
+                <Stop offset="0%" stopColor={primaryColor} stopOpacity={isLightMode ? '0.14' : '0.20'} />
                 <Stop offset="100%" stopColor={theme.bg} stopOpacity="0" />
               </SvgGradient>
 
               <SvgGradient id="geoGrad2" x1="100%" y1="100%" x2="0%" y2="0%">
-                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.35' : '0.45'} />
+                <Stop offset="0%" stopColor={accentColor} stopOpacity={isLightMode ? '0.12' : '0.18'} />
                 <Stop offset="100%" stopColor={theme.bg} stopOpacity="0" />
               </SvgGradient>
             </Defs>

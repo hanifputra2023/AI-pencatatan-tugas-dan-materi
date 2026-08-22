@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator,
-  KeyboardAvoidingView, Platform, ScrollView,
+  KeyboardAvoidingView, Platform, ScrollView, Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -11,6 +11,7 @@ import { supabase } from '../../lib/supabase';
 import { showAlert } from '../../lib/alert';
 import { useResponsive } from '../../hooks/useResponsive';
 import { useTheme, isColorLight } from '../../contexts/ThemeContext';
+import AppLogo from '../../components/AppLogo';
 
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Register'> };
 
@@ -73,9 +74,8 @@ export default function RegisterScreen({ navigation }: Props) {
             isWide && styles.authCardWide
           ]}>
 
-            
-
             <View style={styles.brandHeader}>
+              <AppLogo size={60} borderRadius={16} style={{ marginBottom: 16 }} />
               <Text style={[styles.brandHeading, { color: theme.text }]}>Buat Akun Baru</Text>
               <Text style={[styles.brandSubtitle, { color: theme.subtext }]}>
                 Daftar gratis untuk mulai mencatat materi, deadline tugas, dan belajar cerdas dengan AI.
@@ -273,13 +273,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderWidth: 1,
   },
-  logoIconCircleSmall: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderWidth: 1,
+  brandLogoImg: {
+    width: 60,
+    height: 60,
+    borderRadius: 16,
+    marginBottom: 16,
   },
   brandHeader: {
     alignItems: 'center',

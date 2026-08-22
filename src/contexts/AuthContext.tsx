@@ -8,42 +8,72 @@ const MASTER_ADMIN_PASSCODE = 'SUPERADMIN2026';
 const MAX_ATTEMPTS = 4;
 const LOCKOUT_DURATION_MS = 15 * 60 * 1000; // 15 Menit Lockout jika salah 4x berturut-turut
 
+export interface UserProfileData {
+  username?: string | null;
+  avatar_url?: string | null;
+  role?: string | null;
+}
+
 interface AuthContextType {
   session: Session | null;
   user: User | null;
+  profile: UserProfileData | null;
   role: string;
   isAdmin: boolean;
   loading: boolean;
   signOut: () => Promise<void>;
   claimAdminRole: (passcode: string) => Promise<{ success: boolean; message: string }>;
   refreshProfileRole: () => Promise<void>;
+  updateProfileCache: (data: Partial<UserProfileData>) => void;
 }
 
 const AuthContext = createContext<AuthContextType>({
   session: null,
   user: null,
+  profile: null,
   role: 'student',
   isAdmin: false,
   loading: true,
   signOut: async () => { },
   claimAdminRole: async () => ({ success: false, message: '' }),
   refreshProfileRole: async () => { },
+  updateProfileCache: () => { },
 });
 
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
+  const [profile, setProfile] = useState<UserProfileData | null>(null);
   const [role, setRole] = useState<string>('student');
   const [loading, setLoading] = useState(true);
 
-  const fetchRole = useCallback(async (userId: string) => {
+  const updateProfileCache = useCallback((newData: Partial<UserProfileData>) => {
+    setProfile(prev => {
+      const updated = { ...prev, ...newData };
+      if (session?.user?.id) {
+        AsyncStorage.setItem('@user_profile_cache_' + session.user.id, JSON.stringify(updated)).catch(() => {});
+      }
+      return updated;
+    });
+  }, [session?.user?.id]);
+
+  const fetchRoleAndProfile = useCallback(async (userId: string) => {
     try {
       // 1. Check local storage first for fast, offline-resilient access
-      const localRole = await AsyncStorage.getItem('@local_role_' + userId);
+      const [localRole, localProfile] = await Promise.all([
+        AsyncStorage.getItem('@local_role_' + userId),
+        AsyncStorage.getItem('@user_profile_cache_' + userId),
+      ]);
+
       if (localRole === 'admin') {
         setRole('admin');
       }
+      if (localProfile) {
+        try {
+          setProfile(JSON.parse(localProfile));
+        } catch (e) {}
+      }
 
-      // 2. Try fetching from Supabase DB (gracefully handle if 'role' column is not yet migrated)
+      // 2. Fetch fresh profile from Supabase
       const { data, error } = await supabase
         .from('profiles')
         .select('*')
@@ -51,6 +81,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         .single();
 
       if (!error && data) {
+        const profData: UserProfileData = {
+          username: data.username,
+          avatar_url: data.avatar_url,
+          role: data.role || 'student',
+        };
+        setProfile(profData);
+        await AsyncStorage.setItem('@user_profile_cache_' + userId, JSON.stringify(profData));
+
         if (data.role === 'admin' || localRole === 'admin') {
           setRole('admin');
           await AsyncStorage.setItem('@local_role_' + userId, 'admin');
@@ -60,7 +98,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       }
     } catch (e) {
-      // Fallback silently without throwing schema cache errors
       const localRole = await AsyncStorage.getItem('@local_role_' + userId);
       if (localRole === 'admin') {
         setRole('admin');
@@ -72,15 +109,15 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const refreshProfileRole = useCallback(async () => {
     if (session?.user?.id) {
-      await fetchRole(session.user.id);
+      await fetchRoleAndProfile(session.user.id);
     }
-  }, [session?.user?.id, fetchRole]);
+  }, [session?.user?.id, fetchRoleAndProfile]);
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
       if (session?.user?.id) {
-        fetchRole(session.user.id);
+        fetchRoleAndProfile(session.user.id);
       }
       setLoading(false);
     });
@@ -88,15 +125,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session);
       if (session?.user?.id) {
-        fetchRole(session.user.id);
+        fetchRoleAndProfile(session.user.id);
       } else {
         setRole('student');
+        setProfile(null);
       }
       setLoading(false);
     });
 
     return () => subscription.unsubscribe();
-  }, [fetchRole]);
+  }, [fetchRoleAndProfile]);
 
   // Periodic token refresh — prevents silent session expiry on web browsers
   // Browsers throttle timers in background tabs, so we also refresh on visibility change
@@ -270,12 +308,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       value={{
         session,
         user: session?.user ?? null,
+        profile,
         role,
         isAdmin,
         loading,
         signOut,
         claimAdminRole,
         refreshProfileRole,
+        updateProfileCache,
       }}
     >
       {children}

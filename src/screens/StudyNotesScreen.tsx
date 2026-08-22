@@ -950,30 +950,33 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 'notes' && [styles.tabBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.border }]]}
           onPress={() => setActiveTab('notes')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="document-text-outline" size={15} color={activeTab === 'notes' ? theme.accentLight : theme.subtext} style={{ marginRight: 6 }} />
-          <Text style={[styles.tabText, { color: activeTab === 'notes' ? theme.accentLight : theme.subtext }]}>
-            Catatan ({notes.length}){draftNote ? ' • 📝 Draf' : ''}
+          <Ionicons name="document-text-outline" size={16} color={activeTab === 'notes' ? theme.accentLight : theme.subtext} />
+          <Text style={[styles.tabText, { color: activeTab === 'notes' ? theme.accentLight : theme.subtext }, activeTab === 'notes' && { fontWeight: '700' }]}>
+            Catatan ({notes.length}){draftNote ? ' • 📝' : ''}
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 'tasks' && [styles.tabBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.border }]]}
           onPress={() => setActiveTab('tasks')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="checkbox-outline" size={15} color={activeTab === 'tasks' ? theme.accentLight : theme.subtext} style={{ marginRight: 6 }} />
-          <Text style={[styles.tabText, { color: activeTab === 'tasks' ? theme.accentLight : theme.subtext }]}>
-            Tugas & Deadline ({tasks.filter(t => !t.is_completed).length})
+          <Ionicons name="checkbox-outline" size={16} color={activeTab === 'tasks' ? theme.accentLight : theme.subtext} />
+          <Text style={[styles.tabText, { color: activeTab === 'tasks' ? theme.accentLight : theme.subtext }, activeTab === 'tasks' && { fontWeight: '700' }]}>
+            Tugas ({tasks.filter(t => !t.is_completed).length})
           </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
           style={[styles.tabBtn, activeTab === 'pomodoro' && [styles.tabBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.border }]]}
           onPress={() => setActiveTab('pomodoro')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="timer-outline" size={15} color={activeTab === 'pomodoro' ? theme.accentLight : theme.subtext} style={{ marginRight: 6 }} />
-          <Text style={[styles.tabText, { color: activeTab === 'pomodoro' ? theme.accentLight : theme.subtext }]}>
-            Fokus Nugas
+          <Ionicons name="timer-outline" size={16} color={activeTab === 'pomodoro' ? theme.accentLight : theme.subtext} />
+          <Text style={[styles.tabText, { color: activeTab === 'pomodoro' ? theme.accentLight : theme.subtext }, activeTab === 'pomodoro' && { fontWeight: '700' }]}>
+            Fokus Pomodoro
           </Text>
         </TouchableOpacity>
       </View>
@@ -2041,12 +2044,10 @@ const styles = StyleSheet.create({
     paddingBottom: 12,
   },
   title: {
-    color: '#F3F4F6',
     fontSize: 22,
     fontWeight: '700',
   },
   subtitle: {
-    color: '#6B7280',
     fontSize: 12,
     marginTop: 2,
   },
@@ -2124,23 +2125,27 @@ const styles = StyleSheet.create({
   },
   tabBtn: {
     flex: 1,
-    flexDirection: 'row',
+    flexDirection: 'column',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 8,
+    paddingVertical: 7,
+    paddingHorizontal: 4,
     borderRadius: 9,
+    gap: 2,
   },
   tabBtnActive: {
     backgroundColor: '#1E293B',
   },
   tabText: {
     color: '#6B7280',
-    fontSize: 11,
+    fontSize: 10.5,
     fontWeight: '500',
+    textAlign: 'center',
   },
   tabTextActive: {
     color: '#F3F4F6',
     fontWeight: '600',
+    textAlign: 'center',
   },
   controlsArea: {
     paddingHorizontal: 18,
@@ -2272,7 +2277,7 @@ const styles = StyleSheet.create({
   },
   draftBadgeText: {
     color: '#FBBF24',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
   },
@@ -2354,7 +2359,7 @@ const styles = StyleSheet.create({
   },
   subjectBadgeText: {
     color: '#60A5FA',
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '600',
   },
   noteDate: {
@@ -2380,7 +2385,7 @@ const styles = StyleSheet.create({
   },
   noteReadTime: {
     color: '#6B7280',
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '500',
   },
   aiBadge: {
@@ -2396,7 +2401,7 @@ const styles = StyleSheet.create({
   },
   aiBadgeText: {
     color: '#93C5FD',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
   },
   openDetailPill: {
@@ -2413,7 +2418,7 @@ const styles = StyleSheet.create({
   },
   openDetailText: {
     color: '#60A5FA',
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
   },
   scrollArea: {
@@ -2635,7 +2640,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   pickCalendarMiniBtnText: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
   },
   taskFilterRow: {
@@ -2714,7 +2719,7 @@ const styles = StyleSheet.create({
   },
   taskSubjectText: {
     color: '#60A5FA',
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '600',
   },
   taskPriorityBadge: {
@@ -2723,7 +2728,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   taskPriorityBadgeText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
   },
   dueBadge: {
@@ -2737,7 +2742,7 @@ const styles = StyleSheet.create({
   },
   dueText: {
     color: '#6B7280',
-    fontSize: 10,
+    fontSize: 11,
   },
   taskTitle: {
     color: '#F3F4F6',
@@ -2766,7 +2771,7 @@ const styles = StyleSheet.create({
   },
   subtasksProgressText: {
     color: '#6B7280',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
   },
   taskNotesSnippetBox: {
@@ -2783,11 +2788,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   taskNotesSnippetHeaderTitle: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
   },
   taskNotesSnippetWordCount: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
     marginLeft: 'auto',
   },
@@ -2813,7 +2818,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   taskActionBtnText: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '600',
   },
   taskIconBtn: {
@@ -2924,7 +2929,7 @@ const styles = StyleSheet.create({
     borderRadius: 4,
   },
   pomoTargetTagText: {
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '800',
     letterSpacing: 0.5,
   },

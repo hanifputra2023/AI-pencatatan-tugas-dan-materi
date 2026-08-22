@@ -21,6 +21,12 @@ interface MoodContextType {
   selectPersona: (persona: PersonaPreset) => Promise<void>;
   globalAnnouncement: string;
   updateGlobalAnnouncement: (text: string) => Promise<void>;
+  appLogoUrl: string | null;
+  updateAppLogoUrl: (url: string | null) => Promise<void>;
+  appBrandName: string;
+  updateAppBrandName: (name: string) => Promise<void>;
+  appBrandTagline: string;
+  updateAppBrandTagline: (tagline: string) => Promise<void>;
   geminiApiKey: string;
   updateGeminiApiKey: (key: string) => Promise<void>;
   geminiApiKeys: string[];
@@ -46,6 +52,12 @@ const MoodContext = createContext<MoodContextType>({
   selectPersona: async () => {},
   globalAnnouncement: '',
   updateGlobalAnnouncement: async () => {},
+  appLogoUrl: null,
+  updateAppLogoUrl: async () => {},
+  appBrandName: 'StudyBot AI',
+  updateAppBrandName: async () => {},
+  appBrandTagline: 'Smart Academic & Journal',
+  updateAppBrandTagline: async () => {},
   geminiApiKey: '',
   updateGeminiApiKey: async () => {},
   geminiApiKeys: [],
@@ -59,6 +71,9 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const [moods, setMoods] = useState<MoodOption[]>(DEFAULT_MOOD_OPTIONS);
   const [aiPersona, setAiPersona] = useState<string>('');
   const [aiBotName, setAiBotName] = useState<string>('Ara');
+  const [appLogoUrl, setAppLogoUrl] = useState<string | null>(null);
+  const [appBrandName, setAppBrandName] = useState<string>('StudyBot AI');
+  const [appBrandTagline, setAppBrandTagline] = useState<string>('Smart Academic & Journal');
   const [allPersonas, setAllPersonas] = useState<PersonaPreset[]>(DEFAULT_PERSONAS);
   const [activePersona, setActivePersona] = useState<PersonaPreset>(DEFAULT_PERSONAS[0]);
   const [globalAnnouncement, setGlobalAnnouncement] = useState<string>('');
@@ -70,7 +85,13 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const fetchMoodsAndSettings = useCallback(async () => {
     try {
       // 1. Check local storage cache for instant offline responsiveness
-      const cachedKeys = await AsyncStorage.getItem('@gemini_api_keys');
+      const [cachedKeys, cachedLogo, cachedName, cachedTagline] = await Promise.all([
+        AsyncStorage.getItem('@gemini_api_keys'),
+        AsyncStorage.getItem('@app_logo_url'),
+        AsyncStorage.getItem('@app_brand_name'),
+        AsyncStorage.getItem('@app_brand_tagline'),
+      ]);
+
       if (cachedKeys) {
         try {
           const parsed = JSON.parse(cachedKeys);
@@ -81,6 +102,10 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
           }
         } catch (e) {}
       }
+
+      if (cachedLogo !== null) setAppLogoUrl(cachedLogo || null);
+      if (cachedName) setAppBrandName(cachedName);
+      if (cachedTagline) setAppBrandTagline(cachedTagline);
 
       const [moodsRes, settingsRes] = await Promise.all([
         supabase.from('app_moods').select('*').order('created_at', { ascending: true }),
@@ -110,6 +135,18 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
           map[item.key] = item.value;
           if (item.key === 'ai_persona') setAiPersona(item.value);
           if (item.key === 'ai_bot_name') setAiBotName(item.value);
+          if (item.key === 'app_logo_url') {
+            setAppLogoUrl(item.value || null);
+            AsyncStorage.setItem('@app_logo_url', item.value || '');
+          }
+          if (item.key === 'app_brand_name') {
+            setAppBrandName(item.value || 'StudyBot AI');
+            AsyncStorage.setItem('@app_brand_name', item.value || 'StudyBot AI');
+          }
+          if (item.key === 'app_brand_tagline') {
+            setAppBrandTagline(item.value || 'Smart Academic & Journal');
+            AsyncStorage.setItem('@app_brand_tagline', item.value || 'Smart Academic & Journal');
+          }
           if (item.key === 'custom_ai_presets') {
             try {
               const parsed = JSON.parse(item.value);
@@ -316,6 +353,26 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
     }
   };
 
+  const updateAppLogoUrl = async (url: string | null) => {
+    setAppLogoUrl(url);
+    await AsyncStorage.setItem('@app_logo_url', url || '');
+    await updateSetting('app_logo_url', url || '');
+  };
+
+  const updateAppBrandName = async (name: string) => {
+    const clean = name.trim() || 'StudyBot AI';
+    setAppBrandName(clean);
+    await AsyncStorage.setItem('@app_brand_name', clean);
+    await updateSetting('app_brand_name', clean);
+  };
+
+  const updateAppBrandTagline = async (tagline: string) => {
+    const clean = tagline.trim() || 'Smart Academic & Journal';
+    setAppBrandTagline(clean);
+    await AsyncStorage.setItem('@app_brand_tagline', clean);
+    await updateSetting('app_brand_tagline', clean);
+  };
+
   return (
     <MoodContext.Provider
       value={{
@@ -334,6 +391,12 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         selectPersona,
         globalAnnouncement,
         updateGlobalAnnouncement,
+        appLogoUrl,
+        updateAppLogoUrl,
+        appBrandName,
+        updateAppBrandName,
+        appBrandTagline,
+        updateAppBrandTagline,
         geminiApiKey,
         updateGeminiApiKey,
         geminiApiKeys,

@@ -165,7 +165,7 @@ const COLOR_PAMPHLET_CATEGORIES: ColorPamphletCategory[] = [
 ];
 
 export default function ProfileScreen() {
-  const { user, signOut, isAdmin, role, claimAdminRole, refreshProfileRole } = useAuth();
+  const { user, signOut, isAdmin, role, claimAdminRole, refreshProfileRole, updateProfileCache } = useAuth();
   const { allPersonas, activePersona, selectPersona, refreshMoodsAndSettings } = useMoods();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
@@ -420,6 +420,7 @@ export default function ProfileScreen() {
     if (!user) return;
     setSaving(true);
     await supabase.from('profiles').upsert({ id: user.id, username, avatar_url: avatarUrl });
+    updateProfileCache({ username, avatar_url: avatarUrl });
     setSaving(false);
     setEditing(false);
     showAlert('Sukses', 'Profil berhasil disimpan.');
@@ -484,734 +485,739 @@ export default function ProfileScreen() {
         showsVerticalScrollIndicator={false}
       >
         <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
-        
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={[styles.title, { color: theme.text }]}>Akun Pengguna</Text>
-          <Text style={[styles.subtitle, { color: theme.subtext }]}>Informasi profil dan pengaturan aplikasi</Text>
-        </View>
 
-        <View style={[styles.mainLayout, isWide && styles.mainLayoutWide]}>
-          
-          {/* Left Column (Avatar & Profile Data) */}
-          <View style={[styles.column, isWide && { flex: 1 }]}>
-            <View style={[styles.avatarSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              
-              <TouchableOpacity onPress={pickAvatar} style={styles.avatarWrapper}>
-                {avatarUrl ? (
-                  <Image source={{ uri: avatarUrl }} style={styles.avatar} />
-                ) : (
-                  <View style={[styles.avatarPlaceholder, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Text style={[styles.avatarInitial, { color: theme.accentLight }]}>
-                      {(username || user?.email || 'M')[0].toUpperCase()}
-                    </Text>
+          {/* Header */}
+          <View style={styles.header}>
+            <Text style={[styles.title, { color: theme.text }]}>Akun Pengguna</Text>
+            <Text style={[styles.subtitle, { color: theme.subtext }]}>Informasi profil dan pengaturan aplikasi</Text>
+          </View>
+
+          <View style={[styles.mainLayout, isWide && styles.mainLayoutWide]}>
+
+            {/* Left Column (Avatar & Profile Data) */}
+            <View style={[styles.column, isWide && { flex: 1 }]}>
+              <View style={[styles.avatarSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+
+                <TouchableOpacity onPress={pickAvatar} style={styles.avatarWrapper}>
+                  {avatarUrl ? (
+                    <Image source={{ uri: avatarUrl }} style={styles.avatar} />
+                  ) : (
+                    <View style={[styles.avatarPlaceholder, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                      <Text style={[styles.avatarInitial, { color: theme.accentLight }]}>
+                        {(username || user?.email || 'M')[0].toUpperCase()}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={[styles.cameraBtn, { backgroundColor: theme.primary }]}>
+                    <Ionicons name="camera" size={13} color="#FFFFFF" />
                   </View>
-                )}
-                <View style={[styles.cameraBtn, { backgroundColor: theme.primary }]}>
-                  <Ionicons name="camera" size={13} color="#FFFFFF" />
-                </View>
-              </TouchableOpacity>
+                </TouchableOpacity>
 
-              {/* Role Badge */}
-              <View style={[
-                styles.roleBadge,
-                isAdmin
-                  ? { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B', borderColor: isLightMode ? '#BFDBFE' : '#253856', borderWidth: 1 }
-                  : { backgroundColor: isLightMode ? '#F1F5F9' : '#161B26', borderColor: isLightMode ? '#E2E8F0' : '#202634', borderWidth: 1 }
-              ]}>
-                <Ionicons
-                  name={isAdmin ? 'shield-checkmark' : 'school-outline'}
-                  size={12}
-                  color={isAdmin ? (isLightMode ? '#1D4ED8' : '#60A5FA') : (isLightMode ? '#475569' : '#9CA3AF')}
-                />
-                <Text style={[
-                  styles.roleBadgeText,
+                {/* Role Badge */}
+                <View style={[
+                  styles.roleBadge,
                   isAdmin
-                    ? { color: isLightMode ? '#1D4ED8' : '#60A5FA' }
-                    : { color: isLightMode ? '#475569' : '#6B7280' }
+                    ? { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B', borderColor: isLightMode ? '#BFDBFE' : '#253856', borderWidth: 1 }
+                    : { backgroundColor: isLightMode ? '#F1F5F9' : '#161B26', borderColor: isLightMode ? '#E2E8F0' : '#202634', borderWidth: 1 }
                 ]}>
-                  {isAdmin ? 'ADMINISTRATOR' : 'MAHASISWA'}
-                </Text>
+                  <Ionicons
+                    name={isAdmin ? 'shield-checkmark' : 'school-outline'}
+                    size={12}
+                    color={isAdmin ? (isLightMode ? '#1D4ED8' : '#60A5FA') : (isLightMode ? '#475569' : '#9CA3AF')}
+                  />
+                  <Text style={[
+                    styles.roleBadgeText,
+                    isAdmin
+                      ? { color: isLightMode ? '#1D4ED8' : '#60A5FA' }
+                      : { color: isLightMode ? '#475569' : '#6B7280' }
+                  ]}>
+                    {isAdmin ? 'ADMINISTRATOR' : 'MAHASISWA'}
+                  </Text>
+                </View>
+
+                {editing ? (
+                  <TextInput
+                    style={[styles.nameInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                    value={username}
+                    onChangeText={setUsername}
+                    placeholder="Nama Pengguna"
+                    placeholderTextColor={theme.muted}
+                    autoFocus
+                  />
+                ) : (
+                  <Text style={[styles.userName, { color: theme.text }]}>{username || 'Mahasiswa'}</Text>
+                )}
+
+                <Text style={[styles.userEmail, { color: theme.subtext }]}>{user?.email}</Text>
               </View>
 
               {editing ? (
-                <TextInput
-                  style={[styles.nameInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
-                  value={username}
-                  onChangeText={setUsername}
-                  placeholder="Nama Pengguna"
-                  placeholderTextColor={theme.muted}
-                  autoFocus
-                />
+                <View style={styles.btnRow}>
+                  <TouchableOpacity style={[styles.btnCancel, { backgroundColor: theme.cardInner }]} onPress={() => { setEditing(false); fetchProfile(); }}>
+                    <Text style={[styles.btnCancelText, { color: theme.subtext }]}>Batal</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.btnSave, { backgroundColor: theme.primary }]} onPress={saveProfile} disabled={saving}>
+                    {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnSaveText}>Simpan</Text>}
+                  </TouchableOpacity>
+                </View>
               ) : (
-                <Text style={[styles.userName, { color: theme.text }]}>{username || 'Mahasiswa'}</Text>
+                <TouchableOpacity style={[styles.editBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setEditing(true)}>
+                  <Ionicons name="pencil-outline" size={15} color={theme.subtext} />
+                  <Text style={[styles.editBtnText, { color: theme.subtext }]}>Edit Profil</Text>
+                </TouchableOpacity>
               )}
 
-              <Text style={[styles.userEmail, { color: theme.subtext }]}>{user?.email}</Text>
-            </View>
-
-            {editing ? (
-              <View style={styles.btnRow}>
-                <TouchableOpacity style={[styles.btnCancel, { backgroundColor: theme.cardInner }]} onPress={() => { setEditing(false); fetchProfile(); }}>
-                  <Text style={[styles.btnCancelText, { color: theme.subtext }]}>Batal</Text>
-                </TouchableOpacity>
-                <TouchableOpacity style={[styles.btnSave, { backgroundColor: theme.primary }]} onPress={saveProfile} disabled={saving}>
-                  {saving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.btnSaveText}>Simpan</Text>}
-                </TouchableOpacity>
-              </View>
-            ) : (
-              <TouchableOpacity style={[styles.editBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={() => setEditing(true)}>
-                <Ionicons name="pencil-outline" size={15} color={theme.subtext} />
-                <Text style={[styles.editBtnText, { color: theme.subtext }]}>Edit Profil</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* ========================================================================= */}
-            {/* ADMIN PANEL BUTTON (HANYA MUNCUL JIKA USER ADALAH ADMIN) */}
-            {/* ========================================================================= */}
-            {isAdmin ? (
-              <TouchableOpacity
-                style={[styles.adminBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={() => navigation.navigate('Admin')}
-              >
-                <View style={styles.adminBtnLeft}>
-                  <View style={[styles.adminIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="shield-checkmark" size={17} color={theme.accentLight} />
-                  </View>
-                  <View>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={[styles.adminBtnTitle, { color: theme.text }]}>Pusat Kontrol Admin</Text>
-                      <View style={{ backgroundColor: theme.accentBg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
-                        <Text style={{ color: theme.accentLight, fontSize: 9, fontWeight: '700' }}>SUPERADMIN</Text>
-                      </View>
-                    </View>
-                    <Text style={[styles.adminBtnSub, { color: theme.subtext }]}>Kelola AI, Fitur, Moods & Database</Text>
-                  </View>
+              {/* 2. STATS ROW */}
+              <View style={styles.statsRow}>
+                <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Text style={[styles.statNum, { color: theme.text }]}>{stats.total}</Text>
+                  <Text style={[styles.statLabel, { color: theme.subtext }]}>Total Jurnal</Text>
                 </View>
-                <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
+                <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Text style={[styles.statNum, { color: theme.text }]}>{stats.streak}</Text>
+                  <Text style={[styles.statLabel, { color: theme.subtext }]}>Hari Streak</Text>
+                </View>
+                <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <Text style={[styles.statNum, { color: theme.text }]}>{stats.chats}</Text>
+                  <Text style={[styles.statLabel, { color: theme.subtext }]}>Sesi Cerita</Text>
+                </View>
+              </View>
+
+              {/* 3. PILIHAN KEPRIBADIAN & KARAKTER TEMAN AI */}
+              <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 10 }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+                    <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                      <Ionicons name="sparkles" size={17} color={theme.accentLight} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Kepribadian Teman AI</Text>
+                        {activePersona.isCustom && (
+                          <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
+                            <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Kustom</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.activePersonaNameHighlight, { color: theme.accentLight }]}>
+                        {activePersona.name} • "{activePersona.botName || 'Ara'}"
+                      </Text>
+                    </View>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => {
+                      refreshMoodsAndSettings();
+                      setPersonaSearchQuery('');
+                      setShowPersonaModal(true);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Ganti</Text>
+                    <Ionicons name="chevron-forward" size={13} color={theme.accentLight} />
+                  </TouchableOpacity>
+                </View>
+
+                <Text style={[styles.activePersonaDesc, { color: theme.subtext, marginTop: 6 }]} numberOfLines={2}>
+                  {activePersona.desc}
+                </Text>
+              </View>
+
+              {/* 4. ADMIN PANEL BUTTON (HANYA MUNCUL JIKA USER ADALAH ADMIN) */}
+              {isAdmin ? (
+                <TouchableOpacity
+                  style={[styles.adminBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={() => navigation.navigate('Admin')}
+                >
+                  <View style={styles.adminBtnLeft}>
+                    <View style={[styles.adminIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                      <Ionicons name="shield-checkmark" size={17} color={theme.accentLight} />
+                    </View>
+                    <View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.adminBtnTitle, { color: theme.text }]}>Pusat Kontrol Admin</Text>
+                        <View style={{ backgroundColor: theme.accentBg, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 4 }}>
+                          <Text style={{ color: theme.accentLight, fontSize: 11, fontWeight: '700' }}>SUPERADMIN</Text>
+                        </View>
+                      </View>
+                      <Text style={[styles.adminBtnSub, { color: theme.subtext }]}>Kelola AI, Fitur, Moods & Database</Text>
+                    </View>
+                  </View>
+                  <Ionicons name="chevron-forward" size={16} color={theme.subtext} />
+                </TouchableOpacity>
+              ) : null}
+
+              {/* 5. APP INFO & DATABASE STATUS */}
+              <View style={[styles.infoSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.infoRow}>
+                  <Ionicons name="cloud-done-outline" size={16} color={theme.accentLight} />
+                  <Text style={[styles.infoText, { color: theme.subtext }]}>Database Cloud: Supabase PostgreSQL (Terkoneksi)</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Ionicons name="lock-closed-outline" size={16} color={theme.accentLight} />
+                  <Text style={[styles.infoText, { color: theme.subtext }]}>Autentikasi & Data: Terisolasi (RLS Protected)</Text>
+                </View>
+                <View style={styles.infoRow}>
+                  <Ionicons name="hardware-chip-outline" size={16} color={theme.accentLight} />
+                  <Text style={[styles.infoText, { color: theme.subtext }]}>AI Model Engine: Gemini 2.5 Flash</Text>
+                </View>
+              </View>
+
+              
+
+              {/* 7. LOGOUT BUTTON */}
+              {user && (
+                <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={handleSignOut}>
+                  <Ionicons name="log-out-outline" size={16} color="#EF4444" />
+                  <Text style={styles.logoutText}>Keluar dari Akun</Text>
+                </TouchableOpacity>
+              )}
+
+              {/* 8. VERSION / SECRET ADMIN TRIGGER */}
+              <TouchableOpacity onPress={handleSecretTap} activeOpacity={0.7} style={{ marginTop: 12, alignItems: 'center' }}>
+                <Text style={[styles.versionText, { color: theme.muted }]}>Aplikasi Teman Belajar & AI v2.4 • Supabase DB</Text>
               </TouchableOpacity>
-            ) : null}
 
-          </View>
-
-          {/* Right Column (Stats & App Info) */}
-          <View style={[styles.column, isWide && { flex: 1.2 }]}>
-            <View style={styles.statsRow}>
-              <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.statNum, { color: theme.text }]}>{stats.total}</Text>
-                <Text style={[styles.statLabel, { color: theme.subtext }]}>Total Jurnal</Text>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.statNum, { color: theme.text }]}>{stats.streak}</Text>
-                <Text style={[styles.statLabel, { color: theme.subtext }]}>Hari Streak</Text>
-              </View>
-              <View style={[styles.statCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <Text style={[styles.statNum, { color: theme.text }]}>{stats.chats}</Text>
-                <Text style={[styles.statLabel, { color: theme.subtext }]}>Sesi Cerita</Text>
-              </View>
             </View>
 
-            {/* ========================================================================= */}
-            {/* PILIHAN KEPRIBADIAN & KARAKTER TEMAN AI (COMPACT ACTIVE CARD + MODAL) */}
-            {/* ========================================================================= */}
-            <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 14 }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
+            {/* Right Column (Themes, Colors & Wallpaper Studio) */}
+            <View style={[styles.column, isWide && { flex: 1.35 }]}>
+
+              {/* ========================================================================= */}
+              {/* TEMA & PERSONALISASI WARNA APLIKASI (STUDIO & DATABASE PERSISTENCE) */}
+              {/* ========================================================================= */}
+              <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.themeHeaderRow}>
                   <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="sparkles" size={17} color={theme.accentLight} />
+                    <Ionicons name="color-palette" size={17} color={theme.accentLight} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Kepribadian Teman AI</Text>
-                      {activePersona.isCustom && (
-                        <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
-                          <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Kustom</Text>
-                        </View>
-                      )}
-                    </View>
-                    <Text style={[styles.activePersonaNameHighlight, { color: theme.accentLight }]}>
-                      {activePersona.name} • "{activePersona.botName || 'Ara'}"
+                    <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Tema & Personalisasi Tampilan</Text>
+                    <Text style={[styles.themeHeaderSub, { color: theme.subtext }]}>
+                      Sesuaikan mode terang, gelap, dan warna kreasi bebas Anda
                     </Text>
                   </View>
                 </View>
 
-                <TouchableOpacity
-                  style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                  onPress={() => {
-                    refreshMoodsAndSettings();
-                    setPersonaSearchQuery('');
-                    setShowPersonaModal(true);
-                  }}
-                  activeOpacity={0.7}
-                >
-                  <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Ganti</Text>
-                  <Ionicons name="chevron-forward" size={13} color={theme.accentLight} />
-                </TouchableOpacity>
-              </View>
-
-              <Text style={[styles.activePersonaDesc, { color: theme.subtext, marginTop: 6 }]} numberOfLines={2}>
-                {activePersona.desc}
-              </Text>
-            </View>
-
-            {/* ========================================================================= */}
-            {/* TEMA & PERSONALISASI WARNA APLIKASI (STUDIO & DATABASE PERSISTENCE) */}
-            {/* ========================================================================= */}
-            <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.themeHeaderRow}>
-                <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                  <Ionicons name="color-palette" size={17} color={theme.accentLight} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Tema & Personalisasi Tampilan</Text>
-                  <Text style={[styles.themeHeaderSub, { color: theme.subtext }]}>
-                    Sesuaikan mode terang, gelap, dan warna kreasi bebas Anda
-                  </Text>
-                </View>
-              </View>
-
-              {/* Mode Tabs (Gelap / Terang / Studio Kustom) */}
-              <View style={[styles.themeModeTabsRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                <TouchableOpacity
-                  style={[
-                    styles.themeModeTab,
-                    themeMode === 'dark' && [styles.themeModeTabActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                  ]}
-                  onPress={() => setThemeMode('dark')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="moon" size={13} color={themeMode === 'dark' ? theme.accentLight : theme.subtext} />
-                  <Text style={[styles.themeModeTabText, { color: themeMode === 'dark' ? theme.accentLight : theme.subtext }]}>
-                    Gelap ({darkThemes.length})
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.themeModeTab,
-                    themeMode === 'light' && [styles.themeModeTabActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                  ]}
-                  onPress={() => setThemeMode('light')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="sunny" size={14} color={themeMode === 'light' ? theme.accentLight : theme.subtext} />
-                  <Text style={[styles.themeModeTabText, { color: themeMode === 'light' ? theme.accentLight : theme.subtext }]}>
-                    Terang ({lightThemes.length})
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.themeModeTab,
-                    themeMode === 'custom' && [styles.themeModeTabActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                  ]}
-                  onPress={() => setThemeMode('custom')}
-                  activeOpacity={0.7}
-                >
-                  <Ionicons name="color-wand" size={13} color={themeMode === 'custom' ? theme.accentLight : theme.subtext} />
-                  <Text style={[styles.themeModeTabText, { color: themeMode === 'custom' ? theme.accentLight : theme.subtext }]}>
-                    Studio Kustom
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* ------------------------------------------------------------------- */}
-              {/* TAB 1: DARK THEMES */}
-              {/* ------------------------------------------------------------------- */}
-              {themeMode === 'dark' && (
-                <View style={styles.themeGrid}>
-                  {darkThemes.map(t => {
-                    const isActive = themeId === t.id && themeMode === 'dark';
-                    return (
-                      <TouchableOpacity
-                        key={t.id}
-                        style={[
-                          styles.themeCard,
-                          { backgroundColor: t.bg, borderColor: isActive ? t.accentLight : '#202634' },
-                          isActive && { borderWidth: 2, shadowColor: t.accent, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }
-                        ]}
-                        onPress={() => setTheme(t.id)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.themeCardTop}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                            <Ionicons
-                              name={(t.iconName as any) || 'color-palette-outline'}
-                              size={15}
-                              color={isActive ? (isLightMode ? t.accent : t.accentLight) : theme.subtext}
-                            />
-                            <Text style={[styles.themeName, { color: isActive ? t.accentLight : t.text }]} numberOfLines={1}>
-                              {t.name.split(' (')[0]}
-                            </Text>
-                          </View>
-                          {isActive && <Ionicons name="checkmark-circle" size={16} color={t.accentLight} />}
-                        </View>
-                        <View style={styles.themePreviewPalette}>
-                          <View style={[styles.themeDot, { backgroundColor: t.bg, borderWidth: 1, borderColor: t.border }]} />
-                          <View style={[styles.themeDot, { backgroundColor: t.card, borderWidth: 1, borderColor: t.border }]} />
-                          <View style={[styles.themeDot, { backgroundColor: t.accent }]} />
-                          <View style={[styles.themeDot, { backgroundColor: t.text }]} />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-
-              {/* ------------------------------------------------------------------- */}
-              {/* TAB 2: LIGHT THEMES */}
-              {/* ------------------------------------------------------------------- */}
-              {themeMode === 'light' && (
-                <View style={styles.themeGrid}>
-                  {lightThemes.map(t => {
-                    const isActive = themeId === t.id && themeMode === 'light';
-                    return (
-                      <TouchableOpacity
-                        key={t.id}
-                        style={[
-                          styles.themeCard,
-                          { backgroundColor: t.bg, borderColor: isActive ? t.accent : '#D1D5DB' },
-                          isActive && { borderWidth: 2, shadowColor: t.accent, shadowOpacity: 0.2, shadowRadius: 6, elevation: 4 }
-                        ]}
-                        onPress={() => setTheme(t.id)}
-                        activeOpacity={0.8}
-                      >
-                        <View style={styles.themeCardTop}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                            <Ionicons
-                              name={(t.iconName as any) || 'color-palette-outline'}
-                              size={15}
-                              color={isActive ? t.accent : theme.subtext}
-                            />
-                            <Text style={[styles.themeName, { color: isActive ? t.accent : t.text }]} numberOfLines={1}>
-                              {t.name}
-                            </Text>
-                          </View>
-                          {isActive && <Ionicons name="checkmark-circle" size={16} color={t.accent} />}
-                        </View>
-                        <View style={styles.themePreviewPalette}>
-                          <View style={[styles.themeDot, { backgroundColor: t.bg, borderWidth: 1, borderColor: t.border }]} />
-                          <View style={[styles.themeDot, { backgroundColor: t.card, borderWidth: 1, borderColor: t.border }]} />
-                          <View style={[styles.themeDot, { backgroundColor: t.accent }]} />
-                          <View style={[styles.themeDot, { backgroundColor: t.text }]} />
-                        </View>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-              )}
-
-              {/* ------------------------------------------------------------------- */}
-              {/* TAB 3: CUSTOM STUDIO (GANTI WARNA BEBAS & BACKGROUND PICKER) */}
-              {/* ------------------------------------------------------------------- */}
-              {themeMode === 'custom' && (
-                <View style={styles.customStudioWrap}>
-                  {/* Live Mini Preview Box */}
-                  <View style={[styles.miniPreviewCard, { backgroundColor: theme.bg, borderColor: theme.border }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <View style={[styles.miniBadgeDot, { backgroundColor: theme.primary }]} />
-                        <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }}>Live Preview Tampilan</Text>
-                      </View>
-                      <View style={{ backgroundColor: theme.accentBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
-                        <Text style={{ color: theme.accentLight, fontSize: 9.5, fontWeight: '700' }}>KUSTOM AKTIF</Text>
-                      </View>
-                    </View>
-
-                    <View style={[styles.miniInnerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      <Text style={{ color: theme.text, fontSize: 11, fontWeight: '600', marginBottom: 2 }}>
-                        Kartu Komponen Aplikasi
-                      </Text>
-                      <Text style={{ color: theme.subtext, fontSize: 10, lineHeight: 14 }}>
-                        Teks ini dan background di atas berubah sesuai palet yang Anda pilih di bawah.
-                      </Text>
-                      <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
-                        <View style={[styles.miniBtnPrimary, { backgroundColor: theme.primary }]}>
-                          <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>Tombol Utama</Text>
-                        </View>
-                        <View style={[styles.miniBtnOutline, { borderColor: theme.border, backgroundColor: theme.cardInner }]}>
-                          <Text style={{ color: theme.accentLight, fontSize: 10, fontWeight: '600' }}>Aksen</Text>
-                        </View>
-                      </View>
-                    </View>
-                  </View>
-
-                  {/* 1. Background Color Picker */}
-                  <Text style={[styles.customFieldTitle, { color: theme.text }]}>1. Warna Latar Belakang (Background):</Text>
-                  <View style={styles.colorChipsRow}>
-                    {BG_COLOR_PRESETS.map(b => (
-                      <TouchableOpacity
-                        key={b.hex}
-                        style={[
-                          styles.colorChipBtn,
-                          { backgroundColor: b.hex, borderColor: theme.bg === b.hex ? theme.accentLight : theme.border },
-                          theme.bg === b.hex && styles.colorChipBtnActive
-                        ]}
-                        onPress={() => {
-                          setCustomColor('bg', b.hex);
-                          setCustomBgHex(b.hex);
-                        }}
-                      >
-                        {theme.bg === b.hex && <Ionicons name="checkmark" size={12} color={isColorLight(b.hex) ? '#000' : '#FFF'} />}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <View style={styles.hexInputRow}>
-                    <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
-                    <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim()) ? (customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim()) : theme.bg }]} />
-                    <TextInput
-                      style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
-                      placeholder="#0E1117"
-                      placeholderTextColor={theme.muted}
-                      value={customBgHex}
-                      autoCapitalize="characters"
-                      maxLength={7}
-                      onChangeText={handleBgHexChange}
-                      onBlur={() => {
-                        if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim())) {
-                          setCustomBgHex(theme.bg);
-                        }
-                      }}
-                    />
-                    <TouchableOpacity
-                      style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
-                      onPress={() => openColorPamphlet('bg')}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
-                      <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* 2. Card / Container Color Picker */}
-                  <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>2. Warna Kartu / Panel (Card):</Text>
-                  <View style={styles.colorChipsRow}>
-                    {CARD_COLOR_PRESETS.map(c => (
-                      <TouchableOpacity
-                        key={c.hex}
-                        style={[
-                          styles.colorChipBtn,
-                          { backgroundColor: c.hex, borderColor: theme.card === c.hex ? theme.accentLight : theme.border },
-                          theme.card === c.hex && styles.colorChipBtnActive
-                        ]}
-                        onPress={() => {
-                          setCustomColor('card', c.hex);
-                          setCustomCardHex(c.hex);
-                        }}
-                      >
-                        {theme.card === c.hex && <Ionicons name="checkmark" size={12} color={isColorLight(c.hex) ? '#000' : '#FFF'} />}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <View style={styles.hexInputRow}>
-                    <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
-                    <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim()) ? (customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim()) : theme.card }]} />
-                    <TextInput
-                      style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
-                      placeholder="#141822"
-                      placeholderTextColor={theme.muted}
-                      value={customCardHex}
-                      autoCapitalize="characters"
-                      maxLength={7}
-                      onChangeText={handleCardHexChange}
-                      onBlur={() => {
-                        if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim())) {
-                          setCustomCardHex(theme.card);
-                        }
-                      }}
-                    />
-                    <TouchableOpacity
-                      style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
-                      onPress={() => openColorPamphlet('card')}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
-                      <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* 3. Primary / Accent Color Palette */}
-                  <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>3. Warna Aksen & Tombol Utama:</Text>
-                  <View style={styles.colorChipsRow}>
-                    {ACCENT_COLOR_PALETTE.map(a => (
-                      <TouchableOpacity
-                        key={a}
-                        style={[
-                          styles.colorChipBtn,
-                          { backgroundColor: a, borderColor: theme.accent === a ? '#FFFFFF' : 'transparent' },
-                          theme.accent === a && styles.colorChipBtnActive
-                        ]}
-                        onPress={() => {
-                          setCustomColor('primary', a);
-                          setCustomAccentHex(a);
-                        }}
-                      >
-                        {theme.accent === a && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                  <View style={styles.hexInputRow}>
-                    <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
-                    <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim()) ? (customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim()) : theme.primary }]} />
-                    <TextInput
-                      style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
-                      placeholder="#2563EB"
-                      placeholderTextColor={theme.muted}
-                      value={customAccentHex}
-                      autoCapitalize="characters"
-                      maxLength={7}
-                      onChangeText={handleAccentHexChange}
-                      onBlur={() => {
-                        if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim())) {
-                          setCustomAccentHex(theme.primary);
-                        }
-                      }}
-                    />
-                    <TouchableOpacity
-                      style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
-                      onPress={() => openColorPamphlet('primary')}
-                      activeOpacity={0.8}
-                    >
-                      <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
-                      <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* 4. Text Contrast Option */}
-                  <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>4. Kontras Warna Teks:</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                    <TouchableOpacity
-                      style={[
-                        styles.contrastOptionBtn,
-                        { backgroundColor: '#0E1117', borderColor: theme.text === '#F3F4F6' ? theme.accentLight : theme.border }
-                      ]}
-                      onPress={() => setCustomColor('text', '#F3F4F6')}
-                    >
-                      <Text style={{ color: '#F3F4F6', fontSize: 11, fontWeight: '700' }}>Teks Putih / Terang</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.contrastOptionBtn,
-                        { backgroundColor: '#FFFFFF', borderColor: theme.text === '#0F172A' ? theme.accent : theme.border }
-                      ]}
-                      onPress={() => setCustomColor('text', '#0F172A')}
-                    >
-                      <Text style={{ color: '#0F172A', fontSize: 11, fontWeight: '700' }}>Teks Hitam / Gelap</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                  {/* Reset Button */}
+                {/* Mode Tabs (Gelap / Terang / Studio Kustom) */}
+                <View style={[styles.themeModeTabsRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                   <TouchableOpacity
-                    style={[styles.resetCustomBtn, { borderColor: theme.border, backgroundColor: theme.cardInner }]}
-                    onPress={resetTheme}
+                    style={[
+                      styles.themeModeTab,
+                      themeMode === 'dark' && [styles.themeModeTabActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                    ]}
+                    onPress={() => setThemeMode('dark')}
                     activeOpacity={0.7}
                   >
-                    <Ionicons name="refresh" size={13} color={theme.subtext} />
-                    <Text style={[styles.resetCustomText, { color: theme.subtext }]}>Reset ke Bawaan (Default Obsidian)</Text>
+                    <Ionicons name="moon" size={13} color={themeMode === 'dark' ? theme.accentLight : theme.subtext} />
+                    <Text style={[styles.themeModeTabText, { color: themeMode === 'dark' ? theme.accentLight : theme.subtext }]}>
+                      Gelap ({darkThemes.length})
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.themeModeTab,
+                      themeMode === 'light' && [styles.themeModeTabActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                    ]}
+                    onPress={() => setThemeMode('light')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="sunny" size={14} color={themeMode === 'light' ? theme.accentLight : theme.subtext} />
+                    <Text style={[styles.themeModeTabText, { color: themeMode === 'light' ? theme.accentLight : theme.subtext }]}>
+                      Terang ({lightThemes.length})
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.themeModeTab,
+                      themeMode === 'custom' && [styles.themeModeTabActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                    ]}
+                    onPress={() => setThemeMode('custom')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="color-wand" size={13} color={themeMode === 'custom' ? theme.accentLight : theme.subtext} />
+                    <Text style={[styles.themeModeTabText, { color: themeMode === 'custom' ? theme.accentLight : theme.subtext }]}>
+                      Studio Kustom
+                    </Text>
                   </TouchableOpacity>
                 </View>
-              )}
 
-              {/* ------------------------------------------------------------------- */}
-              {/* SECTION: GAYA SENI PITA LATAR & WALLPAPER KUSTOM */}
-              {/* ------------------------------------------------------------------- */}
-              <View style={[styles.artSectionDivider, { borderTopColor: theme.border }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, marginTop: 8 }}>
-                  <Ionicons name="sparkles-outline" size={16} color={theme.accentLight} />
-                  <Text style={[styles.artSectionHeaderTitle, { color: theme.text }]}>Ornamen Seni Latar & Wallpaper</Text>
-                </View>
-                <Text style={[styles.artSectionHeaderSub, { color: theme.subtext }]}>
-                  Pilih gaya pita seni vektor dinamis atau pasang foto galeri pribadi dengan efek blur.
-                </Text>
+                {/* ------------------------------------------------------------------- */}
+                {/* TAB 1: DARK THEMES */}
+                {/* ------------------------------------------------------------------- */}
+                {themeMode === 'dark' && (
+                  <View style={styles.themeGrid}>
+                    {darkThemes.map(t => {
+                      const isActive = themeId === t.id && themeMode === 'dark';
+                      return (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={[
+                            styles.themeCard,
+                            { backgroundColor: t.bg, borderColor: isActive ? t.accentLight : '#202634' },
+                            isActive && { borderWidth: 2, shadowColor: t.accent, shadowOpacity: 0.3, shadowRadius: 8, elevation: 4 }
+                          ]}
+                          onPress={() => setTheme(t.id)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.themeCardTop}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              <Ionicons
+                                name={(t.iconName as any) || 'color-palette-outline'}
+                                size={15}
+                                color={isActive ? (isLightMode ? t.accent : t.accentLight) : theme.subtext}
+                              />
+                              <Text style={[styles.themeName, { color: isActive ? t.accentLight : t.text }]} numberOfLines={1}>
+                                {t.name.split(' (')[0]}
+                              </Text>
+                            </View>
+                            {isActive && <Ionicons name="checkmark-circle" size={16} color={t.accentLight} />}
+                          </View>
+                          <View style={styles.themePreviewPalette}>
+                            <View style={[styles.themeDot, { backgroundColor: t.bg, borderWidth: 1, borderColor: t.border }]} />
+                            <View style={[styles.themeDot, { backgroundColor: t.card, borderWidth: 1, borderColor: t.border }]} />
+                            <View style={[styles.themeDot, { backgroundColor: t.accent }]} />
+                            <View style={[styles.themeDot, { backgroundColor: t.text }]} />
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
 
-                {/* Art Style Choices Grid */}
-                <View style={styles.artStylesGrid}>
-                  {[
-                    { id: 'aurora-ribbons', label: 'Pita Aurora', desc: 'Gelombang pita halus glowing', icon: 'color-filter-outline' },
-                    { id: 'fluid-waves', label: 'Garis Fluida', desc: 'Garis meliuk modern abstrak', icon: 'water-outline' },
-                    { id: 'geometric-glow', label: 'Sudut Geometris', desc: 'Aksen poligon sudut modern', icon: 'cube-outline' },
-                    { id: 'custom-photo', label: 'Foto Wallpaper', desc: 'Foto galeri + Frosted Blur', icon: 'image-outline' },
-                    { id: 'none', label: 'Polos Minimal', desc: 'Warna solid tanpa ornamen', icon: 'square-outline' },
-                  ].map(styleItem => {
-                    const isSelected = bgArtStyle === styleItem.id;
-                    return (
-                      <TouchableOpacity
-                        key={styleItem.id}
-                        style={[
-                          styles.artStyleCard,
-                          { backgroundColor: theme.cardInner, borderColor: isSelected ? theme.accentLight : theme.border },
-                          isSelected && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
-                        ]}
-                        onPress={() => setBgArtStyle(styleItem.id as any)}
-                        activeOpacity={0.8}
-                      >
+                {/* ------------------------------------------------------------------- */}
+                {/* TAB 2: LIGHT THEMES */}
+                {/* ------------------------------------------------------------------- */}
+                {themeMode === 'light' && (
+                  <View style={styles.themeGrid}>
+                    {lightThemes.map(t => {
+                      const isActive = themeId === t.id && themeMode === 'light';
+                      return (
+                        <TouchableOpacity
+                          key={t.id}
+                          style={[
+                            styles.themeCard,
+                            { backgroundColor: t.bg, borderColor: isActive ? t.accent : '#D1D5DB' },
+                            isActive && { borderWidth: 2, shadowColor: t.accent, shadowOpacity: 0.2, shadowRadius: 6, elevation: 4 }
+                          ]}
+                          onPress={() => setTheme(t.id)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={styles.themeCardTop}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
+                              <Ionicons
+                                name={(t.iconName as any) || 'color-palette-outline'}
+                                size={15}
+                                color={isActive ? t.accent : theme.subtext}
+                              />
+                              <Text style={[styles.themeName, { color: isActive ? t.accent : t.text }]} numberOfLines={1}>
+                                {t.name}
+                              </Text>
+                            </View>
+                            {isActive && <Ionicons name="checkmark-circle" size={16} color={t.accent} />}
+                          </View>
+                          <View style={styles.themePreviewPalette}>
+                            <View style={[styles.themeDot, { backgroundColor: t.bg, borderWidth: 1, borderColor: t.border }]} />
+                            <View style={[styles.themeDot, { backgroundColor: t.card, borderWidth: 1, borderColor: t.border }]} />
+                            <View style={[styles.themeDot, { backgroundColor: t.accent }]} />
+                            <View style={[styles.themeDot, { backgroundColor: t.text }]} />
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                )}
+
+                {/* ------------------------------------------------------------------- */}
+                {/* TAB 3: CUSTOM STUDIO (GANTI WARNA BEBAS & BACKGROUND PICKER) */}
+                {/* ------------------------------------------------------------------- */}
+                {themeMode === 'custom' && (
+                  <View style={styles.customStudioWrap}>
+                    {/* Live Mini Preview Box */}
+                    <View style={[styles.miniPreviewCard, { backgroundColor: theme.bg, borderColor: theme.border }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                          <Ionicons name={styleItem.icon as any} size={14} color={isSelected ? theme.accentLight : theme.subtext} />
-                          <Text style={[styles.artStyleLabel, { color: isSelected ? theme.accentLight : theme.text }]}>
-                            {styleItem.label}
-                          </Text>
+                          <View style={[styles.miniBadgeDot, { backgroundColor: theme.primary }]} />
+                          <Text style={{ color: theme.text, fontSize: 12, fontWeight: '700' }}>Live Preview Tampilan</Text>
                         </View>
-                        <Text style={[styles.artStyleDesc, { color: theme.subtext }]} numberOfLines={1}>
-                          {styleItem.desc}
-                        </Text>
-                      </TouchableOpacity>
-                    );
-                  })}
-                </View>
-
-                {/* Sub-controls when 'custom-photo' is active */}
-                {bgArtStyle === 'custom-photo' && (
-                  <View style={[styles.customPhotoControlsBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Ionicons name="images-outline" size={15} color={theme.accentLight} />
-                        <Text style={{ color: theme.text, fontSize: 11.5, fontWeight: '700' }}>Foto Wallpaper Galeri</Text>
+                        <View style={{ backgroundColor: theme.accentBg, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                          <Text style={{ color: theme.accentLight, fontSize: 11, fontWeight: '700' }}>KUSTOM AKTIF</Text>
+                        </View>
                       </View>
+
+                      <View style={[styles.miniInnerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                        <Text style={{ color: theme.text, fontSize: 11, fontWeight: '600', marginBottom: 2 }}>
+                          Kartu Komponen Aplikasi
+                        </Text>
+                        <Text style={{ color: theme.subtext, fontSize: 11, lineHeight: 14 }}>
+                          Teks ini dan background di atas berubah sesuai palet yang Anda pilih di bawah.
+                        </Text>
+                        <View style={{ flexDirection: 'row', gap: 6, marginTop: 6 }}>
+                          <View style={[styles.miniBtnPrimary, { backgroundColor: theme.primary }]}>
+                            <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>Tombol Utama</Text>
+                          </View>
+                          <View style={[styles.miniBtnOutline, { borderColor: theme.border, backgroundColor: theme.cardInner }]}>
+                            <Text style={{ color: theme.accentLight, fontSize: 11, fontWeight: '600' }}>Aksen</Text>
+                          </View>
+                        </View>
+                      </View>
+                    </View>
+
+                    {/* 1. Background Color Picker */}
+                    <Text style={[styles.customFieldTitle, { color: theme.text }]}>1. Warna Latar Belakang (Background):</Text>
+                    <View style={styles.colorChipsRow}>
+                      {BG_COLOR_PRESETS.map(b => (
+                        <TouchableOpacity
+                          key={b.hex}
+                          style={[
+                            styles.colorChipBtn,
+                            { backgroundColor: b.hex, borderColor: theme.bg === b.hex ? theme.accentLight : theme.border },
+                            theme.bg === b.hex && styles.colorChipBtnActive
+                          ]}
+                          onPress={() => {
+                            setCustomColor('bg', b.hex);
+                            setCustomBgHex(b.hex);
+                          }}
+                        >
+                          {theme.bg === b.hex && <Ionicons name="checkmark" size={12} color={isColorLight(b.hex) ? '#000' : '#FFF'} />}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <View style={styles.hexInputRow}>
+                      <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                      <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim()) ? (customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim()) : theme.bg }]} />
+                      <TextInput
+                        style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                        placeholder="#0E1117"
+                        placeholderTextColor={theme.muted}
+                        value={customBgHex}
+                        autoCapitalize="characters"
+                        maxLength={7}
+                        onChangeText={handleBgHexChange}
+                        onBlur={() => {
+                          if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim())) {
+                            setCustomBgHex(theme.bg);
+                          }
+                        }}
+                      />
                       <TouchableOpacity
-                        style={[styles.uploadPhotoBtn, { backgroundColor: theme.primary }]}
-                        onPress={handlePickWallpaperImage}
+                        style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                        onPress={() => openColorPamphlet('bg')}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="cloud-upload-outline" size={13} color="#FFFFFF" />
-                        <Text style={styles.uploadPhotoBtnText}>{bgCustomImage ? 'Ganti Foto' : 'Pilih Foto'}</Text>
+                        <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
                       </TouchableOpacity>
                     </View>
 
-                    {bgCustomImage && (
-                      <View style={{ marginTop: 10, gap: 8 }}>
-                        {/* Blur Intensity Options */}
-                        <View>
-                          <Text style={{ color: theme.subtext, fontSize: 10.5, marginBottom: 4 }}>Intensitas Blur (Frosted Glass):</Text>
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            {[
-                              { label: 'Halus (10px)', val: 10 },
-                              { label: 'Sedang (20px)', val: 20 },
-                              { label: 'Pekat (30px)', val: 30 },
-                            ].map(b => (
-                              <TouchableOpacity
-                                key={b.val}
-                                style={[
-                                  styles.blurOptionBtn,
-                                  { backgroundColor: theme.card, borderColor: bgBlurRadius === b.val ? theme.accentLight : theme.border },
-                                  bgBlurRadius === b.val && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
-                                ]}
-                                onPress={() => setBgBlurRadius(b.val)}
-                              >
-                                <Text style={{ color: bgBlurRadius === b.val ? theme.accentLight : theme.text, fontSize: 10, fontWeight: '700' }}>
-                                  {b.label}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </View>
-
-                        {/* Dimming / Shadow Opacity Options */}
-                        <View>
-                          <Text style={{ color: theme.subtext, fontSize: 10.5, marginBottom: 4 }}>Lapisan Peredup (Shadow Tint):</Text>
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            {[
-                              { label: 'Tipis (35%)', val: 0.35 },
-                              { label: 'Seimbang (55%)', val: 0.55 },
-                              { label: 'Pekat (75%)', val: 0.75 },
-                            ].map(d => (
-                              <TouchableOpacity
-                                key={d.val}
-                                style={[
-                                  styles.blurOptionBtn,
-                                  { backgroundColor: theme.card, borderColor: bgDimmingOpacity === d.val ? theme.accentLight : theme.border },
-                                  bgDimmingOpacity === d.val && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
-                                ]}
-                                onPress={() => setBgDimmingOpacity(d.val)}
-                              >
-                                <Text style={{ color: bgDimmingOpacity === d.val ? theme.accentLight : theme.text, fontSize: 10, fontWeight: '700' }}>
-                                  {d.label}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </View>
-
-                        {/* Screen Fit Mode Option */}
-                        <View>
-                          <Text style={{ color: theme.subtext, fontSize: 10.5, marginBottom: 4 }}>
-                            Penyesuaian Ukuran Layar:
-                          </Text>
-                          <View style={{ flexDirection: 'row', gap: 6 }}>
-                            {[
-                              { label: 'Pas Utuh (Tanpa Potong)', mode: 'contain' as const },
-                              { label: 'Isi Penuh Layar', mode: 'cover' as const },
-                            ].map(f => (
-                              <TouchableOpacity
-                                key={f.mode}
-                                style={[
-                                  styles.blurOptionBtn,
-                                  { backgroundColor: theme.card, borderColor: bgFitMode === f.mode ? theme.accentLight : theme.border },
-                                  bgFitMode === f.mode && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
-                                ]}
-                                onPress={() => setBgFitMode(f.mode)}
-                              >
-                                <Text style={{ color: bgFitMode === f.mode ? theme.accentLight : theme.text, fontSize: 10, fontWeight: '700' }}>
-                                  {f.label}
-                                </Text>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                        </View>
-
-                        {/* Remove Photo Button */}
+                    {/* 2. Card / Container Color Picker */}
+                    <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>2. Warna Kartu / Panel (Card):</Text>
+                    <View style={styles.colorChipsRow}>
+                      {CARD_COLOR_PRESETS.map(c => (
                         <TouchableOpacity
-                          style={[styles.removePhotoBtn, { borderColor: '#EF4444' }]}
-                          onPress={() => setBgCustomImage(null)}
+                          key={c.hex}
+                          style={[
+                            styles.colorChipBtn,
+                            { backgroundColor: c.hex, borderColor: theme.card === c.hex ? theme.accentLight : theme.border },
+                            theme.card === c.hex && styles.colorChipBtnActive
+                          ]}
+                          onPress={() => {
+                            setCustomColor('card', c.hex);
+                            setCustomCardHex(c.hex);
+                          }}
                         >
-                          <Ionicons name="trash-outline" size={12} color="#EF4444" />
-                          <Text style={{ color: '#EF4444', fontSize: 10.5, fontWeight: '600' }}>Hapus Foto Wallpaper</Text>
+                          {theme.card === c.hex && <Ionicons name="checkmark" size={12} color={isColorLight(c.hex) ? '#000' : '#FFF'} />}
                         </TouchableOpacity>
-                      </View>
-                    )}
+                      ))}
+                    </View>
+                    <View style={styles.hexInputRow}>
+                      <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                      <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim()) ? (customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim()) : theme.card }]} />
+                      <TextInput
+                        style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                        placeholder="#141822"
+                        placeholderTextColor={theme.muted}
+                        value={customCardHex}
+                        autoCapitalize="characters"
+                        maxLength={7}
+                        onChangeText={handleCardHexChange}
+                        onBlur={() => {
+                          if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim())) {
+                            setCustomCardHex(theme.card);
+                          }
+                        }}
+                      />
+                      <TouchableOpacity
+                        style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                        onPress={() => openColorPamphlet('card')}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* 3. Primary / Accent Color Palette */}
+                    <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>3. Warna Aksen & Tombol Utama:</Text>
+                    <View style={styles.colorChipsRow}>
+                      {ACCENT_COLOR_PALETTE.map(a => (
+                        <TouchableOpacity
+                          key={a}
+                          style={[
+                            styles.colorChipBtn,
+                            { backgroundColor: a, borderColor: theme.accent === a ? '#FFFFFF' : 'transparent' },
+                            theme.accent === a && styles.colorChipBtnActive
+                          ]}
+                          onPress={() => {
+                            setCustomColor('primary', a);
+                            setCustomAccentHex(a);
+                          }}
+                        >
+                          {theme.accent === a && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <View style={styles.hexInputRow}>
+                      <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                      <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim()) ? (customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim()) : theme.primary }]} />
+                      <TextInput
+                        style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                        placeholder="#2563EB"
+                        placeholderTextColor={theme.muted}
+                        value={customAccentHex}
+                        autoCapitalize="characters"
+                        maxLength={7}
+                        onChangeText={handleAccentHexChange}
+                        onBlur={() => {
+                          if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim())) {
+                            setCustomAccentHex(theme.primary);
+                          }
+                        }}
+                      />
+                      <TouchableOpacity
+                        style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                        onPress={() => openColorPamphlet('primary')}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* 4. Text Contrast Option */}
+                    <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>4. Kontras Warna Teks:</Text>
+                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
+                      <TouchableOpacity
+                        style={[
+                          styles.contrastOptionBtn,
+                          { backgroundColor: '#0E1117', borderColor: theme.text === '#F3F4F6' ? theme.accentLight : theme.border }
+                        ]}
+                        onPress={() => setCustomColor('text', '#F3F4F6')}
+                      >
+                        <Text style={{ color: '#F3F4F6', fontSize: 11, fontWeight: '700' }}>Teks Putih / Terang</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.contrastOptionBtn,
+                          { backgroundColor: '#FFFFFF', borderColor: theme.text === '#0F172A' ? theme.accent : theme.border }
+                        ]}
+                        onPress={() => setCustomColor('text', '#0F172A')}
+                      >
+                        <Text style={{ color: '#0F172A', fontSize: 11, fontWeight: '700' }}>Teks Hitam / Gelap</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {/* Reset Button */}
+                    <TouchableOpacity
+                      style={[styles.resetCustomBtn, { borderColor: theme.border, backgroundColor: theme.cardInner }]}
+                      onPress={resetTheme}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="refresh" size={13} color={theme.subtext} />
+                      <Text style={[styles.resetCustomText, { color: theme.subtext }]}>Reset ke Bawaan (Default Obsidian)</Text>
+                    </TouchableOpacity>
                   </View>
                 )}
+
+                {/* ------------------------------------------------------------------- */}
+                {/* SECTION: GAYA SENI PITA LATAR & WALLPAPER KUSTOM */}
+                {/* ------------------------------------------------------------------- */}
+                <View style={[styles.artSectionDivider, { borderTopColor: theme.border }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, marginTop: 8 }}>
+                    <Ionicons name="sparkles-outline" size={16} color={theme.accentLight} />
+                    <Text style={[styles.artSectionHeaderTitle, { color: theme.text }]}>Ornamen Seni Latar & Wallpaper</Text>
+                  </View>
+                  <Text style={[styles.artSectionHeaderSub, { color: theme.subtext }]}>
+                    Pilih gaya pita seni vektor dinamis atau pasang foto galeri pribadi dengan efek blur.
+                  </Text>
+
+                  {/* Art Style Choices Grid */}
+                  <View style={styles.artStylesGrid}>
+                    {[
+                      { id: 'aurora-ribbons', label: 'Pita Aurora', desc: 'Gelombang pita halus glowing', icon: 'color-filter-outline' },
+                      { id: 'fluid-waves', label: 'Garis Fluida', desc: 'Garis meliuk modern abstrak', icon: 'water-outline' },
+                      { id: 'geometric-glow', label: 'Sudut Geometris', desc: 'Aksen poligon sudut modern', icon: 'cube-outline' },
+                      { id: 'custom-photo', label: 'Foto Wallpaper', desc: 'Foto galeri + Frosted Blur', icon: 'image-outline' },
+                      { id: 'none', label: 'Polos Minimal', desc: 'Warna solid tanpa ornamen', icon: 'square-outline' },
+                    ].map(styleItem => {
+                      const isSelected = bgArtStyle === styleItem.id;
+                      return (
+                        <TouchableOpacity
+                          key={styleItem.id}
+                          style={[
+                            styles.artStyleCard,
+                            { backgroundColor: theme.cardInner, borderColor: isSelected ? theme.accentLight : theme.border },
+                            isSelected && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                          ]}
+                          onPress={() => setBgArtStyle(styleItem.id as any)}
+                          activeOpacity={0.8}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name={styleItem.icon as any} size={14} color={isSelected ? theme.accentLight : theme.subtext} />
+                            <Text style={[styles.artStyleLabel, { color: isSelected ? theme.accentLight : theme.text }]}>
+                              {styleItem.label}
+                            </Text>
+                          </View>
+                          <Text style={[styles.artStyleDesc, { color: theme.subtext }]} numberOfLines={1}>
+                            {styleItem.desc}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+
+                  {/* Sub-controls when 'custom-photo' is active */}
+                  {bgArtStyle === 'custom-photo' && (
+                    <View style={[styles.customPhotoControlsBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="images-outline" size={15} color={theme.accentLight} />
+                          <Text style={{ color: theme.text, fontSize: 11.5, fontWeight: '700' }}>Foto Wallpaper Galeri</Text>
+                        </View>
+                        <TouchableOpacity
+                          style={[styles.uploadPhotoBtn, { backgroundColor: theme.primary }]}
+                          onPress={handlePickWallpaperImage}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="cloud-upload-outline" size={13} color="#FFFFFF" />
+                          <Text style={styles.uploadPhotoBtnText}>{bgCustomImage ? 'Ganti Foto' : 'Pilih Foto'}</Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      {bgCustomImage && (
+                        <View style={{ marginTop: 10, gap: 8 }}>
+                          {/* Blur Intensity Options */}
+                          {/* Blur Intensity Options */}
+                          <View>
+                            <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 4 }}>Intensitas Blur Wallpaper:</Text>
+                            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                              {[
+                                { label: 'Jernih (0px)', val: 0 },
+                                { label: 'Halus (4px)', val: 4 },
+                                { label: 'Sedang (10px)', val: 10 },
+                                { label: 'Pekat (20px)', val: 20 },
+                              ].map(b => (
+                                <TouchableOpacity
+                                  key={b.val}
+                                  style={[
+                                    styles.blurOptionBtn,
+                                    { backgroundColor: theme.card, borderColor: bgBlurRadius === b.val ? theme.accentLight : theme.border },
+                                    bgBlurRadius === b.val && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                                  ]}
+                                  onPress={() => setBgBlurRadius(b.val)}
+                                >
+                                  <Text style={{ color: bgBlurRadius === b.val ? theme.accentLight : theme.text, fontSize: 11, fontWeight: '700' }}>
+                                    {b.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </View>
+
+                          {/* Dimming / Shadow Opacity Options */}
+                          <View>
+                            <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 4 }}>Lapisan Peredup (Shadow Tint):</Text>
+                            <View style={{ flexDirection: 'row', gap: 6, flexWrap: 'wrap' }}>
+                              {[
+                                { label: 'Terang (15%)', val: 0.15 },
+                                { label: 'Seimbang (30%)', val: 0.30 },
+                                { label: 'Teduh (50%)', val: 0.50 },
+                                { label: 'Gelap (70%)', val: 0.70 },
+                              ].map(d => (
+                                <TouchableOpacity
+                                  key={d.val}
+                                  style={[
+                                    styles.blurOptionBtn,
+                                    { backgroundColor: theme.card, borderColor: bgDimmingOpacity === d.val ? theme.accentLight : theme.border },
+                                    bgDimmingOpacity === d.val && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                                  ]}
+                                  onPress={() => setBgDimmingOpacity(d.val)}
+                                >
+                                  <Text style={{ color: bgDimmingOpacity === d.val ? theme.accentLight : theme.text, fontSize: 11, fontWeight: '700' }}>
+                                    {d.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </View>
+
+                          {/* Screen Fit Mode Option */}
+                          <View>
+                            <Text style={{ color: theme.subtext, fontSize: 12, marginBottom: 4 }}>
+                              Penyesuaian Ukuran Layar:
+                            </Text>
+                            <View style={{ flexDirection: 'row', gap: 6 }}>
+                              {[
+                                { label: 'Pas Utuh (Tanpa Potong)', mode: 'contain' as const },
+                                { label: 'Isi Penuh Layar', mode: 'cover' as const },
+                              ].map(f => (
+                                <TouchableOpacity
+                                  key={f.mode}
+                                  style={[
+                                    styles.blurOptionBtn,
+                                    { backgroundColor: theme.card, borderColor: bgFitMode === f.mode ? theme.accentLight : theme.border },
+                                    bgFitMode === f.mode && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                                  ]}
+                                  onPress={() => setBgFitMode(f.mode)}
+                                >
+                                  <Text style={{ color: bgFitMode === f.mode ? theme.accentLight : theme.text, fontSize: 11, fontWeight: '700' }}>
+                                    {f.label}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                            </View>
+                          </View>
+
+                          {/* Remove Photo Button */}
+                          <TouchableOpacity
+                            style={[styles.removePhotoBtn, { borderColor: '#EF4444' }]}
+                            onPress={() => setBgCustomImage(null)}
+                          >
+                            <Ionicons name="trash-outline" size={12} color="#EF4444" />
+                            <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>Hapus Foto Wallpaper</Text>
+                          </TouchableOpacity>
+                        </View>
+                      )}
+                    </View>
+                  )}
+                </View>
+
+                {/* Persistence note */}
+                <View style={[styles.persistenceNote, { backgroundColor: isLightMode ? '#ECFDF5' : '#0F1A14', borderColor: isLightMode ? '#A7F3D0' : '#193324' }]}>
+                  <Ionicons name="cloud-done-outline" size={14} color="#10B981" />
+                  <Text style={[styles.persistenceNoteText, { color: isLightMode ? '#065F46' : '#34D399' }]}>
+                    Kreasi tema Anda tersimpan permanen di cloud database & browser/aplikasi.
+                  </Text>
+                </View>
               </View>
 
-              {/* Persistence note */}
-              <View style={[styles.persistenceNote, { backgroundColor: isLightMode ? '#ECFDF5' : '#0F1A14', borderColor: isLightMode ? '#A7F3D0' : '#193324' }]}>
-                <Ionicons name="cloud-done-outline" size={14} color="#10B981" />
-                <Text style={[styles.persistenceNoteText, { color: isLightMode ? '#065F46' : '#34D399' }]}>
-                  Kreasi tema Anda tersimpan permanen di cloud database & browser/aplikasi.
-                </Text>
-              </View>
             </View>
-
-            <View style={[styles.infoSection, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.infoRow}>
-                <Ionicons name="shield-checkmark-outline" size={18} color="#10B981" />
-                <Text style={[styles.infoText, { color: theme.subtext }]}>Data tersimpan privat & aman (RLS Active)</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Ionicons name="sync-outline" size={18} color="#3B82F6" />
-                <Text style={[styles.infoText, { color: theme.subtext }]}>Sinkronisasi real-time cloud aktif</Text>
-              </View>
-              <View style={styles.infoRow}>
-                <Ionicons name="sparkles-outline" size={18} color={theme.muted} />
-                <Text style={[styles.infoText, { color: theme.subtext }]}>AI Model Engine: Gemini 2.5 Flash</Text>
-              </View>
-            </View>
-
-            {user && (
-              <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={handleSignOut}>
-                <Ionicons name="log-out-outline" size={16} color="#EF4444" />
-                <Text style={styles.logoutText}>Keluar dari Akun</Text>
-              </TouchableOpacity>
-            )}
-
-            {/* Tap version 5 times as secret shortcut for developer/admin */}
-            <TouchableOpacity onPress={handleSecretTap} activeOpacity={0.7} style={{ marginTop: 16, alignItems: 'center' }}>
-              <Text style={[styles.versionText, { color: theme.muted }]}>Aplikasi Teman Belajar & AI v2.4 • Supabase DB</Text>
-            </TouchableOpacity>
 
           </View>
-
-        </View>
         </View>
       </ScrollView>
 
@@ -1226,7 +1232,7 @@ export default function ProfileScreen() {
       >
         <View style={styles.modalOverlay}>
           <View style={[styles.claimModalCard, { backgroundColor: isLightMode ? '#FFFFFF' : '#11141C', borderColor: isLightMode ? '#E2E8F0' : '#253856' }]}>
-            
+
             <View style={styles.claimModalHeader}>
               <View style={[styles.claimIconCircle, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
                 <Ionicons name="shield-checkmark" size={20} color={theme.accentLight} />
@@ -1448,8 +1454,8 @@ export default function ProfileScreen() {
                       {colorPamphletTarget === 'bg'
                         ? 'Latar Belakang (Background)'
                         : colorPamphletTarget === 'card'
-                        ? 'Kartu & Panel (Card)'
-                        : 'Tombol Aksen & Highlight'}
+                          ? 'Kartu & Panel (Card)'
+                          : 'Tombol Aksen & Highlight'}
                     </Text>
                   </Text>
                 </View>
@@ -1497,7 +1503,7 @@ export default function ProfileScreen() {
                     </Text>
                   </View>
                 </View>
-                <Text style={{ fontSize: 10.5, color: theme.subtext }}>
+                <Text style={{ fontSize: 12, color: theme.subtext }}>
                   Klik salah satu warna di bawah untuk preview, lalu tekan Terapkan.
                 </Text>
               </View>
@@ -1741,7 +1747,7 @@ const styles = StyleSheet.create({
     borderColor: '#202634',
   },
   roleBadgeText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
     letterSpacing: 0.5,
   },
@@ -2067,7 +2073,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   openPamphletBtnText: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
   },
 
@@ -2114,7 +2120,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   pamphletBadgeText: {
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '700',
   },
   pamphletApplyBtn: {
@@ -2160,7 +2166,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   pamphletCatDesc: {
-    fontSize: 10.5,
+    fontSize: 12,
     marginTop: 1,
   },
   pamphletGrid: {
@@ -2242,7 +2248,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   artSectionHeaderSub: {
-    fontSize: 10.5,
+    fontSize: 12,
     lineHeight: 14,
     marginBottom: 10,
   },
@@ -2264,7 +2270,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   artStyleDesc: {
-    fontSize: 9.5,
+    fontSize: 11,
     lineHeight: 13,
   },
   customPhotoControlsBox: {
@@ -2314,7 +2320,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   persistenceNoteText: {
-    fontSize: 10.5,
+    fontSize: 12,
     flex: 1,
     lineHeight: 14,
     fontWeight: '500',
@@ -2368,7 +2374,7 @@ const styles = StyleSheet.create({
   },
   versionText: {
     color: '#3B4556',
-    fontSize: 10.5,
+    fontSize: 12,
   },
 
   /* ========================================================= */
@@ -2488,7 +2494,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   customPersonaBadgeText: {
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '700',
   },
   selectedCheckWrap: {
@@ -2598,5 +2604,29 @@ const styles = StyleSheet.create({
   },
   personaModalList: {
     marginTop: 8,
+  },
+  tourBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    gap: 12,
+    marginTop: 10,
+  },
+  tourBtnIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  tourBtnTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  tourBtnSub: {
+    fontSize: 11,
   },
 });

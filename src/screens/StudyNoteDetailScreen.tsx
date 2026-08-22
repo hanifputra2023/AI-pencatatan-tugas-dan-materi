@@ -1775,7 +1775,7 @@ const styles = StyleSheet.create({
   },
   discardDraftText: {
     color: '#F87171',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
   },
   titleInput: {
@@ -1974,7 +1974,7 @@ const styles = StyleSheet.create({
   },
   toolBtnH3: {
     color: '#E5E7EB',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '800',
   },
   toolDivider: {
@@ -2005,7 +2005,7 @@ const styles = StyleSheet.create({
   },
   fontSizeChipText: {
     color: '#6B7280',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '600',
   },
   fontSizeChipTextActive: {
@@ -2024,7 +2024,7 @@ const styles = StyleSheet.create({
   },
   statText: {
     color: '#6B7280',
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '500',
   },
   aiStudioCard: {
@@ -2273,7 +2273,7 @@ const styles = StyleSheet.create({
   },
   optionIndexText: {
     color: '#9CA3AF',
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
   },
   optionText: {

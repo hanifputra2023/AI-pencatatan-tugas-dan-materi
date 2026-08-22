@@ -221,8 +221,9 @@ export default function JournalScreen() {
             activeTab === 'published' && [styles.tabSegmentBtnActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
           ]}
           onPress={() => setActiveTab('published')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="book" size={13} color={activeTab === 'published' ? theme.accentLight : theme.subtext} />
+          <Ionicons name="book" size={15} color={activeTab === 'published' ? theme.accentLight : theme.subtext} />
           <Text style={[styles.tabSegmentText, { color: theme.subtext }, activeTab === 'published' && [styles.tabSegmentTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
             Semua Jurnal ({publishedEntries.length})
           </Text>
@@ -235,8 +236,9 @@ export default function JournalScreen() {
             activeTab === 'drafts' && [styles.tabSegmentBtnActive, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]
           ]}
           onPress={() => setActiveTab('drafts')}
+          activeOpacity={0.8}
         >
-          <Ionicons name="document-text" size={13} color={activeTab === 'drafts' ? (isLightMode ? '#D97706' : '#FBBF24') : theme.subtext} />
+          <Ionicons name="document-text" size={15} color={activeTab === 'drafts' ? (isLightMode ? '#D97706' : '#FBBF24') : theme.subtext} />
           <Text style={[styles.tabSegmentText, { color: theme.subtext }, activeTab === 'drafts' && [styles.tabSegmentTextActive, { color: isLightMode ? '#B45309' : '#FDE68A', fontWeight: '700' }]]}>
             Draf Saya ({draftEntries.length})
           </Text>
@@ -326,12 +328,10 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   title: {
-    color: '#F3F4F6',
     fontSize: 22,
     fontWeight: '700',
   },
   subtitle: {
-    color: '#6B7280',
     fontSize: 12,
     marginTop: 2,
   },
@@ -358,10 +358,12 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   tabSegmentBtn: {
-    flexDirection: 'row',
+    flex: 1,
+    flexDirection: 'column',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
+    justifyContent: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
@@ -370,11 +372,13 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.1,
   },
   tabSegmentText: {
-    fontSize: 12,
+    fontSize: 11,
     fontWeight: '500',
+    textAlign: 'center',
   },
   tabSegmentTextActive: {
-    fontSize: 12,
+    fontSize: 11,
+    textAlign: 'center',
   },
   draftBadge: {
     flexDirection: 'row',
@@ -386,7 +390,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   draftBadgeText: {
-    fontSize: 9.5,
+    fontSize: 11,
     fontWeight: '700',
   },
   filterContainer: {
@@ -481,7 +485,7 @@ const styles = StyleSheet.create({
   },
   tagText: {
     color: '#9CA3AF',
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
   },
   empty: {

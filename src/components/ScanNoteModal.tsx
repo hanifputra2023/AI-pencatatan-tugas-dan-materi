@@ -591,7 +591,7 @@ const styles = StyleSheet.create({
     marginBottom: 3,
   },
   pickChoiceSub: {
-    fontSize: 10.5,
+    fontSize: 12,
     textAlign: 'center',
   },
   previewCard: {
@@ -664,7 +664,7 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   badgeRecText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '700',
   },
   modeDesc: {

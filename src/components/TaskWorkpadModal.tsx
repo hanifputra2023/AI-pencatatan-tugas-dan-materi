@@ -256,7 +256,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   subjectText: {
-    fontSize: 10.5,
+    fontSize: 12,
     fontWeight: '700',
   },
   dueBadge: {
@@ -268,7 +268,7 @@ const styles = StyleSheet.create({
     borderRadius: 5,
   },
   dueText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
   },
   taskTitle: {

@@ -248,9 +248,12 @@ export async function sendMessageToGemini(
   const systemPrompt = customSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
 
   let lastError: any = null;
+  const totalKeys = keysPool.length;
+  const startOffset = Math.floor(Math.random() * totalKeys);
 
-  // 1. Iterate through each API Key in the Multi-Key Pool
-  for (let keyIdx = 0; keyIdx < keysPool.length; keyIdx++) {
+  // 1. Iterate through each API Key in the Multi-Key Pool with smart load-balanced distribution
+  for (let step = 0; step < totalKeys; step++) {
+    const keyIdx = (startOffset + step) % totalKeys;
     const currentKey = keysPool[keyIdx];
     const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
 

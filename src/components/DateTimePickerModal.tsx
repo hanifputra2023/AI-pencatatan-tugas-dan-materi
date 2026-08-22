@@ -489,7 +489,7 @@ const styles = StyleSheet.create({
   },
   quickPresetPillActive: {},
   quickPresetPillText: {
-    fontSize: 10,
+    fontSize: 11,
     fontWeight: '500',
   },
   quickPresetPillTextActive: {},
