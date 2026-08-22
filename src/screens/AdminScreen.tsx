@@ -557,7 +557,7 @@ export default function AdminScreen() {
     setSavingRoutines(true);
     try {
       await updateSetting('daily_routine_reminders', JSON.stringify(dailyRoutines));
-      await scheduleDailyRoutineReminders(dailyRoutines);
+      await scheduleDailyRoutineReminders(dailyRoutines, true);
       await refreshMoodsAndSettings();
       showAlert('Pengingat Disimpan! 🔔', 'Seluruh pengingat rutin harian mahasiswa berhasil disimpan dan disinkronkan ke semua perangkat secara real-time!');
     } catch (e) {
@@ -683,7 +683,7 @@ export default function AdminScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.portalContainer, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={[styles.portalContainer, { backgroundColor: 'transparent' }]}>
       
       {/* ========================================================================= */}
       {/* 1. MOBILE SLIDE-IN DRAWER MODAL (Toggle Navbar Asidebar) */}
@@ -1882,12 +1882,12 @@ export default function AdminScreen() {
 const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
   portalContainer: {
     flex: 1,
-    backgroundColor: theme.bg,
+    backgroundColor: 'transparent',
   },
   portalLayout: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: theme.bg,
+    backgroundColor: 'transparent',
   },
 
   /* ========================================================= */

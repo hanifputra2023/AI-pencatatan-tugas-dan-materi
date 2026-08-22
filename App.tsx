@@ -8,6 +8,7 @@ import { ThemeProvider, useTheme } from './src/contexts/ThemeContext';
 import { MoodProvider } from './src/contexts/MoodContext';
 import { AlertProvider } from './src/contexts/AlertContext';
 import { SubjectProvider } from './src/contexts/SubjectContext';
+import { BackgroundArtLayer } from './src/components/BackgroundArtLayer';
 import AppNavigator from './src/navigation/AppNavigator';
 
 // Eliminate default browser white focus rings on Web
@@ -72,9 +73,11 @@ function MainAppContainer() {
       edges={Platform.OS === 'web' ? [] : ['top', 'left', 'right']}
     >
       <StatusBar style={isLightMode ? 'dark' : 'light'} />
-      <View style={[styles.appContainer, { backgroundColor: theme.bg }]}>
-        <AppNavigator />
-      </View>
+      <BackgroundArtLayer>
+        <View style={styles.appContainer}>
+          <AppNavigator />
+        </View>
+      </BackgroundArtLayer>
     </SafeAreaView>
   );
 }

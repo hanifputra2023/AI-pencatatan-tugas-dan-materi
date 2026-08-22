@@ -449,14 +449,14 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 
   if (loading && !isEditing && entryId) {
     return (
-      <View style={[styles.loaderCenter, { backgroundColor: theme.bg }]}>
+      <View style={styles.loaderCenter}>
         <ActivityIndicator size="small" color={theme.accentLight} />
       </View>
     );
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
 
       {/* Top Header */}
       <View style={[styles.topHeader, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
@@ -878,7 +878,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: 'transparent',
   },
   loaderCenter: {
     flex: 1,

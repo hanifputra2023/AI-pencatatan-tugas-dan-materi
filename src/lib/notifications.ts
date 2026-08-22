@@ -1,5 +1,6 @@
 import { Platform } from 'react-native';
-import { StudentTask } from '../types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { StudentTask, DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
 
 let ExpoNotifications: any = null;
 try {
@@ -18,10 +19,10 @@ try {
   if (Platform.OS === 'android' && ExpoNotifications && typeof ExpoNotifications.setNotificationChannelAsync === 'function') {
     ExpoNotifications.setNotificationChannelAsync('default', {
       name: 'Pengingat Tugas & Belajar',
-      importance: ExpoNotifications.AndroidImportance?.MAX || 5,
+      importance: ExpoNotifications.AndroidImportance?.MAX ?? 5,
       vibrationPattern: [0, 250, 250, 250],
       lightColor: '#2563EB',
-      lockscreenVisibility: ExpoNotifications.AndroidNotificationVisibility?.PUBLIC || 1,
+      lockscreenVisibility: ExpoNotifications.AndroidNotificationVisibility?.PUBLIC ?? 1,
       bypassDnd: false,
       sound: 'default',
       enableVibrate: true,
@@ -101,15 +102,20 @@ export function getNotificationPermissionStatus(): 'granted' | 'denied' | 'defau
   return 'default';
 }
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
+// Concurrency mutex to prevent duplicate simultaneous routine scheduling
+let isSchedulingInProgress = false;
 
 /**
  * Schedule daily smart student routines:
- * Dynamically configured by Administrator and synced in real-time across all devices.
+ * Dynamically configured by Administrator and synced across all devices.
+ * Uses exact Expo SDK 52 trigger formats with daily repetition and deduplication locks.
  */
-export async function scheduleDailyRoutineReminders(customList?: DailyRoutineReminder[]) {
+export async function scheduleDailyRoutineReminders(customList?: DailyRoutineReminder[], forceRefresh = false) {
   if (Platform.OS === 'web' || !ExpoNotifications) return;
+
+  // Prevent concurrent duplicate executions on app start / login
+  if (isSchedulingInProgress && !forceRefresh) return;
+  isSchedulingInProgress = true;
 
   try {
     let routines = customList;
@@ -129,15 +135,37 @@ export async function scheduleDailyRoutineReminders(customList?: DailyRoutineRem
       routines = DEFAULT_DAILY_ROUTINES;
     }
 
+    // Check if the exact routine list has already been scheduled to avoid canceling & re-scheduling on every login
+    const routinesHash = JSON.stringify(routines.map(r => ({ id: r.id, h: r.hour, m: r.minute, en: r.enabled })));
+    const lastHash = await AsyncStorage.getItem('@last_scheduled_routine_hash');
+    if (lastHash === routinesHash && !forceRefresh) {
+      isSchedulingInProgress = false;
+      return;
+    }
+
     // Cancel all previously scheduled routine reminders first
     const allKnownIds = ['morning', 'afternoon', 'evening', ...routines.map(r => r.id)];
     for (const id of allKnownIds) {
       await ExpoNotifications.cancelScheduledNotificationAsync(`daily-routine-${id}`).catch(() => {});
     }
 
-    // Schedule each active routine
+    // Schedule each active routine with valid Expo trigger format
     for (const r of routines) {
       if (r.enabled !== false && typeof r.hour === 'number' && typeof r.minute === 'number') {
+        const triggerInput = Platform.OS === 'android'
+          ? {
+              type: ExpoNotifications.SchedulableTriggerInputTypes?.DAILY || 'daily',
+              hour: Number(r.hour),
+              minute: Number(r.minute),
+              channelId: 'default',
+            }
+          : {
+              type: ExpoNotifications.SchedulableTriggerInputTypes?.CALENDAR || 'calendar',
+              hour: Number(r.hour),
+              minute: Number(r.minute),
+              repeats: true,
+            };
+
         await ExpoNotifications.scheduleNotificationAsync({
           identifier: `daily-routine-${r.id}`,
           content: {
@@ -146,16 +174,16 @@ export async function scheduleDailyRoutineReminders(customList?: DailyRoutineRem
             sound: true,
             channelId: 'default',
           },
-          trigger: {
-            hour: Number(r.hour),
-            minute: Number(r.minute),
-            repeats: true,
-          },
+          trigger: triggerInput,
         }).catch((err: any) => console.log(`Error scheduling ${r.id}:`, err));
       }
     }
+
+    await AsyncStorage.setItem('@last_scheduled_routine_hash', routinesHash);
   } catch (e) {
     console.log('Error scheduling daily routine reminders:', e);
+  } finally {
+    isSchedulingInProgress = false;
   }
 }
 
@@ -255,6 +283,7 @@ export async function sendImmediateNotification(title: string, body: string) {
  * - 1 Day Before (if target is > 24 hours away)
  * - 2 Hours Before (if target is > 2 hours away)
  * - At exact deadline (in the future)
+ * Uses exact Date trigger objects to ensure Android AlarmManager registers in the background.
  */
 export async function scheduleTaskDeadlineNotification(task: StudentTask) {
   if (!task.due_date || task.is_completed) return;
@@ -262,20 +291,20 @@ export async function scheduleTaskDeadlineNotification(task: StudentTask) {
   const targetDate = new Date(task.due_date);
   if (isNaN(targetDate.getTime())) return;
 
-  const now = new Date();
-  const timeDiffSeconds = Math.floor((targetDate.getTime() - now.getTime()) / 1000);
-  
+  const nowTime = Date.now();
+  const targetTime = targetDate.getTime();
+
   // If deadline has already passed, do NOT schedule anything
-  if (timeDiffSeconds <= 0) return;
+  if (targetTime <= nowTime) return;
 
   // Mobile Expo Notifications
   if (Platform.OS !== 'web' && ExpoNotifications) {
     try {
-      // Cancel previous scheduled notifications for this task first
+      // Cancel previous scheduled notifications for this task first to avoid duplicates
       await cancelTaskNotification(task.id);
 
-      // Notification 1: Exact Deadline (in future)
-      if (timeDiffSeconds > 10) {
+      // Notification 1: Exact Deadline (in future, at least 10 seconds from now)
+      if (targetTime - nowTime > 10 * 1000) {
         await ExpoNotifications.scheduleNotificationAsync({
           identifier: `task-deadline-${task.id}-exact`,
           content: {
@@ -286,15 +315,16 @@ export async function scheduleTaskDeadlineNotification(task: StudentTask) {
             data: { taskId: task.id },
           },
           trigger: {
-            seconds: timeDiffSeconds,
+            type: ExpoNotifications.SchedulableTriggerInputTypes?.DATE || 'date',
+            date: targetDate,
+            channelId: 'default',
           },
         });
       }
 
       // Notification 2: 2 Hours Before (if time left > 2 hours)
-      const twoHoursInSeconds = 2 * 60 * 60;
-      if (timeDiffSeconds > twoHoursInSeconds + 60) {
-        const secondsUntil2h = timeDiffSeconds - twoHoursInSeconds;
+      const twoHoursBefore = new Date(targetTime - 2 * 60 * 60 * 1000);
+      if (twoHoursBefore.getTime() > nowTime + 60 * 1000) {
         await ExpoNotifications.scheduleNotificationAsync({
           identifier: `task-deadline-${task.id}-2h`,
           content: {
@@ -305,15 +335,16 @@ export async function scheduleTaskDeadlineNotification(task: StudentTask) {
             data: { taskId: task.id },
           },
           trigger: {
-            seconds: secondsUntil2h,
+            type: ExpoNotifications.SchedulableTriggerInputTypes?.DATE || 'date',
+            date: twoHoursBefore,
+            channelId: 'default',
           },
         });
       }
 
       // Notification 3: 1 Day Before (if time left > 24 hours)
-      const oneDayInSeconds = 24 * 60 * 60;
-      if (timeDiffSeconds > oneDayInSeconds + 60) {
-        const secondsUntil1d = timeDiffSeconds - oneDayInSeconds;
+      const oneDayBefore = new Date(targetTime - 24 * 60 * 60 * 1000);
+      if (oneDayBefore.getTime() > nowTime + 60 * 1000) {
         await ExpoNotifications.scheduleNotificationAsync({
           identifier: `task-deadline-${task.id}-1d`,
           content: {
@@ -324,13 +355,34 @@ export async function scheduleTaskDeadlineNotification(task: StudentTask) {
             data: { taskId: task.id },
           },
           trigger: {
-            seconds: secondsUntil1d,
+            type: ExpoNotifications.SchedulableTriggerInputTypes?.DATE || 'date',
+            date: oneDayBefore,
+            channelId: 'default',
           },
         });
       }
     } catch (e) {
       console.log('Error scheduling task notification on mobile:', e);
     }
+  }
+}
+
+/**
+ * Safely sync all active task deadlines without duplicates
+ */
+export async function syncAllTaskDeadlines(tasks: StudentTask[]) {
+  if (Platform.OS === 'web' || !ExpoNotifications) return;
+
+  try {
+    for (const task of tasks) {
+      if (!task.is_completed && task.due_date) {
+        await scheduleTaskDeadlineNotification(task);
+      } else {
+        await cancelTaskNotification(task.id);
+      }
+    }
+  } catch (e) {
+    console.log('Error syncing all task deadlines:', e);
   }
 }
 
@@ -350,6 +402,60 @@ export async function cancelTaskNotification(taskId: string) {
 }
 
 /**
+ * Schedule an exact background OS alarm notification when a Pomodoro timer starts.
+ * This ensures that even if the app is minimized, locked, or closed, the OS will ring and vibrate at the exact second.
+ */
+export async function schedulePomodoroAlarmNotification(secondsLeft: number, taskTitle?: string, isBreak = false) {
+  if (Platform.OS === 'web' || !ExpoNotifications) return;
+
+  try {
+    // Cancel any previous pomodoro alarm first
+    await cancelPomodoroAlarmNotification();
+
+    if (secondsLeft <= 0) return;
+
+    const title = isBreak ? '☕ Waktu Istirahat Selesai!' : '🎉 Sesi Fokus Selesai!';
+    const body = isBreak
+      ? 'Waktunya kembali produktif dan melanjutkan tugas kuliahmu.'
+      : taskTitle
+      ? `Hebat! Kamu telah menyelesaikan sesi fokus untuk tugas "${taskTitle}".`
+      : 'Hebat! Satu sesi fokus Pomodoro telah selesai. Istirahat sejenak 5 menit ya.';
+
+    await ExpoNotifications.scheduleNotificationAsync({
+      identifier: 'pomodoro-timer-alarm',
+      content: {
+        title,
+        body,
+        sound: true,
+        channelId: 'default',
+        data: { type: 'pomodoro' },
+      },
+      trigger: {
+        type: ExpoNotifications.SchedulableTriggerInputTypes?.TIME_INTERVAL || 'timeInterval',
+        seconds: Math.max(1, Math.round(secondsLeft)),
+        repeats: false,
+        channelId: 'default',
+      },
+    });
+  } catch (e) {
+    console.log('Error scheduling pomodoro alarm notification:', e);
+  }
+}
+
+/**
+ * Cancel the Pomodoro background alarm notification when timer is paused or reset
+ */
+export async function cancelPomodoroAlarmNotification() {
+  if (Platform.OS !== 'web' && ExpoNotifications) {
+    try {
+      await ExpoNotifications.cancelScheduledNotificationAsync('pomodoro-timer-alarm').catch(() => {});
+    } catch (e) {
+      console.log('Error cancelling pomodoro alarm notification:', e);
+    }
+  }
+}
+
+/**
  * Notify when a Pomodoro timer session finishes
  */
 export function notifyPomodoroFinished(taskTitle?: string, isBreak = false) {
@@ -362,3 +468,4 @@ export function notifyPomodoroFinished(taskTitle?: string, isBreak = false) {
 
   sendImmediateNotification(title, body);
 }
+

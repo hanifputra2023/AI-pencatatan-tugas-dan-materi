@@ -23,8 +23,11 @@ import { parseDeadline, getDeadlinePresets } from '../lib/dateUtils';
 import {
   requestNotificationPermissions,
   scheduleTaskDeadlineNotification,
+  syncAllTaskDeadlines,
   cancelTaskNotification,
   notifyPomodoroFinished,
+  schedulePomodoroAlarmNotification,
+  cancelPomodoroAlarmNotification,
   sendImmediateNotification
 } from '../lib/notifications';
 import {
@@ -316,6 +319,7 @@ export default function StudyNotesScreen() {
         }));
         setTasks(mergedTasks);
         cacheTasksLocally(user.id, mergedTasks);
+        syncAllTaskDeadlines(mergedTasks);
       }
     } catch (e) {
       console.log('fetchTasks offline fallback:', e);
@@ -426,6 +430,7 @@ export default function StudyNotesScreen() {
           clearInterval(pomoTimerRef.current);
           pomoEndTimestampRef.current = null;
           setPomoActive(false);
+          cancelPomodoroAlarmNotification();
           if (Platform.OS === 'web' && typeof document !== 'undefined') {
             document.title = '🔔 Sesi Selesai! - Belajar & Kuliah';
           }
@@ -445,15 +450,18 @@ export default function StudyNotesScreen() {
     if (!pomoActive) {
       pomoEndTimestampRef.current = Date.now() + pomoTimeLeft * 1000;
       setPomoActive(true);
+      schedulePomodoroAlarmNotification(pomoTimeLeft, activePomodoroTask?.title, pomoTotalTime < 10 * 60);
     } else {
       pomoEndTimestampRef.current = null;
       setPomoActive(false);
+      cancelPomodoroAlarmNotification();
     }
   };
 
   const resetPomodoro = () => {
     pomoEndTimestampRef.current = null;
     setPomoActive(false);
+    cancelPomodoroAlarmNotification();
     setPomoTimeLeft(pomoTotalTime);
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       document.title = 'AI Curhat & Belajar Pintar';
@@ -463,6 +471,7 @@ export default function StudyNotesScreen() {
   const setPomoDuration = (seconds: number) => {
     pomoEndTimestampRef.current = null;
     setPomoActive(false);
+    cancelPomodoroAlarmNotification();
     setPomoTotalTime(seconds);
     setPomoTimeLeft(seconds);
   };
@@ -882,7 +891,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
   const allFilterSubjects = ['Semua', ...Array.from(new Set([...subjects.map(s => s.name), ...notes.map(n => n.subject?.trim()).filter(Boolean), ...tasks.map(t => t.subject?.trim()).filter(Boolean)]))];
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
       <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
       {/* Top Header */}
@@ -2007,7 +2016,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: 'transparent',
   },
   innerContainer: {
     flex: 1,

@@ -54,6 +54,116 @@ const ACCENT_COLOR_PALETTE = [
   '#F97316', '#6366F1',
 ];
 
+interface ColorPamphletItem {
+  name: string;
+  hex: string;
+  desc?: string;
+}
+
+interface ColorPamphletCategory {
+  title: string;
+  icon: string;
+  description: string;
+  colors: ColorPamphletItem[];
+}
+
+const COLOR_PAMPHLET_CATEGORIES: ColorPamphletCategory[] = [
+  {
+    title: 'Nuansa Gelap & Deep (Mode Malam)',
+    icon: 'moon',
+    description: 'Pilihan warna gelap redup elegan yang sangat nyaman untuk mata.',
+    colors: [
+      { name: 'Obsidian Dark', hex: '#0E1117' },
+      { name: 'Pure Black', hex: '#000000' },
+      { name: 'Deep Space', hex: '#08090C' },
+      { name: 'Dark Slate', hex: '#0F172A' },
+      { name: 'Midnight Navy', hex: '#0B1120' },
+      { name: 'Dark Charcoal', hex: '#121212' },
+      { name: 'Deep Forest', hex: '#09130F' },
+      { name: 'Dark Emerald', hex: '#061A14' },
+      { name: 'Galaxy Purple', hex: '#0F0C18' },
+      { name: 'Deep Violet', hex: '#150B24' },
+      { name: 'Dark Plum', hex: '#1A0B1E' },
+      { name: 'Dark Ruby', hex: '#14080A' },
+      { name: 'Espresso Brown', hex: '#181008' },
+      { name: 'Dark Copper', hex: '#1A1108' },
+      { name: 'Dark Teal', hex: '#07151A' },
+      { name: 'Onyx Monochrome', hex: '#090B0E' },
+    ],
+  },
+  {
+    title: 'Nuansa Terang, Krem & Pastel',
+    icon: 'sunny',
+    description: 'Pilihan warna terang bersih dan pastel lembut untuk tampilan minimalis.',
+    colors: [
+      { name: 'Clean White', hex: '#F8FAFC' },
+      { name: 'Pure White', hex: '#FFFFFF' },
+      { name: 'Snow Ice', hex: '#F1F5F9' },
+      { name: 'Warm Cream', hex: '#FAF8F5' },
+      { name: 'Warm Sand', hex: '#F5EBE6' },
+      { name: 'Parchment Light', hex: '#FDFBF7' },
+      { name: 'Soft Sage Mint', hex: '#F2F8F5' },
+      { name: 'Pastel Mint', hex: '#F0FDF4' },
+      { name: 'Sky Cyan Light', hex: '#F0F9FF' },
+      { name: 'Ice Blue', hex: '#E0F2FE' },
+      { name: 'Lavender Dream', hex: '#F8F6FC' },
+      { name: 'Soft Lilac', hex: '#F3E8FF' },
+      { name: 'Sakura Rose Light', hex: '#FCF6F9' },
+      { name: 'Pastel Peach', hex: '#FFF7ED' },
+      { name: 'Soft Buttercup', hex: '#FEFCE8' },
+      { name: 'Linen Paper', hex: '#F9F9FB' },
+    ],
+  },
+  {
+    title: 'Nuansa Panel, Kartu & Container',
+    icon: 'layers',
+    description: 'Nuansa warna perantara yang seimbang untuk kotak kartu dan pembungkus menu.',
+    colors: [
+      { name: 'Dark Navy Card', hex: '#141822' },
+      { name: 'Dark Surface', hex: '#161B26' },
+      { name: 'Slate Gray Card', hex: '#1E293B' },
+      { name: 'Zinc Charcoal', hex: '#18181B' },
+      { name: 'Emerald Card', hex: '#11221B' },
+      { name: 'Galaxy Card', hex: '#181326' },
+      { name: 'Ruby Wine Card', hex: '#210E11' },
+      { name: 'Amber Wood Card', hex: '#1F170D' },
+      { name: 'Cyber Magenta Card', hex: '#21111B' },
+      { name: 'Ocean Teal Card', hex: '#0D1E24' },
+      { name: 'Light Card Slate', hex: '#E2E8F0' },
+      { name: 'Soft Blue Card', hex: '#DBEAFE' },
+      { name: 'Soft Sage Card', hex: '#E6F2EC' },
+      { name: 'Soft Amber Card', hex: '#FEF3C7' },
+      { name: 'Soft Purple Card', hex: '#EDE9FE' },
+      { name: 'Soft Rose Card', hex: '#FFE4E6' },
+    ],
+  },
+  {
+    title: 'Warna Aksen, Tombol & Neon Cerah',
+    icon: 'color-wand',
+    description: 'Pilihan warna memikat dan bertenaga untuk tombol utama dan sorotan elemen.',
+    colors: [
+      { name: 'Royal Blue', hex: '#2563EB' },
+      { name: 'Sky Electric', hex: '#0EA5E9' },
+      { name: 'Cyan Glow', hex: '#06B6D4' },
+      { name: 'Teal Modern', hex: '#0D9488' },
+      { name: 'Emerald Gem', hex: '#10B981' },
+      { name: 'Forest Green', hex: '#059669' },
+      { name: 'Lime Energy', hex: '#84CC16' },
+      { name: 'Sunflower Yellow', hex: '#EAB308' },
+      { name: 'Sunset Amber', hex: '#F59E0B' },
+      { name: 'Warm Orange', hex: '#F97316' },
+      { name: 'Coral Red', hex: '#FF5733' },
+      { name: 'Crimson Red', hex: '#EF4444' },
+      { name: 'Ruby Red', hex: '#DC2626' },
+      { name: 'Hot Pink', hex: '#EC4899' },
+      { name: 'Cyber Magenta', hex: '#D946EF' },
+      { name: 'Purple Violet', hex: '#8B5CF6' },
+      { name: 'Deep Purple', hex: '#7C3AED' },
+      { name: 'Indigo Aura', hex: '#6366F1' },
+    ],
+  },
+];
+
 export default function ProfileScreen() {
   const { user, signOut, isAdmin, role, claimAdminRole, refreshProfileRole } = useAuth();
   const { allPersonas, activePersona, selectPersona, refreshMoodsAndSettings } = useMoods();
@@ -74,7 +184,40 @@ export default function ProfileScreen() {
     lightThemes,
     allThemes,
     customThemeData,
+    bgArtStyle,
+    bgCustomImage,
+    bgBlurRadius,
+    bgDimmingOpacity,
+    bgFitMode,
+    setBgArtStyle,
+    setBgCustomImage,
+    setBgBlurRadius,
+    setBgDimmingOpacity,
+    setBgFitMode,
   } = useTheme();
+
+  const handlePickWallpaperImage = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Izin Dibutuhkan', 'Izinkan akses galeri foto untuk memilih wallpaper kustom.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false, // Keep original high-res aspect ratio without forced cropping
+        quality: 0.9,
+      });
+
+      if (!result.canceled && result.assets && result.assets[0].uri) {
+        await setBgCustomImage(result.assets[0].uri);
+        showAlert('Wallpaper Diterapkan', 'Foto kustom berhasil dipasang sebagai latar belakang dengan penyesuaian layar otomatis.');
+      }
+    } catch (e: any) {
+      showAlert('Gagal', 'Gagal memuat gambar dari galeri.');
+    }
+  };
 
   const [username, setUsername] = useState('');
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
@@ -92,6 +235,97 @@ export default function ProfileScreen() {
   // AI Persona Selection Modal State
   const [showPersonaModal, setShowPersonaModal] = useState(false);
   const [personaSearchQuery, setPersonaSearchQuery] = useState('');
+
+  // Custom Color Hex Inputs State
+  const [customBgHex, setCustomBgHex] = useState(theme.bg);
+  const [customCardHex, setCustomCardHex] = useState(theme.card);
+  const [customAccentHex, setCustomAccentHex] = useState(theme.primary);
+
+  useEffect(() => {
+    setCustomBgHex(theme.bg);
+  }, [theme.bg]);
+
+  useEffect(() => {
+    setCustomCardHex(theme.card);
+  }, [theme.card]);
+
+  useEffect(() => {
+    setCustomAccentHex(theme.primary);
+  }, [theme.primary]);
+
+  const handleBgHexChange = (val: string) => {
+    setCustomBgHex(val);
+    const clean = val.trim().startsWith('#') ? val.trim() : ('#' + val.trim());
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(clean)) {
+      setCustomColor('bg', clean.toUpperCase());
+    }
+  };
+
+  const handleCardHexChange = (val: string) => {
+    setCustomCardHex(val);
+    const clean = val.trim().startsWith('#') ? val.trim() : ('#' + val.trim());
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(clean)) {
+      setCustomColor('card', clean.toUpperCase());
+    }
+  };
+
+  const handleAccentHexChange = (val: string) => {
+    setCustomAccentHex(val);
+    const clean = val.trim().startsWith('#') ? val.trim() : ('#' + val.trim());
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(clean)) {
+      setCustomColor('primary', clean.toUpperCase());
+    }
+  };
+
+  // Color Pamphlet Modal State
+  const [showColorPamphletModal, setShowColorPamphletModal] = useState(false);
+  const [colorPamphletTarget, setColorPamphletTarget] = useState<'bg' | 'card' | 'primary'>('bg');
+  const [pamphletSearchQuery, setPamphletSearchQuery] = useState('');
+  const [tempSelectedColor, setTempSelectedColor] = useState(theme.bg);
+
+  const openColorPamphlet = (target: 'bg' | 'card' | 'primary') => {
+    setColorPamphletTarget(target);
+    const initialHex = target === 'bg' ? customBgHex : target === 'card' ? customCardHex : customAccentHex;
+    setTempSelectedColor(initialHex);
+    setPamphletSearchQuery('');
+    setShowColorPamphletModal(true);
+  };
+
+  const applyPamphletColor = (hex: string) => {
+    const cleanHex = hex.toUpperCase();
+    if (colorPamphletTarget === 'bg') {
+      setCustomColor('bg', cleanHex);
+      setCustomBgHex(cleanHex);
+    } else if (colorPamphletTarget === 'card') {
+      setCustomColor('card', cleanHex);
+      setCustomCardHex(cleanHex);
+    } else if (colorPamphletTarget === 'primary') {
+      setCustomColor('primary', cleanHex);
+      setCustomAccentHex(cleanHex);
+    }
+    setShowColorPamphletModal(false);
+  };
+
+  const triggerNativeWebColorPicker = () => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.value = tempSelectedColor.startsWith('#') && tempSelectedColor.length === 7 ? tempSelectedColor : '#2563EB';
+      input.oninput = (e: any) => {
+        const chosen = (e.target.value || '').toUpperCase();
+        if (chosen) {
+          setTempSelectedColor(chosen);
+        }
+      };
+      input.onchange = (e: any) => {
+        const chosen = (e.target.value || '').toUpperCase();
+        if (chosen) {
+          applyPamphletColor(chosen);
+        }
+      };
+      input.click();
+    }
+  };
 
   const fetchProfile = useCallback(async () => {
     if (!user) {
@@ -234,7 +468,7 @@ export default function ProfileScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.loaderCenter}>
           <ActivityIndicator color={theme.accentLight} size="small" />
         </View>
@@ -243,9 +477,9 @@ export default function ProfileScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
       <ScrollView
-        style={[styles.scroll, { backgroundColor: theme.bg }]}
+        style={styles.scroll}
         contentContainerStyle={[styles.scrollContent, isWide && styles.scrollContentWide]}
         showsVerticalScrollIndicator={false}
       >
@@ -501,7 +735,11 @@ export default function ProfileScreen() {
                       >
                         <View style={styles.themeCardTop}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                            <Text style={{ fontSize: 15 }}>{t.emoji}</Text>
+                            <Ionicons
+                              name={(t.iconName as any) || 'color-palette-outline'}
+                              size={15}
+                              color={isActive ? (isLightMode ? t.accent : t.accentLight) : theme.subtext}
+                            />
                             <Text style={[styles.themeName, { color: isActive ? t.accentLight : t.text }]} numberOfLines={1}>
                               {t.name.split(' (')[0]}
                             </Text>
@@ -540,7 +778,11 @@ export default function ProfileScreen() {
                       >
                         <View style={styles.themeCardTop}>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
-                            <Text style={{ fontSize: 15 }}>{t.emoji}</Text>
+                            <Ionicons
+                              name={(t.iconName as any) || 'color-palette-outline'}
+                              size={15}
+                              color={isActive ? t.accent : theme.subtext}
+                            />
                             <Text style={[styles.themeName, { color: isActive ? t.accent : t.text }]} numberOfLines={1}>
                               {t.name}
                             </Text>
@@ -605,7 +847,10 @@ export default function ProfileScreen() {
                           { backgroundColor: b.hex, borderColor: theme.bg === b.hex ? theme.accentLight : theme.border },
                           theme.bg === b.hex && styles.colorChipBtnActive
                         ]}
-                        onPress={() => setCustomColor('bg', b.hex)}
+                        onPress={() => {
+                          setCustomColor('bg', b.hex);
+                          setCustomBgHex(b.hex);
+                        }}
                       >
                         {theme.bg === b.hex && <Ionicons name="checkmark" size={12} color={isColorLight(b.hex) ? '#000' : '#FFF'} />}
                       </TouchableOpacity>
@@ -613,17 +858,29 @@ export default function ProfileScreen() {
                   </View>
                   <View style={styles.hexInputRow}>
                     <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                    <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim()) ? (customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim()) : theme.bg }]} />
                     <TextInput
                       style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
                       placeholder="#0E1117"
                       placeholderTextColor={theme.muted}
-                      value={theme.bg}
-                      onChangeText={(val) => {
-                        if (val.startsWith('#') && (val.length === 4 || val.length === 7)) {
-                          setCustomColor('bg', val);
+                      value={customBgHex}
+                      autoCapitalize="characters"
+                      maxLength={7}
+                      onChangeText={handleBgHexChange}
+                      onBlur={() => {
+                        if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customBgHex.trim().startsWith('#') ? customBgHex.trim() : '#' + customBgHex.trim())) {
+                          setCustomBgHex(theme.bg);
                         }
                       }}
                     />
+                    <TouchableOpacity
+                      style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                      onPress={() => openColorPamphlet('bg')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                      <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
+                    </TouchableOpacity>
                   </View>
 
                   {/* 2. Card / Container Color Picker */}
@@ -637,11 +894,40 @@ export default function ProfileScreen() {
                           { backgroundColor: c.hex, borderColor: theme.card === c.hex ? theme.accentLight : theme.border },
                           theme.card === c.hex && styles.colorChipBtnActive
                         ]}
-                        onPress={() => setCustomColor('card', c.hex)}
+                        onPress={() => {
+                          setCustomColor('card', c.hex);
+                          setCustomCardHex(c.hex);
+                        }}
                       >
                         {theme.card === c.hex && <Ionicons name="checkmark" size={12} color={isColorLight(c.hex) ? '#000' : '#FFF'} />}
                       </TouchableOpacity>
                     ))}
+                  </View>
+                  <View style={styles.hexInputRow}>
+                    <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                    <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim()) ? (customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim()) : theme.card }]} />
+                    <TextInput
+                      style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                      placeholder="#141822"
+                      placeholderTextColor={theme.muted}
+                      value={customCardHex}
+                      autoCapitalize="characters"
+                      maxLength={7}
+                      onChangeText={handleCardHexChange}
+                      onBlur={() => {
+                        if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customCardHex.trim().startsWith('#') ? customCardHex.trim() : '#' + customCardHex.trim())) {
+                          setCustomCardHex(theme.card);
+                        }
+                      }}
+                    />
+                    <TouchableOpacity
+                      style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                      onPress={() => openColorPamphlet('card')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                      <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
+                    </TouchableOpacity>
                   </View>
 
                   {/* 3. Primary / Accent Color Palette */}
@@ -655,11 +941,40 @@ export default function ProfileScreen() {
                           { backgroundColor: a, borderColor: theme.accent === a ? '#FFFFFF' : 'transparent' },
                           theme.accent === a && styles.colorChipBtnActive
                         ]}
-                        onPress={() => setCustomColor('primary', a)}
+                        onPress={() => {
+                          setCustomColor('primary', a);
+                          setCustomAccentHex(a);
+                        }}
                       >
                         {theme.accent === a && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
                       </TouchableOpacity>
                     ))}
+                  </View>
+                  <View style={styles.hexInputRow}>
+                    <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                    <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim()) ? (customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim()) : theme.primary }]} />
+                    <TextInput
+                      style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                      placeholder="#2563EB"
+                      placeholderTextColor={theme.muted}
+                      value={customAccentHex}
+                      autoCapitalize="characters"
+                      maxLength={7}
+                      onChangeText={handleAccentHexChange}
+                      onBlur={() => {
+                        if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customAccentHex.trim().startsWith('#') ? customAccentHex.trim() : '#' + customAccentHex.trim())) {
+                          setCustomAccentHex(theme.primary);
+                        }
+                      }}
+                    />
+                    <TouchableOpacity
+                      style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                      onPress={() => openColorPamphlet('primary')}
+                      activeOpacity={0.8}
+                    >
+                      <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                      <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
+                    </TouchableOpacity>
                   </View>
 
                   {/* 4. Text Contrast Option */}
@@ -697,6 +1012,166 @@ export default function ProfileScreen() {
                   </TouchableOpacity>
                 </View>
               )}
+
+              {/* ------------------------------------------------------------------- */}
+              {/* SECTION: GAYA SENI PITA LATAR & WALLPAPER KUSTOM */}
+              {/* ------------------------------------------------------------------- */}
+              <View style={[styles.artSectionDivider, { borderTopColor: theme.border }]}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 6, marginTop: 8 }}>
+                  <Ionicons name="sparkles-outline" size={16} color={theme.accentLight} />
+                  <Text style={[styles.artSectionHeaderTitle, { color: theme.text }]}>Ornamen Seni Latar & Wallpaper</Text>
+                </View>
+                <Text style={[styles.artSectionHeaderSub, { color: theme.subtext }]}>
+                  Pilih gaya pita seni vektor dinamis atau pasang foto galeri pribadi dengan efek blur.
+                </Text>
+
+                {/* Art Style Choices Grid */}
+                <View style={styles.artStylesGrid}>
+                  {[
+                    { id: 'aurora-ribbons', label: 'Pita Aurora', desc: 'Gelombang pita halus glowing', icon: 'color-filter-outline' },
+                    { id: 'fluid-waves', label: 'Garis Fluida', desc: 'Garis meliuk modern abstrak', icon: 'water-outline' },
+                    { id: 'geometric-glow', label: 'Sudut Geometris', desc: 'Aksen poligon sudut modern', icon: 'cube-outline' },
+                    { id: 'custom-photo', label: 'Foto Wallpaper', desc: 'Foto galeri + Frosted Blur', icon: 'image-outline' },
+                    { id: 'none', label: 'Polos Minimal', desc: 'Warna solid tanpa ornamen', icon: 'square-outline' },
+                  ].map(styleItem => {
+                    const isSelected = bgArtStyle === styleItem.id;
+                    return (
+                      <TouchableOpacity
+                        key={styleItem.id}
+                        style={[
+                          styles.artStyleCard,
+                          { backgroundColor: theme.cardInner, borderColor: isSelected ? theme.accentLight : theme.border },
+                          isSelected && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                        ]}
+                        onPress={() => setBgArtStyle(styleItem.id as any)}
+                        activeOpacity={0.8}
+                      >
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name={styleItem.icon as any} size={14} color={isSelected ? theme.accentLight : theme.subtext} />
+                          <Text style={[styles.artStyleLabel, { color: isSelected ? theme.accentLight : theme.text }]}>
+                            {styleItem.label}
+                          </Text>
+                        </View>
+                        <Text style={[styles.artStyleDesc, { color: theme.subtext }]} numberOfLines={1}>
+                          {styleItem.desc}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+
+                {/* Sub-controls when 'custom-photo' is active */}
+                {bgArtStyle === 'custom-photo' && (
+                  <View style={[styles.customPhotoControlsBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="images-outline" size={15} color={theme.accentLight} />
+                        <Text style={{ color: theme.text, fontSize: 11.5, fontWeight: '700' }}>Foto Wallpaper Galeri</Text>
+                      </View>
+                      <TouchableOpacity
+                        style={[styles.uploadPhotoBtn, { backgroundColor: theme.primary }]}
+                        onPress={handlePickWallpaperImage}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="cloud-upload-outline" size={13} color="#FFFFFF" />
+                        <Text style={styles.uploadPhotoBtnText}>{bgCustomImage ? 'Ganti Foto' : 'Pilih Foto'}</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {bgCustomImage && (
+                      <View style={{ marginTop: 10, gap: 8 }}>
+                        {/* Blur Intensity Options */}
+                        <View>
+                          <Text style={{ color: theme.subtext, fontSize: 10.5, marginBottom: 4 }}>Intensitas Blur (Frosted Glass):</Text>
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            {[
+                              { label: 'Halus (10px)', val: 10 },
+                              { label: 'Sedang (20px)', val: 20 },
+                              { label: 'Pekat (30px)', val: 30 },
+                            ].map(b => (
+                              <TouchableOpacity
+                                key={b.val}
+                                style={[
+                                  styles.blurOptionBtn,
+                                  { backgroundColor: theme.card, borderColor: bgBlurRadius === b.val ? theme.accentLight : theme.border },
+                                  bgBlurRadius === b.val && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                                ]}
+                                onPress={() => setBgBlurRadius(b.val)}
+                              >
+                                <Text style={{ color: bgBlurRadius === b.val ? theme.accentLight : theme.text, fontSize: 10, fontWeight: '700' }}>
+                                  {b.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+
+                        {/* Dimming / Shadow Opacity Options */}
+                        <View>
+                          <Text style={{ color: theme.subtext, fontSize: 10.5, marginBottom: 4 }}>Lapisan Peredup (Shadow Tint):</Text>
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            {[
+                              { label: 'Tipis (35%)', val: 0.35 },
+                              { label: 'Seimbang (55%)', val: 0.55 },
+                              { label: 'Pekat (75%)', val: 0.75 },
+                            ].map(d => (
+                              <TouchableOpacity
+                                key={d.val}
+                                style={[
+                                  styles.blurOptionBtn,
+                                  { backgroundColor: theme.card, borderColor: bgDimmingOpacity === d.val ? theme.accentLight : theme.border },
+                                  bgDimmingOpacity === d.val && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                                ]}
+                                onPress={() => setBgDimmingOpacity(d.val)}
+                              >
+                                <Text style={{ color: bgDimmingOpacity === d.val ? theme.accentLight : theme.text, fontSize: 10, fontWeight: '700' }}>
+                                  {d.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+
+                        {/* Screen Fit Mode Option */}
+                        <View>
+                          <Text style={{ color: theme.subtext, fontSize: 10.5, marginBottom: 4 }}>
+                            Penyesuaian Ukuran Layar:
+                          </Text>
+                          <View style={{ flexDirection: 'row', gap: 6 }}>
+                            {[
+                              { label: 'Pas Utuh (Tanpa Potong)', mode: 'contain' as const },
+                              { label: 'Isi Penuh Layar', mode: 'cover' as const },
+                            ].map(f => (
+                              <TouchableOpacity
+                                key={f.mode}
+                                style={[
+                                  styles.blurOptionBtn,
+                                  { backgroundColor: theme.card, borderColor: bgFitMode === f.mode ? theme.accentLight : theme.border },
+                                  bgFitMode === f.mode && { borderWidth: 1.5, backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }
+                                ]}
+                                onPress={() => setBgFitMode(f.mode)}
+                              >
+                                <Text style={{ color: bgFitMode === f.mode ? theme.accentLight : theme.text, fontSize: 10, fontWeight: '700' }}>
+                                  {f.label}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+
+                        {/* Remove Photo Button */}
+                        <TouchableOpacity
+                          style={[styles.removePhotoBtn, { borderColor: '#EF4444' }]}
+                          onPress={() => setBgCustomImage(null)}
+                        >
+                          <Ionicons name="trash-outline" size={12} color="#EF4444" />
+                          <Text style={{ color: '#EF4444', fontSize: 10.5, fontWeight: '600' }}>Hapus Foto Wallpaper</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                )}
+              </View>
 
               {/* Persistence note */}
               <View style={[styles.persistenceNote, { backgroundColor: isLightMode ? '#ECFDF5' : '#0F1A14', borderColor: isLightMode ? '#A7F3D0' : '#193324' }]}>
@@ -942,6 +1417,206 @@ export default function ProfileScreen() {
         </View>
       </Modal>
 
+      {/* ========================================================================= */}
+      {/* MODAL PAMFLET SPEKTRUM WARNA LENGKAP (VISUAL COLOR PAMPHLET) */}
+      {/* ========================================================================= */}
+      <Modal
+        visible={showColorPamphletModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowColorPamphletModal(false)}
+      >
+        <View style={styles.personaModalOverlay}>
+          <TouchableOpacity
+            style={styles.personaModalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowColorPamphletModal(false)}
+          />
+
+          <View style={[styles.colorPamphletCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {/* Header */}
+            <View style={[styles.personaModalHeader, { borderBottomColor: theme.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                  <Ionicons name="color-palette" size={18} color={theme.accentLight} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.personaModalTitle, { color: theme.text }]}>Pamflet Spektrum Warna</Text>
+                  <Text style={[styles.personaModalSub, { color: theme.subtext }]}>
+                    Pilih warna untuk{' '}
+                    <Text style={{ fontWeight: '700', color: theme.accentLight }}>
+                      {colorPamphletTarget === 'bg'
+                        ? 'Latar Belakang (Background)'
+                        : colorPamphletTarget === 'card'
+                        ? 'Kartu & Panel (Card)'
+                        : 'Tombol Aksen & Highlight'}
+                    </Text>
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowColorPamphletModal(false)}
+                style={[styles.closePersonaModalBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+              >
+                <Ionicons name="close" size={18} color={theme.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            {/* Live Selected Color Banner & Action Row */}
+            <View style={[styles.pamphletPreviewBanner, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+              <View style={[styles.pamphletColorBlock, { backgroundColor: tempSelectedColor, borderColor: theme.border }]}>
+                <Ionicons
+                  name="checkmark"
+                  size={16}
+                  color={isColorLight(tempSelectedColor) ? '#000000' : '#FFFFFF'}
+                />
+              </View>
+
+              <View style={{ flex: 1, gap: 2 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.pamphletHexText, { color: theme.text }]}>
+                    {tempSelectedColor}
+                  </Text>
+                  <View
+                    style={[
+                      styles.pamphletBadge,
+                      {
+                        backgroundColor: isColorLight(tempSelectedColor) ? '#FEF3C7' : '#1E293B',
+                        borderColor: isColorLight(tempSelectedColor) ? '#F59E0B' : '#334155',
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={[
+                        styles.pamphletBadgeText,
+                        { color: isColorLight(tempSelectedColor) ? '#B45309' : '#94A3B8' },
+                      ]}
+                    >
+                      {isColorLight(tempSelectedColor) ? '☀️ Terang' : '🌑 Gelap'}
+                    </Text>
+                  </View>
+                </View>
+                <Text style={{ fontSize: 10.5, color: theme.subtext }}>
+                  Klik salah satu warna di bawah untuk preview, lalu tekan Terapkan.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                style={[styles.pamphletApplyBtn, { backgroundColor: theme.primary }]}
+                onPress={() => applyPamphletColor(tempSelectedColor)}
+                activeOpacity={0.8}
+              >
+                <Ionicons name="checkmark-done" size={14} color="#FFFFFF" />
+                <Text style={styles.pamphletApplyBtnText}>Terapkan</Text>
+              </TouchableOpacity>
+            </View>
+
+            {/* Search Bar & Web Color Wheel Button */}
+            <View style={{ flexDirection: 'row', gap: 8, marginTop: 10, marginBottom: 6 }}>
+              <View style={[styles.personaSearchWrap, { flex: 1, marginTop: 0, marginBottom: 0, backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <Ionicons name="search" size={14} color={theme.muted} />
+                <TextInput
+                  style={[styles.personaSearchInput, { color: theme.text }]}
+                  placeholder="Cari warna (Emerald, Rose, Slate, Black)..."
+                  placeholderTextColor={theme.muted}
+                  value={pamphletSearchQuery}
+                  onChangeText={setPamphletSearchQuery}
+                />
+                {pamphletSearchQuery ? (
+                  <TouchableOpacity onPress={() => setPamphletSearchQuery('')}>
+                    <Ionicons name="close-circle" size={14} color={theme.muted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+
+              {Platform.OS === 'web' && (
+                <TouchableOpacity
+                  style={[styles.nativeWheelBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  onPress={triggerNativeWebColorPicker}
+                  activeOpacity={0.8}
+                >
+                  <Ionicons name="aperture" size={14} color={theme.accentLight} />
+                  <Text style={[styles.nativeWheelBtnText, { color: theme.accentLight }]}>Roda Warna</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Categorized Color Swatches List */}
+            <ScrollView style={styles.pamphletListScroll} showsVerticalScrollIndicator={false}>
+              <View style={{ gap: 14, paddingVertical: 6, paddingBottom: 16 }}>
+                {COLOR_PAMPHLET_CATEGORIES.map((cat, cIdx) => {
+                  const filteredColors = cat.colors.filter(col => {
+                    if (!pamphletSearchQuery.trim()) return true;
+                    const q = pamphletSearchQuery.toLowerCase().trim();
+                    return col.name.toLowerCase().includes(q) || col.hex.toLowerCase().includes(q);
+                  });
+
+                  if (filteredColors.length === 0) return null;
+
+                  return (
+                    <View key={`cat_${cIdx}`} style={[styles.pamphletCategoryBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                      <View style={styles.pamphletCatHeader}>
+                        <Text style={[styles.pamphletCatTitle, { color: theme.text }]}>{cat.title}</Text>
+                        <Text style={[styles.pamphletCatDesc, { color: theme.subtext }]}>{cat.description}</Text>
+                      </View>
+
+                      <View style={styles.pamphletGrid}>
+                        {filteredColors.map(colorItem => {
+                          const isSelected = tempSelectedColor.toUpperCase() === colorItem.hex.toUpperCase();
+
+                          return (
+                            <TouchableOpacity
+                              key={colorItem.hex}
+                              style={[
+                                styles.pamphletSwatchBtn,
+                                {
+                                  backgroundColor: colorItem.hex,
+                                  borderColor: isSelected ? theme.accentLight : (isColorLight(colorItem.hex) ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)'),
+                                },
+                                isSelected && styles.pamphletSwatchSelected,
+                              ]}
+                              onPress={() => setTempSelectedColor(colorItem.hex)}
+                              activeOpacity={0.8}
+                            >
+                              <View style={[styles.swatchInnerLabelWrap, { backgroundColor: isColorLight(colorItem.hex) ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.65)' }]}>
+                                <Text
+                                  style={[
+                                    styles.swatchNameText,
+                                    { color: isColorLight(colorItem.hex) ? '#0F172A' : '#F3F4F6' },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {colorItem.name}
+                                </Text>
+                                <Text
+                                  style={[
+                                    styles.swatchHexText,
+                                    { color: isColorLight(colorItem.hex) ? '#475569' : '#9CA3AF' },
+                                  ]}
+                                >
+                                  {colorItem.hex}
+                                </Text>
+                              </View>
+
+                              {isSelected && (
+                                <View style={[styles.swatchCheckBadge, { backgroundColor: theme.primary }]}>
+                                  <Ionicons name="checkmark" size={11} color="#FFFFFF" />
+                                </View>
+                              )}
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
     </SafeAreaView>
   );
 }
@@ -949,7 +1624,7 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: 'transparent',
   },
   loaderCenter: {
     flex: 1,
@@ -1365,15 +2040,173 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  hexColorIndicator: {
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.25)',
+  },
   hexInput: {
     flex: 1,
-    maxWidth: 160,
+    maxWidth: 130,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderRadius: 6,
     borderWidth: 1,
     fontSize: 11.5,
     fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  openPamphletBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  openPamphletBtnText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+
+  /* Color Pamphlet Modal Styles */
+  colorPamphletCard: {
+    width: '100%',
+    maxWidth: 580,
+    maxHeight: '90%',
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 16,
+    shadowColor: '#000',
+    shadowOpacity: 0.5,
+    shadowRadius: 24,
+    elevation: 20,
+  },
+  pamphletPreviewBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 10,
+  },
+  pamphletColorBlock: {
+    width: 38,
+    height: 38,
+    borderRadius: 10,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  pamphletHexText: {
+    fontSize: 13,
+    fontWeight: '800',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+    letterSpacing: 0.5,
+  },
+  pamphletBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 4,
+    borderWidth: 1,
+  },
+  pamphletBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+  pamphletApplyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+  },
+  pamphletApplyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  nativeWheelBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  nativeWheelBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  pamphletListScroll: {
+    marginTop: 4,
+  },
+  pamphletCategoryBox: {
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 12,
+    gap: 8,
+  },
+  pamphletCatHeader: {
+    marginBottom: 2,
+  },
+  pamphletCatTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  pamphletCatDesc: {
+    fontSize: 10.5,
+    marginTop: 1,
+  },
+  pamphletGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  pamphletSwatchBtn: {
+    width: '23.5%',
+    minWidth: 70,
+    height: 56,
+    borderRadius: 8,
+    borderWidth: 1.5,
+    justifyContent: 'flex-end',
+    padding: 3,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  pamphletSwatchSelected: {
+    borderWidth: 2.5,
+    transform: [{ scale: 1.03 }],
+  },
+  swatchInnerLabelWrap: {
+    borderRadius: 5,
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    alignItems: 'center',
+  },
+  swatchNameText: {
+    fontSize: 8.5,
+    fontWeight: '700',
+  },
+  swatchHexText: {
+    fontSize: 8,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  swatchCheckBadge: {
+    position: 'absolute',
+    top: 3,
+    right: 3,
+    width: 16,
+    height: 16,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   contrastOptionBtn: {
     flex: 1,
@@ -1395,6 +2228,80 @@ const styles = StyleSheet.create({
   resetCustomText: {
     fontSize: 11,
     fontWeight: '600',
+  },
+
+  /* Background Art & Wallpaper Section Styles */
+  artSectionDivider: {
+    borderTopWidth: 1,
+    paddingTop: 12,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  artSectionHeaderTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  artSectionHeaderSub: {
+    fontSize: 10.5,
+    lineHeight: 14,
+    marginBottom: 10,
+  },
+  artStylesGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  artStyleCard: {
+    flex: 1,
+    minWidth: 140,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 10,
+    gap: 3,
+  },
+  artStyleLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  artStyleDesc: {
+    fontSize: 9.5,
+    lineHeight: 13,
+  },
+  customPhotoControlsBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 10,
+  },
+  uploadPhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 7,
+  },
+  uploadPhotoBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  blurOptionBtn: {
+    flex: 1,
+    paddingVertical: 7,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: 'center',
+  },
+  removePhotoBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7,
+    borderRadius: 7,
+    borderWidth: 1,
+    marginTop: 4,
   },
 
   persistenceNote: {

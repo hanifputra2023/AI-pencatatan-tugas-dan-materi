@@ -3,11 +3,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 
+export type BgArtStyle = 'none' | 'aurora-ribbons' | 'fluid-waves' | 'geometric-glow' | 'custom-photo';
+
 export interface AppTheme {
   id: string;
   name: string;
   mode: 'dark' | 'light' | 'custom';
-  emoji: string;
+  iconName: string;
   description: string;
   primary: string;
   accent: string;
@@ -23,14 +25,14 @@ export interface AppTheme {
 }
 
 // -------------------------------------------------------------
-// CURATED DARK PRESETS (8 Styles)
+// CURATED DARK PRESETS (8 Styles) - Clean Vector Style (No Emojis)
 // -------------------------------------------------------------
 export const DARK_THEMES: AppTheme[] = [
   {
     id: 'obsidian-blue',
     name: 'Obsidian Blue (Default)',
     mode: 'dark',
-    emoji: '🌌',
+    iconName: 'planet-outline',
     description: 'Nuansa biru modern gelap dengan kontras seimbang.',
     primary: '#2563EB',
     accent: '#3B82F6',
@@ -48,7 +50,7 @@ export const DARK_THEMES: AppTheme[] = [
     id: 'emerald-forest',
     name: 'Emerald Forest',
     mode: 'dark',
-    emoji: '🌿',
+    iconName: 'leaf-outline',
     description: 'Nuansa hijau alami yang menenangkan mata saat belajar.',
     primary: '#059669',
     accent: '#10B981',
@@ -66,7 +68,7 @@ export const DARK_THEMES: AppTheme[] = [
     id: 'midnight-galaxy',
     name: 'Midnight Galaxy',
     mode: 'dark',
-    emoji: '🔮',
+    iconName: 'sparkles-outline',
     description: 'Nuansa ungu galaksi misterius dan estetis.',
     primary: '#7C3AED',
     accent: '#8B5CF6',
@@ -84,7 +86,7 @@ export const DARK_THEMES: AppTheme[] = [
     id: 'sunset-amber',
     name: 'Sunset Amber',
     mode: 'dark',
-    emoji: '🌅',
+    iconName: 'sunny-outline',
     description: 'Nuansa hangat senja yang memicu fokus dan semangat.',
     primary: '#D97706',
     accent: '#F59E0B',
@@ -102,8 +104,8 @@ export const DARK_THEMES: AppTheme[] = [
     id: 'cyberpunk-neon',
     name: 'Cyberpunk Neon',
     mode: 'dark',
-    emoji: '🌸',
-    description: 'Nuansa pink & magenta modern yang playful dan ceria.',
+    iconName: 'flash-outline',
+    description: 'Nuansa pink & magenta modern yang futuristik.',
     primary: '#DB2777',
     accent: '#EC4899',
     accentLight: '#F472B6',
@@ -120,7 +122,7 @@ export const DARK_THEMES: AppTheme[] = [
     id: 'deep-ocean',
     name: 'Deep Ocean',
     mode: 'dark',
-    emoji: '🌊',
+    iconName: 'water-outline',
     description: 'Nuansa biru laut dan teal yang segar dan bersih.',
     primary: '#0891B2',
     accent: '#06B6D4',
@@ -138,7 +140,7 @@ export const DARK_THEMES: AppTheme[] = [
     id: 'crimson-ruby',
     name: 'Crimson Ruby',
     mode: 'dark',
-    emoji: '💎',
+    iconName: 'diamond-outline',
     description: 'Nuansa merah ruby elegan dan tegas.',
     primary: '#DC2626',
     accent: '#EF4444',
@@ -156,7 +158,7 @@ export const DARK_THEMES: AppTheme[] = [
     id: 'onyx-monochrome',
     name: 'Onyx Monokrom',
     mode: 'dark',
-    emoji: '🖤',
+    iconName: 'contrast-outline',
     description: 'Nuansa abu-abu slate monokromatis minimalis profesional.',
     primary: '#475569',
     accent: '#64748B',
@@ -173,14 +175,14 @@ export const DARK_THEMES: AppTheme[] = [
 ];
 
 // -------------------------------------------------------------
-// CURATED LIGHT PRESETS (6 Styles)
+// CURATED LIGHT PRESETS (6 Styles) - Clean Vector Style (No Emojis)
 // -------------------------------------------------------------
 export const LIGHT_THEMES: AppTheme[] = [
   {
     id: 'clean-white',
     name: 'Clean White Minimalist',
     mode: 'light',
-    emoji: '☀️',
+    iconName: 'sunny-outline',
     description: 'Tampilan putih bersih modern dengan aksen biru profesional.',
     primary: '#2563EB',
     accent: '#3B82F6',
@@ -198,7 +200,7 @@ export const LIGHT_THEMES: AppTheme[] = [
     id: 'warm-sand',
     name: 'Warm Sand Light',
     mode: 'light',
-    emoji: '🌾',
+    iconName: 'document-text-outline',
     description: 'Nuansa hangat lembut bernuansa kertas krem elegan.',
     primary: '#D97706',
     accent: '#F59E0B',
@@ -216,7 +218,7 @@ export const LIGHT_THEMES: AppTheme[] = [
     id: 'sage-pastel',
     name: 'Sage Pastel Light',
     mode: 'light',
-    emoji: '🍃',
+    iconName: 'leaf-outline',
     description: 'Nuansa hijau sage lembut yang segar dan nyaman di mata.',
     primary: '#059669',
     accent: '#10B981',
@@ -234,7 +236,7 @@ export const LIGHT_THEMES: AppTheme[] = [
     id: 'lavender-dream',
     name: 'Lavender Dream Light',
     mode: 'light',
-    emoji: '🪻',
+    iconName: 'color-filter-outline',
     description: 'Nuansa pastel ungu lavender yang anggun dan menenangkan.',
     primary: '#7C3AED',
     accent: '#8B5CF6',
@@ -252,7 +254,7 @@ export const LIGHT_THEMES: AppTheme[] = [
     id: 'sakura-rose',
     name: 'Sakura Rose Light',
     mode: 'light',
-    emoji: '🌸',
+    iconName: 'heart-outline',
     description: 'Nuansa pink sakura cerah yang manis dan bersemangat.',
     primary: '#DB2777',
     accent: '#EC4899',
@@ -270,7 +272,7 @@ export const LIGHT_THEMES: AppTheme[] = [
     id: 'sky-cyan',
     name: 'Sky Cyan Light',
     mode: 'light',
-    emoji: '☁️',
+    iconName: 'cloudy-outline',
     description: 'Nuansa biru langit cerah yang jernih dan lapang.',
     primary: '#0284C7',
     accent: '#0EA5E9',
@@ -335,9 +337,22 @@ interface ThemeContextType {
   lightThemes: AppTheme[];
   allThemes: AppTheme[];
   customThemeData: Partial<AppTheme> | null;
+
+  // Background Art & Custom Photo Wallpaper
+  bgArtStyle: BgArtStyle;
+  bgCustomImage: string | null;
+  bgBlurRadius: number;
+  bgDimmingOpacity: number;
+  bgFitMode: 'cover' | 'contain';
+  setBgArtStyle: (style: BgArtStyle) => Promise<void>;
+  setBgCustomImage: (uri: string | null) => Promise<void>;
+  setBgBlurRadius: (radius: number) => Promise<void>;
+  setBgDimmingOpacity: (opacity: number) => Promise<void>;
+  setBgFitMode: (mode: 'cover' | 'contain') => Promise<void>;
 }
 
 const STORAGE_KEY = '@user_app_theme_v2';
+const BG_ART_STORAGE_KEY = '@user_bg_art_settings_v1';
 
 const getInitialThemeState = () => {
   if (typeof window !== 'undefined' && window.localStorage) {
@@ -346,7 +361,7 @@ const getInitialThemeState = () => {
       if (cached) {
         const parsed = JSON.parse(cached);
         const mode = (parsed.mode as 'dark' | 'light' | 'custom') || 'dark';
-        const id = parsed.id || (mode === 'light' ? 'pure-white' : 'obsidian-blue');
+        const id = parsed.id || (mode === 'light' ? 'clean-white' : 'obsidian-blue');
         return {
           mode,
           id,
@@ -376,6 +391,16 @@ const ThemeContext = createContext<ThemeContextType>({
   lightThemes: LIGHT_THEMES,
   allThemes: ALL_THEMES,
   customThemeData: null,
+  bgArtStyle: 'aurora-ribbons',
+  bgCustomImage: null,
+  bgBlurRadius: 18,
+  bgDimmingOpacity: 0.55,
+  bgFitMode: 'cover',
+  setBgArtStyle: async () => {},
+  setBgCustomImage: async () => {},
+  setBgBlurRadius: async () => {},
+  setBgDimmingOpacity: async () => {},
+  setBgFitMode: async () => {},
 });
 
 export const useTheme = () => useContext(ThemeContext);
@@ -388,15 +413,22 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const [themeId, setLocalThemeId] = useState<string>(initial.id);
   const [customThemeData, setCustomThemeData] = useState<Partial<AppTheme> | null>(initial.custom);
 
+  // Background Art & Wallpaper State
+  const [bgArtStyle, setLocalBgArtStyle] = useState<BgArtStyle>('aurora-ribbons');
+  const [bgCustomImage, setLocalBgCustomImage] = useState<string | null>(null);
+  const [bgBlurRadius, setLocalBgBlurRadius] = useState<number>(18);
+  const [bgDimmingOpacity, setLocalBgDimmingOpacity] = useState<number>(0.55);
+  const [bgFitMode, setLocalBgFitMode] = useState<'cover' | 'contain'>('cover');
+
   // Sync to database
   const syncToDatabase = useCallback(async (
     mode: 'dark' | 'light' | 'custom',
     id: string,
-    custom: Partial<AppTheme> | null
+    custom: Partial<AppTheme> | null,
+    artSettings?: { style?: BgArtStyle; image?: string | null; blur?: number; dimming?: number; fit?: 'cover' | 'contain' }
   ) => {
     if (!user) return;
     try {
-      // 1. Try upserting to user_theme_settings table
       await supabase.from('user_theme_settings').upsert({
         user_id: user.id,
         theme_mode: mode,
@@ -411,30 +443,45 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         updated_at: new Date().toISOString(),
       });
     } catch (err) {
-      // 2. Fallback to auth user metadata if table doesn't exist yet
       try {
         await supabase.auth.updateUser({
           data: {
             app_theme_mode: mode,
             app_theme_id: id,
             app_custom_theme: custom ? JSON.stringify(custom) : null,
+            app_bg_art_settings: artSettings || undefined,
           },
         });
       } catch (e) {}
     }
   }, [user]);
 
-  // Load saved theme on mount
+  // Load saved theme & background art on mount
   useEffect(() => {
     const loadSaved = async () => {
       try {
         // 1. Local storage first for immediate zero-latency load
-        const cached = await AsyncStorage.getItem(STORAGE_KEY);
-        if (cached) {
-          const parsed = JSON.parse(cached);
+        const [cachedTheme, cachedBgArt] = await Promise.all([
+          AsyncStorage.getItem(STORAGE_KEY),
+          AsyncStorage.getItem(BG_ART_STORAGE_KEY),
+        ]);
+
+        if (cachedTheme) {
+          const parsed = JSON.parse(cachedTheme);
           if (parsed.mode) setLocalThemeMode(parsed.mode);
           if (parsed.id) setLocalThemeId(parsed.id);
           if (parsed.custom) setCustomThemeData(parsed.custom);
+        }
+
+        if (cachedBgArt) {
+          try {
+            const artParsed = JSON.parse(cachedBgArt);
+            if (artParsed.style) setLocalBgArtStyle(artParsed.style);
+            if (artParsed.image !== undefined) setLocalBgCustomImage(artParsed.image);
+            if (typeof artParsed.blur === 'number') setLocalBgBlurRadius(artParsed.blur);
+            if (typeof artParsed.dimming === 'number') setLocalBgDimmingOpacity(artParsed.dimming);
+            if (artParsed.fit) setLocalBgFitMode(artParsed.fit);
+          } catch (e) {}
         }
 
         // 2. Cloud database sync for authenticated users
@@ -556,6 +603,74 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   // Reset to Default
   const resetTheme = async () => {
     await setTheme('obsidian-blue');
+    await setBgArtStyle('aurora-ribbons');
+    await setBgCustomImage(null);
+  };
+
+  // -------------------------------------------------------------
+  // Background Art & Wallpaper Setters
+  // -------------------------------------------------------------
+  const saveBgArtLocally = async (artObj: { style: BgArtStyle; image: string | null; blur: number; dimming: number; fit: 'cover' | 'contain' }) => {
+    await AsyncStorage.setItem(BG_ART_STORAGE_KEY, JSON.stringify(artObj));
+    syncToDatabase(themeMode, themeId, customThemeData, artObj);
+  };
+
+  const setBgArtStyle = async (style: BgArtStyle) => {
+    setLocalBgArtStyle(style);
+    await saveBgArtLocally({
+      style,
+      image: bgCustomImage,
+      blur: bgBlurRadius,
+      dimming: bgDimmingOpacity,
+      fit: bgFitMode,
+    });
+  };
+
+  const setBgCustomImage = async (uri: string | null) => {
+    setLocalBgCustomImage(uri);
+    if (uri) {
+      setLocalBgArtStyle('custom-photo');
+    }
+    await saveBgArtLocally({
+      style: uri ? 'custom-photo' : bgArtStyle,
+      image: uri,
+      blur: bgBlurRadius,
+      dimming: bgDimmingOpacity,
+      fit: bgFitMode,
+    });
+  };
+
+  const setBgBlurRadius = async (radius: number) => {
+    setLocalBgBlurRadius(radius);
+    await saveBgArtLocally({
+      style: bgArtStyle,
+      image: bgCustomImage,
+      blur: radius,
+      dimming: bgDimmingOpacity,
+      fit: bgFitMode,
+    });
+  };
+
+  const setBgDimmingOpacity = async (opacity: number) => {
+    setLocalBgDimmingOpacity(opacity);
+    await saveBgArtLocally({
+      style: bgArtStyle,
+      image: bgCustomImage,
+      blur: bgBlurRadius,
+      dimming: opacity,
+      fit: bgFitMode,
+    });
+  };
+
+  const setBgFitMode = async (fit: 'cover' | 'contain') => {
+    setLocalBgFitMode(fit);
+    await saveBgArtLocally({
+      style: bgArtStyle,
+      image: bgCustomImage,
+      blur: bgBlurRadius,
+      dimming: bgDimmingOpacity,
+      fit,
+    });
   };
 
   // Compute Active Final Theme
@@ -573,6 +688,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
       id: 'custom',
       mode: isBgLight ? 'light' : 'dark',
       name: 'Custom Studio Creation',
+      iconName: 'color-palette-outline',
       bg,
       card: customThemeData.card || (isBgLight ? '#FFFFFF' : '#141822'),
       cardInner: customThemeData.cardInner || (isBgLight ? '#F1F5F9' : '#0E1117'),
@@ -616,6 +732,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
         lightThemes: LIGHT_THEMES,
         allThemes: ALL_THEMES,
         customThemeData,
+        bgArtStyle,
+        bgCustomImage,
+        bgBlurRadius,
+        bgDimmingOpacity,
+        bgFitMode,
+        setBgArtStyle,
+        setBgCustomImage,
+        setBgBlurRadius,
+        setBgDimmingOpacity,
+        setBgFitMode,
       }}
     >
       {children}

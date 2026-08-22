@@ -195,7 +195,7 @@ export default function JournalScreen() {
   };
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
       <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
       {/* Header */}
       <View style={styles.header}>
@@ -307,7 +307,7 @@ export default function JournalScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: 'transparent',
   },
   innerContainer: {
     flex: 1,

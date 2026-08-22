@@ -1,5 +1,5 @@
 import React from 'react';
-import { NavigationContainer, NavigatorScreenParams } from '@react-navigation/native';
+import { NavigationContainer, NavigatorScreenParams, DefaultTheme } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { Ionicons } from '@expo/vector-icons';
@@ -53,6 +53,14 @@ import { useResponsive } from '../hooks/useResponsive';
 import { useTheme } from '../contexts/ThemeContext';
 import DesktopHeader from '../components/DesktopHeader';
 
+const transparentNavTheme = {
+  ...DefaultTheme,
+  colors: {
+    ...DefaultTheme.colors,
+    background: 'transparent',
+  },
+};
+
 function MainTabs() {
   const { isSmallPhone, isDesktop, isTablet } = useResponsive();
   const { theme } = useTheme();
@@ -61,10 +69,11 @@ function MainTabs() {
   const labelFontSize = isSmallPhone ? 9 : (isDesktop || isTablet) ? 11.5 : 10;
 
   return (
-    <View style={{ flex: 1, backgroundColor: theme.bg }}>
+    <View style={{ flex: 1, backgroundColor: 'transparent' }}>
       {isDesktop && <DesktopHeader />}
       <Tab.Navigator
         backBehavior="history"
+        sceneContainerStyle={{ backgroundColor: 'transparent' }}
         screenOptions={({ route }) => ({
           tabBarIcon: ({ focused, color }) => {
             const icons: Record<string, keyof typeof Ionicons.glyphMap> = {
@@ -152,8 +161,13 @@ export default function AppNavigator() {
   }
 
   return (
-    <NavigationContainer>
-      <Stack.Navigator screenOptions={{ headerShown: false }}>
+    <NavigationContainer theme={transparentNavTheme}>
+      <Stack.Navigator
+        screenOptions={{
+          headerShown: false,
+          contentStyle: { backgroundColor: 'transparent' },
+        }}
+      >
         {session ? (
           <>
             <Stack.Screen name="Main" component={MainTabs} />

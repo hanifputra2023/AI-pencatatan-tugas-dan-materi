@@ -779,11 +779,11 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
   };
 
   if (fetching) {
-    return <View style={[styles.loaderCenter, { backgroundColor: theme.bg }]}><ActivityIndicator size="small" color={theme.accentLight} /></View>;
+    return <View style={styles.loaderCenter}><ActivityIndicator size="small" color={theme.accentLight} /></View>;
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
 
       {/* Top Header with Back Button */}
       <View style={[styles.topHeader, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
@@ -1483,7 +1483,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#090B0E',
+    backgroundColor: 'transparent',
   },
   loaderCenter: {
     flex: 1,

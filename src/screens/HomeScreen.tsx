@@ -469,7 +469,7 @@ export default function HomeScreen() {
 
   if (loading) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.loaderCenter}>
           <ActivityIndicator size="small" color={theme.accentLight} />
         </View>
@@ -478,9 +478,9 @@ export default function HomeScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
       <ScrollView
-        style={[styles.scroll, { backgroundColor: theme.bg }]}
+        style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, isWide && styles.scrollContentWide]}
       >
@@ -974,7 +974,7 @@ export default function HomeScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: 'transparent',
   },
   loaderCenter: {
     flex: 1,

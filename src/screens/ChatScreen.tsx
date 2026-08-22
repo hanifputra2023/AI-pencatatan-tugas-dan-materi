@@ -781,7 +781,7 @@ export default function ChatScreen() {
 
   if (initializing) {
     return (
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+      <SafeAreaView style={styles.container}>
         <View style={styles.centerBox}>
           <ActivityIndicator size="small" color={theme.accentLight} />
           <Text style={[styles.loadingText, { color: theme.subtext }]}>Memuat ruang obrolan...</Text>
@@ -791,7 +791,7 @@ export default function ChatScreen() {
   }
 
   return (
-    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
+    <SafeAreaView style={styles.container}>
       <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
       
       {/* ========================================================================= */}
@@ -1144,7 +1144,7 @@ export default function ChatScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0E1117',
+    backgroundColor: 'transparent',
   },
   innerContainer: {
     flex: 1,
