@@ -13,6 +13,9 @@ import { useResponsive } from '../../hooks/useResponsive';
 import { useTheme, isColorLight } from '../../contexts/ThemeContext';
 import AppLogo from '../../components/AppLogo';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ONBOARDING_STORAGE_KEY } from './OnboardingScreen';
+
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Login'> };
 
 export default function LoginScreen({ navigation }: Props) {
@@ -43,6 +46,10 @@ export default function LoginScreen({ navigation }: Props) {
 
     if (error) {
       showAlert('Gagal Masuk', error.message || 'Email atau kata sandi tidak cocok. Silakan coba lagi.');
+    } else {
+      try {
+        await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
+      } catch (e) {}
     }
   };
 

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, ActivityIndicator, FlatList, Modal, Platform
@@ -18,6 +18,7 @@ import { confirmAction, showAlert } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import DateTimePickerModal from '../components/DateTimePickerModal';
 import TaskWorkpadModal from '../components/TaskWorkpadModal';
+import { exportTaskToPdf, exportAllTasksSummaryToPdf } from '../lib/pdfExporter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseDeadline, getDeadlinePresets } from '../lib/dateUtils';
 import {
@@ -857,6 +858,41 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     }, 'Hapus');
   };
 
+  // Export Single Task to PDF
+  const handleExportSingleTaskPdf = async (task: StudentTask) => {
+    try {
+      const authorName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Mahasiswa';
+      await exportTaskToPdf(task, task.subtasks || [], task.notes || '', authorName);
+    } catch (e: any) {
+      showAlert('Gagal Cetak PDF', e?.message || 'Terjadi kesalahan saat memproses dokumen PDF.');
+    }
+  };
+
+  // Export Single Task to PDF
+  const handleExportTaskPdf = async (taskItem: StudentTask) => {
+    try {
+      const authorName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Mahasiswa';
+      const workpadText = taskItem.notes || '';
+      await exportTaskToPdf(taskItem, taskItem.subtasks || [], workpadText, authorName);
+    } catch (e: any) {
+      showAlert('Gagal Cetak PDF', e?.message || 'Terjadi kesalahan saat memproses dokumen PDF.');
+    }
+  };
+
+  // Export All Tasks Summary to PDF
+  const handleExportAllTasksPdf = async () => {
+    if (tasks.length === 0) {
+      showAlert('Perhatian', 'Belum ada daftar tugas kuliah untuk diekspor ke PDF.');
+      return;
+    }
+    try {
+      const authorName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Mahasiswa';
+      await exportAllTasksSummaryToPdf(tasks, authorName);
+    } catch (e: any) {
+      showAlert('Gagal Cetak PDF', e?.message || 'Terjadi kesalahan saat memproses dokumen PDF.');
+    }
+  };
+
   // Toggle & Request Notification Permission
   const handleToggleNotifications = async () => {
     const granted = await requestNotificationPermissions();
@@ -886,6 +922,32 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     const matchSearch = !taskSearchQuery || t.title.toLowerCase().includes(taskSearchQuery.toLowerCase()) || (t.subject && t.subject.toLowerCase().includes(taskSearchQuery.toLowerCase()));
     return matchStatus && matchSubject && matchSearch;
   });
+
+  // Progressive Lazy-Loading on Scroll
+  const NOTES_PAGE_SIZE = 12;
+  const [visibleNotesLimit, setVisibleNotesLimit] = useState(NOTES_PAGE_SIZE);
+
+  const TASKS_PAGE_SIZE = 15;
+  const [visibleTasksLimit, setVisibleTasksLimit] = useState(TASKS_PAGE_SIZE);
+
+  const displayedNotes = useMemo(() => {
+    return filteredNotes.slice(0, visibleNotesLimit);
+  }, [filteredNotes, visibleNotesLimit]);
+
+  const displayedTasks = useMemo(() => {
+    return filteredTasks.slice(0, visibleTasksLimit);
+  }, [filteredTasks, visibleTasksLimit]);
+
+  const hasMoreNotes = filteredNotes.length > visibleNotesLimit;
+  const hasMoreTasks = filteredTasks.length > visibleTasksLimit;
+
+  const handleLoadMoreNotes = () => {
+    setVisibleNotesLimit(prev => Math.min(filteredNotes.length, prev + NOTES_PAGE_SIZE));
+  };
+
+  const handleLoadMoreTasks = () => {
+    setVisibleTasksLimit(prev => Math.min(filteredTasks.length, prev + TASKS_PAGE_SIZE));
+  };
 
   // Collect all active subject names for top filters
   const allFilterSubjects = ['Semua', ...Array.from(new Set([...subjects.map(s => s.name), ...notes.map(n => n.subject?.trim()).filter(Boolean), ...tasks.map(t => t.subject?.trim()).filter(Boolean)]))];
@@ -1130,13 +1192,22 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
             </View>
           ) : (
             <FlatList
-              data={filteredNotes}
+              data={displayedNotes}
               keyExtractor={item => item.id}
               numColumns={isWide ? 2 : 1}
               key={isWide ? 'grid-2' : 'list-1'}
               columnWrapperStyle={isWide ? { gap: 12 } : undefined}
               contentContainerStyle={styles.notesList}
               showsVerticalScrollIndicator={false}
+              onEndReached={handleLoadMoreNotes}
+              onEndReachedThreshold={0.5}
+              ListFooterComponent={
+                hasMoreNotes ? (
+                  <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                    <ActivityIndicator size="small" color={theme.accentLight} />
+                  </View>
+                ) : null
+              }
               ListHeaderComponent={
                 draftNote ? (
                   <View style={[styles.draftCard, { backgroundColor: isLightMode ? '#FFFBEB' : '#1C1608', borderColor: isLightMode ? '#FCD34D' : '#B45309' }]}>
@@ -1431,6 +1502,17 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                     Semua ({tasks.length})
                   </Text>
                 </TouchableOpacity>
+
+                {/* Export All Tasks Summary to PDF Button */}
+                <TouchableOpacity
+                  style={[styles.taskFilterChip, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={handleExportAllTasksPdf}
+                >
+                  <Ionicons name="print-outline" size={12} color={theme.accentLight} />
+                  <Text style={[styles.taskFilterText, { color: theme.accentLight, fontWeight: '700' }]}>
+                    Rekap PDF
+                  </Text>
+                </TouchableOpacity>
               </View>
 
               {loadingTasks ? (
@@ -1453,7 +1535,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                     const isExpanded = !!expandedTaskIds[t.id];
                     const isBreakingDown = breakingDownTaskId === t.id;
 
-                    const isDueDateUrgent = t.due_date && (t.due_date.toLowerCase().includes('hari ini') || t.due_date.toLowerCase().includes('besok') || isHigh);
+                    const isDueDateUrgent = !t.is_completed && t.due_date && (t.due_date.toLowerCase().includes('hari ini') || t.due_date.toLowerCase().includes('besok') || isHigh);
 
                     return (
                       <View
@@ -1464,8 +1546,29 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                           t.is_completed && styles.taskCardDone
                         ]}
                       >
+                        {/* Top-Right Corner Action Buttons (Edit & Delete) */}
+                        <View style={styles.taskCardCornerActions}>
+                          <TouchableOpacity
+                            style={[styles.taskCornerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                            onPress={() => handleStartEditTask(t)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityLabel="Edit Tugas"
+                          >
+                            <Ionicons name="pencil-outline" size={12} color={theme.subtext} />
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.taskCornerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                            onPress={() => deleteTask(t.id)}
+                            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            accessibilityLabel="Hapus Tugas"
+                          >
+                            <Ionicons name="trash-outline" size={12} color={theme.muted} />
+                          </TouchableOpacity>
+                        </View>
+
                         {/* Task Main Header Row */}
-                        <View style={styles.taskMainRow}>
+                        <View style={[styles.taskMainRow, { paddingRight: 64 }]}>
                           <TouchableOpacity onPress={() => toggleTask(t)} style={styles.taskCheckbox}>
                             <View style={[styles.taskCircle, { borderColor: theme.border }, t.is_completed && [styles.taskCircleActive, { backgroundColor: theme.primary, borderColor: theme.primary }]]}>
                               {t.is_completed && <Ionicons name="checkmark" size={13} color="#FFFFFF" />}
@@ -1493,6 +1596,27 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 
                               {/* Smart Dynamic Due Date Badge */}
                               {(() => {
+                                if (t.is_completed) {
+                                  return (
+                                    <View style={[
+                                      styles.dueBadge,
+                                      {
+                                        backgroundColor: isLightMode ? '#F0FDF4' : '#0B291B',
+                                        borderColor: isLightMode ? '#DCFCE7' : '#14532D',
+                                        borderWidth: 1,
+                                      }
+                                    ]}>
+                                      <Ionicons name="checkmark-circle" size={11} color={isLightMode ? '#16A34A' : '#34D399'} />
+                                      <Text style={[
+                                        styles.dueText,
+                                        { color: isLightMode ? '#16A34A' : '#34D399', fontWeight: '700' }
+                                      ]}>
+                                        Selesai
+                                      </Text>
+                                    </View>
+                                  );
+                                }
+
                                 const deadlineInfo = parseDeadline(t.due_date);
                                 if (!deadlineInfo) return null;
 
@@ -1585,89 +1709,84 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 
                         {/* Task Action Buttons Toolbar */}
                         <View style={[styles.taskActionToolbar, { borderTopColor: theme.cardInner }]}>
-                          
-                          {/* Workpad / Task Notes Action Button */}
-                          <TouchableOpacity
-                            style={[
-                              styles.taskActionBtn,
-                              { backgroundColor: t.notes ? theme.accentBg : theme.cardInner, borderColor: t.notes ? theme.accent : theme.border }
-                            ]}
-                            onPress={() => setActiveWorkpadTask(t)}
+                          <ScrollView
+                            horizontal
+                            showsHorizontalScrollIndicator={false}
+                            contentContainerStyle={styles.taskActionScrollContent}
                           >
-                            <Ionicons name="document-text-outline" size={12} color={t.notes ? theme.accentLight : theme.subtext} />
-                            <Text style={[styles.taskActionBtnText, { color: t.notes ? theme.accentLight : theme.subtext }]}>
-                              {t.notes ? 'Lembar Kerja ✍️' : 'Tulis Tugas'}
-                            </Text>
-                          </TouchableOpacity>
+                            {/* Workpad / Task Notes Action Button */}
+                            <TouchableOpacity
+                              style={[
+                                styles.taskActionBtn,
+                                { backgroundColor: t.notes ? theme.accentBg : theme.cardInner, borderColor: t.notes ? theme.accent : theme.border }
+                              ]}
+                              onPress={() => setActiveWorkpadTask(t)}
+                            >
+                              <Ionicons name="document-text-outline" size={12} color={t.notes ? theme.accentLight : theme.subtext} />
+                              <Text style={[styles.taskActionBtnText, { color: t.notes ? theme.accentLight : theme.subtext }]}>
+                                {t.notes ? 'Lembar Kerja ✍️' : 'Tulis Tugas'}
+                              </Text>
+                            </TouchableOpacity>
 
-                          {/* AI Breakdown Action Button */}
-                          <TouchableOpacity
-                            style={[styles.taskActionBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
-                            onPress={() => handleAiBreakdown(t)}
-                            disabled={isBreakingDown}
-                          >
-                            {isBreakingDown ? (
-                              <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
-                            ) : (
-                              <Ionicons name="sparkles" size={12} color={theme.accentLight} />
-                            )}
-                            <Text style={[styles.taskActionBtnText, { color: theme.accentLight }]}>
-                              {hasSubtasks ? 'Pecah Ulang AI' : 'Pecah Tugas (AI)'}
-                            </Text>
-                          </TouchableOpacity>
+                            {/* AI Breakdown Action Button */}
+                            <TouchableOpacity
+                              style={[styles.taskActionBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                              onPress={() => handleAiBreakdown(t)}
+                              disabled={isBreakingDown}
+                            >
+                              {isBreakingDown ? (
+                                <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                              ) : (
+                                <Ionicons name="sparkles" size={12} color={theme.accentLight} />
+                              )}
+                              <Text style={[styles.taskActionBtnText, { color: theme.accentLight }]}>
+                                {hasSubtasks ? 'Pecah Ulang AI' : 'Pecah Tugas (AI)'}
+                              </Text>
+                            </TouchableOpacity>
 
-                          {/* Subtasks Toggle Accordion */}
-                          <TouchableOpacity
-                            style={[
-                              styles.taskActionBtn,
-                              { backgroundColor: theme.cardInner, borderColor: theme.border },
-                              isExpanded && { backgroundColor: theme.accentBg, borderColor: theme.accent }
-                            ]}
-                            onPress={() => toggleExpandTask(t.id)}
-                          >
-                            <Ionicons name="list-outline" size={12} color={isExpanded ? theme.accentLight : theme.subtext} />
-                            <Text style={[styles.taskActionBtnText, { color: isExpanded ? theme.accentLight : theme.subtext }]}>
-                              Langkah ({subtasks.length})
-                            </Text>
-                            <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={11} color={isExpanded ? theme.accentLight : theme.subtext} />
-                          </TouchableOpacity>
+                            {/* Subtasks Toggle Accordion */}
+                            <TouchableOpacity
+                              style={[
+                                styles.taskActionBtn,
+                                { backgroundColor: theme.cardInner, borderColor: theme.border },
+                                isExpanded && { backgroundColor: theme.accentBg, borderColor: theme.accent }
+                              ]}
+                              onPress={() => toggleExpandTask(t.id)}
+                            >
+                              <Ionicons name="list-outline" size={12} color={isExpanded ? theme.accentLight : theme.subtext} />
+                              <Text style={[styles.taskActionBtnText, { color: isExpanded ? theme.accentLight : theme.subtext }]}>
+                                Langkah ({subtasks.length})
+                              </Text>
+                              <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={11} color={isExpanded ? theme.accentLight : theme.subtext} />
+                            </TouchableOpacity>
 
-                          {/* Focus with Pomodoro */}
-                          <TouchableOpacity
-                            style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                            onPress={() => handleFocusTaskWithPomodoro(t)}
-                          >
-                            <Ionicons name="timer-outline" size={12} color="#F59E0B" />
-                            <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Fokus Nugas</Text>
-                          </TouchableOpacity>
+                            {/* Focus with Pomodoro */}
+                            <TouchableOpacity
+                              style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                              onPress={() => handleFocusTaskWithPomodoro(t)}
+                            >
+                              <Ionicons name="timer-outline" size={12} color="#F59E0B" />
+                              <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Fokus Nugas</Text>
+                            </TouchableOpacity>
 
-                          {/* Discuss with AI Chat */}
-                          <TouchableOpacity
-                            style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                            onPress={() => handleDiscussTaskWithAi(t)}
-                          >
-                            <Ionicons name="chatbubble-ellipses-outline" size={12} color={theme.subtext} />
-                            <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Bahas AI</Text>
-                          </TouchableOpacity>
+                            {/* Print / Export Task to PDF */}
+                            <TouchableOpacity
+                              style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                              onPress={() => handleExportTaskPdf(t)}
+                            >
+                              <Ionicons name="print-outline" size={12} color={theme.accentLight} />
+                              <Text style={[styles.taskActionBtnText, { color: theme.accentLight }]}>Cetak PDF</Text>
+                            </TouchableOpacity>
 
-                          {/* Edit Task */}
-                          <TouchableOpacity
-                            style={[styles.taskIconBtn, { backgroundColor: theme.cardInner }]}
-                            onPress={() => handleStartEditTask(t)}
-                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                          >
-                            <Ionicons name="pencil-outline" size={13} color={theme.subtext} />
-                          </TouchableOpacity>
-
-                          {/* Delete Task */}
-                          <TouchableOpacity
-                            style={[styles.taskIconBtn, { backgroundColor: theme.cardInner }]}
-                            onPress={() => deleteTask(t.id)}
-                            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-                          >
-                            <Ionicons name="trash-outline" size={13} color={theme.muted} />
-                          </TouchableOpacity>
-
+                            {/* Discuss with AI Chat */}
+                            <TouchableOpacity
+                              style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                              onPress={() => handleDiscussTaskWithAi(t)}
+                            >
+                              <Ionicons name="chatbubble-ellipses-outline" size={12} color={theme.subtext} />
+                              <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Bahas AI</Text>
+                            </TouchableOpacity>
+                          </ScrollView>
                         </View>
 
                         {/* Expanded Subtasks Checklist Section */}
@@ -1714,14 +1833,14 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                                       style={styles.subtaskDeleteBtn}
                                       hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
                                     >
-                                      <Ionicons name="close" size={14} color={theme.muted} />
+                                      <Ionicons name="close" size={13} color={theme.muted} />
                                     </TouchableOpacity>
                                   </View>
                                 ))}
                               </View>
                             )}
 
-                            {/* Add Manual Subtask Input */}
+                            {/* Add Manual Subtask Input Form */}
                             <View style={styles.addSubtaskRow}>
                               <TextInput
                                 style={[styles.addSubtaskInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
@@ -1745,13 +1864,23 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                       </View>
                     );
                   })}
+
+                  {hasMoreTasks ? (
+                    <TouchableOpacity
+                      style={[styles.loadMoreTasksBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={handleLoadMoreTasks}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="chevron-down-circle-outline" size={15} color={theme.accentLight} />
+                      <Text style={[styles.loadMoreTasksBtnText, { color: theme.accentLight }]}>
+                        Tampilkan Tugas Lainnya ({filteredTasks.length - visibleTasksLimit} tersisa)
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
               )}
-
             </View>
-
           </View>
-
         </ScrollView>
       )}
 
@@ -2673,6 +2802,7 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   taskCard: {
+    position: 'relative',
     backgroundColor: '#141822',
     borderRadius: 14,
     padding: 14,
@@ -2680,8 +2810,41 @@ const styles = StyleSheet.create({
     borderColor: '#202634',
     gap: 10,
   },
+  taskCardCornerActions: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    zIndex: 3,
+  },
+  taskCornerIconBtn: {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   taskCardDone: {
     opacity: 0.6,
+  },
+  loadMoreTasksBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 11,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 8,
+    marginBottom: 16,
+  },
+  loadMoreTasksBtnText: {
+    fontSize: 12.5,
+    fontWeight: '600',
   },
   taskMainRow: {
     flexDirection: 'row',
@@ -2801,29 +2964,35 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   taskActionToolbar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    flexWrap: 'wrap',
-    gap: 6,
     paddingTop: 8,
     borderTopWidth: 1,
+  },
+  taskActionScrollContent: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingRight: 10,
   },
   taskActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    paddingHorizontal: 9,
+    paddingVertical: 5,
+    borderRadius: 8,
     borderWidth: 1,
   },
   taskActionBtnText: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '600',
   },
   taskIconBtn: {
-    padding: 5,
+    width: 26,
+    height: 26,
     borderRadius: 6,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   expandedSubtasksBox: {
     marginTop: 4,

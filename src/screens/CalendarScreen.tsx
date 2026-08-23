@@ -205,6 +205,8 @@ export default function CalendarScreen() {
 
   const daysGrid = getDaysGrid();
   const weekData = getWeekData();
+  const maxWeeklyEvents = Math.max(1, ...weekData.map(d => d.totalEvents));
+  const totalWeeklyEvents = weekData.reduce((acc, d) => acc + d.totalEvents, 0);
   const subjectStats = getSubjectStats();
   const moodStats = getMoodStats();
   const topMood = moodStats[0] ? moods.find(m => m.type === moodStats[0][0]) : null;
@@ -559,23 +561,63 @@ export default function CalendarScreen() {
 
             {/* 7-Day Activity Trend Bar Chart */}
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <Text style={[styles.cardTitle, { color: theme.text }]}>Tren Aktivitas 7 Hari Terakhir</Text>
+              <View style={styles.cardHeaderBetween}>
+                <Text style={[styles.cardTitle, { color: theme.text }]}>Tren Aktivitas 7 Hari Terakhir</Text>
+                <Text style={[styles.cardSubCount, { color: theme.accentLight }]}>{totalWeeklyEvents} Aktivitas</Text>
+              </View>
+
               <View style={styles.barChart}>
-                {weekData.map((d, i) => (
-                  <View key={i} style={styles.barCol}>
-                    <Text style={styles.barEmoji}>{d.mood?.emoji ?? (d.noteCount > 0 ? '📖' : '•')}</Text>
-                    <View
-                      style={[
-                        styles.bar,
-                        {
-                          backgroundColor: d.hasActivity ? theme.primary : theme.border,
-                          height: d.hasActivity ? Math.min(60, Math.max(20, d.totalEvents * 16)) : 6,
-                        },
-                      ]}
-                    />
-                    <Text style={[styles.barDay, { color: theme.subtext }]}>{d.day}</Text>
-                  </View>
-                ))}
+                {weekData.map((d, i) => {
+                  const isSelected = d.dateStr === selectedDateStr;
+                  const isToday = d.dateStr === new Date().toDateString();
+                  const heightPercent = d.hasActivity ? Math.max(12, Math.round((d.totalEvents / maxWeeklyEvents) * 60)) : 6;
+
+                  return (
+                    <TouchableOpacity
+                      key={i}
+                      style={[styles.barCol, isSelected && [styles.barColSelected, { backgroundColor: theme.cardInner, borderColor: theme.accent }]]}
+                      onPress={() => setSelectedDateStr(d.dateStr)}
+                      activeOpacity={0.7}
+                    >
+                      {/* Event Count & Emoji Header */}
+                      <View style={styles.barHeaderInfo}>
+                        {d.totalEvents > 0 ? (
+                          <Text style={[styles.barCountText, { color: theme.accentLight }]}>
+                            {d.totalEvents}
+                          </Text>
+                        ) : (
+                          <Text style={[styles.barCountText, { color: 'transparent' }]}>-</Text>
+                        )}
+                        <Text style={styles.barEmoji}>
+                          {d.mood?.emoji ?? (d.noteCount > 0 ? '📖' : '•')}
+                        </Text>
+                      </View>
+
+                      {/* Bounded Bar Track (Fixed Maximum Constraint) */}
+                      <View style={[styles.barTrack, { backgroundColor: theme.cardInner }]}>
+                        <View
+                          style={[
+                            styles.bar,
+                            {
+                              backgroundColor: d.hasActivity ? theme.primary : 'transparent',
+                              height: heightPercent,
+                            },
+                          ]}
+                        />
+                      </View>
+
+                      {/* Day Label */}
+                      <Text style={[
+                        styles.barDay,
+                        { color: theme.subtext },
+                        isToday && { color: theme.accentLight, fontWeight: '700' },
+                        isSelected && { color: theme.text, fontWeight: '700' }
+                      ]}>
+                        {d.day}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
 
@@ -937,24 +979,52 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'flex-end',
-    height: 90,
-    paddingTop: 10,
+    paddingTop: 12,
+    paddingBottom: 4,
+    gap: 4,
   },
   barCol: {
     alignItems: 'center',
-    gap: 6,
     flex: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  barColSelected: {
+    borderWidth: 1,
+  },
+  barHeaderInfo: {
+    alignItems: 'center',
+    marginBottom: 6,
+    gap: 2,
+  },
+  barCountText: {
+    fontSize: 10,
+    fontWeight: '700',
+    lineHeight: 12,
   },
   barEmoji: {
     fontSize: 12,
+    lineHeight: 14,
+  },
+  barTrack: {
+    width: 14,
+    height: 64,
+    borderRadius: 7,
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+    overflow: 'hidden',
+    marginBottom: 6,
   },
   bar: {
-    width: 14,
-    borderRadius: 4,
+    width: '100%',
+    borderRadius: 7,
   },
   barDay: {
-    color: '#6B7280',
     fontSize: 11,
+    fontWeight: '500',
   },
   statRow: {
     flexDirection: 'row',

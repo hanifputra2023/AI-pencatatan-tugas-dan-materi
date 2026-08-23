@@ -19,6 +19,7 @@ import { copyToClipboard } from '../lib/clipboard';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import ScanNoteModal from '../components/ScanNoteModal';
+import { exportStudyNoteToPdf } from '../lib/pdfExporter';
 import {
   isDeviceOnline,
   queueOfflineAction,
@@ -743,6 +744,35 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     );
   };
 
+  // Export Note & Quiz to PDF
+  const [exportingPdf, setExportingPdf] = useState(false);
+  const handleExportPdf = async () => {
+    if (!title.trim() && !content.trim()) {
+      showAlert('Perhatian', 'Catatan masih kosong untuk diekspor ke PDF.');
+      return;
+    }
+    setExportingPdf(true);
+    try {
+      const currentNote: StudyNote = {
+        id: noteId || 'temp_note',
+        user_id: user?.id || 'anonymous',
+        title: title.trim() || 'Catatan Kuliah',
+        subject: subject || 'Umum',
+        content: content.trim() || '',
+        summary,
+        quiz_data: quizData,
+        created_at: createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const authorName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Mahasiswa';
+      await exportStudyNoteToPdf(currentNote, authorName);
+    } catch (e: any) {
+      showAlert('Gagal Cetak PDF', e.message || 'Terjadi kesalahan saat memproses dokumen PDF.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
+
   // Copy Note Content
   const handleCopyNote = async () => {
     const fullText = `${title}\n\nMata Kuliah: ${subject}\n\n${content}${summary ? `\n\n---\nRangkuman AI:\n${summary}` : ''}`;
@@ -847,9 +877,24 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
               )}
             </TouchableOpacity>
           ) : (
-            <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={handleCopyNote}>
-              <Ionicons name="copy-outline" size={17} color={theme.subtext} />
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity
+                style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
+                onPress={handleExportPdf}
+                disabled={exportingPdf}
+                accessibilityLabel="Cetak Catatan PDF"
+              >
+                {exportingPdf ? (
+                  <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                ) : (
+                  <Ionicons name="print-outline" size={17} color={theme.accentLight} />
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={handleCopyNote}>
+                <Ionicons name="copy-outline" size={17} color={theme.subtext} />
+              </TouchableOpacity>
+            </View>
           )}
         </View>
       </View>
@@ -898,61 +943,82 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                 </Text>
               </View>
 
-              {/* Quick Action Floating Bar */}
-              <View style={[styles.readerActionBar, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <TouchableOpacity style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={() => setViewMode('edit')}>
-                  <Ionicons name="create" size={14} color={theme.accentLight} />
-                  <Text style={[styles.readerActionBtnText, { color: theme.accentLight }]}>Edit</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                  onPress={() => setShowScanModal(true)}
+              {/* Quick Action Horizontal Scrollable Bar */}
+              <View style={[styles.readerActionBarWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.readerActionBarScroll}
                 >
-                  <Ionicons name="camera" size={14} color="#818CF8" />
-                  <Text style={[styles.readerActionBtnText, { color: '#818CF8' }]}>Scan Foto AI</Text>
-                </TouchableOpacity>
+                  
 
-
-                <TouchableOpacity
-                  style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingSummary && { opacity: 0.6 }]}
-                  onPress={handleGenerateSummary}
-                  disabled={generatingSummary}
-                >
-                  {generatingSummary ? (
-                    <ActivityIndicator size="small" color="#FBBF24" />
-                  ) : (
-                    <>
-                      <Ionicons name="sparkles" size={14} color="#FBBF24" />
-                      <Text style={[styles.readerActionBtnText, { color: '#FBBF24' }]}>
-                        {summary ? 'Ulang Rangkuman' : 'Rangkum AI'}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingQuiz && { opacity: 0.6 }]}
-                  onPress={handleGenerateQuiz}
-                  disabled={generatingQuiz}
-                >
-                  {generatingQuiz ? (
-                    <ActivityIndicator size="small" color="#34D399" />
-                  ) : (
-                    <>
-                      <Ionicons name="school" size={14} color="#34D399" />
-                      <Text style={[styles.readerActionBtnText, { color: '#34D399' }]}>
-                        {quizData.length > 0 ? `Kuis (${quizData.length})` : 'Buat Kuis'}
-                      </Text>
-                    </>
-                  )}
-                </TouchableOpacity>
-
-                {noteId ? (
-                  <TouchableOpacity style={[styles.readerActionDeleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418', borderColor: isLightMode ? '#FECACA' : '#5C1D24' }]} onPress={handleDeleteCurrentNote}>
-                    <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                  <TouchableOpacity
+                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
+                    onPress={handleExportPdf}
+                    disabled={exportingPdf}
+                  >
+                    {exportingPdf ? (
+                      <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <>
+                        <Ionicons name="print-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.readerActionBtnText, { color: theme.accentLight }]}>Cetak PDF</Text>
+                      </>
+                    )}
                   </TouchableOpacity>
-                ) : null}
+
+                  <TouchableOpacity
+                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => setShowScanModal(true)}
+                  >
+                    <Ionicons name="camera-outline" size={13} color="#818CF8" />
+                    <Text style={[styles.readerActionBtnText, { color: '#818CF8' }]}>Scan Foto AI</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingSummary && { opacity: 0.6 }]}
+                    onPress={handleGenerateSummary}
+                    disabled={generatingSummary}
+                  >
+                    {generatingSummary ? (
+                      <ActivityIndicator size="small" color="#FBBF24" style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <>
+                        <Ionicons name="sparkles" size={13} color="#FBBF24" />
+                        <Text style={[styles.readerActionBtnText, { color: '#FBBF24' }]}>
+                          {summary ? 'Ulang Rangkuman' : 'Rangkum AI'}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingQuiz && { opacity: 0.6 }]}
+                    onPress={handleGenerateQuiz}
+                    disabled={generatingQuiz}
+                  >
+                    {generatingQuiz ? (
+                      <ActivityIndicator size="small" color="#34D399" style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <>
+                        <Ionicons name="school-outline" size={13} color="#34D399" />
+                        <Text style={[styles.readerActionBtnText, { color: '#34D399' }]}>
+                          {quizData.length > 0 ? `Kuis (${quizData.length})` : 'Buat Kuis'}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  {noteId ? (
+                    <TouchableOpacity
+                      style={[styles.readerActionDeleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418', borderColor: isLightMode ? '#FECACA' : '#5C1D24' }]}
+                      onPress={handleDeleteCurrentNote}
+                    >
+                      <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                      <Text style={[styles.readerActionBtnText, { color: '#EF4444' }]}>Hapus</Text>
+                    </TouchableOpacity>
+                  ) : null}
+                </ScrollView>
               </View>
 
               {/* Main Content Article Body */}
@@ -1647,39 +1713,42 @@ const styles = StyleSheet.create({
     color: '#6B7280',
     fontSize: 12,
   },
-  readerActionBar: {
+  readerActionBarWrap: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 6,
+    paddingHorizontal: 6,
+    marginBottom: 6,
+  },
+  readerActionBarScroll: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
-    paddingVertical: 8,
-    borderTopWidth: 1,
-    borderBottomWidth: 1,
-    borderColor: '#161B24',
-    flexWrap: 'wrap',
+    gap: 6,
+    paddingHorizontal: 2,
   },
   readerActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: '#141822',
-    paddingHorizontal: 12,
+    paddingHorizontal: 11,
     paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#202634',
+    flexShrink: 0,
   },
   readerActionBtnText: {
-    color: '#60A5FA',
     fontSize: 12,
     fontWeight: '600',
   },
   readerActionDeleteBtn: {
-    padding: 7,
-    backgroundColor: '#201214',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 11,
+    paddingVertical: 7,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#4A1D24',
-    marginLeft: 'auto',
+    flexShrink: 0,
   },
   readerArticleCard: {
     backgroundColor: '#0E1117',

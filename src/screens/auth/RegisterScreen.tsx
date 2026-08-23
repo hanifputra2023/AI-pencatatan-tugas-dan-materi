@@ -13,6 +13,9 @@ import { useResponsive } from '../../hooks/useResponsive';
 import { useTheme, isColorLight } from '../../contexts/ThemeContext';
 import AppLogo from '../../components/AppLogo';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { ONBOARDING_STORAGE_KEY } from './OnboardingScreen';
+
 type Props = { navigation: NativeStackNavigationProp<RootStackParamList, 'Register'> };
 
 export default function RegisterScreen({ navigation }: Props) {
@@ -53,6 +56,9 @@ export default function RegisterScreen({ navigation }: Props) {
     if (error) {
       showAlert('Gagal Mendaftar', error.message || 'Terjadi kesalahan saat pendaftaran.');
     } else {
+      try {
+        await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
+      } catch (e) {}
       showAlert('Pendaftaran Berhasil 🎉', 'Akun kamu telah siap digunakan. Selamat belajar bersama Ara!');
     }
   };

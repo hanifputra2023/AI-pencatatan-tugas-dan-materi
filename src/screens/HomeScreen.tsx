@@ -426,7 +426,10 @@ export default function HomeScreen() {
 
   const startBreathwork = () => {
     if (isBreathing) {
-      clearInterval(breathInterval.current);
+      if (breathInterval.current) {
+        clearInterval(breathInterval.current);
+        breathInterval.current = null;
+      }
       setIsBreathing(false);
       Animated.timing(breathAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start();
       return;
@@ -436,11 +439,20 @@ export default function HomeScreen() {
     saveDailyQuests(updated);
 
     setIsBreathing(true);
-    let step = 0;
-    let count = 4;
-    setBreathPhase('Tarik Napas');
+
+    const phases: Array<{ name: 'Tarik Napas' | 'Tahan' | 'Hembuskan'; duration: number }> = [
+      { name: 'Tarik Napas', duration: 4 },
+      { name: 'Tahan', duration: 4 },
+      { name: 'Hembuskan', duration: 4 },
+    ];
+
+    let phaseIdx = 0;
+    let seconds = 4;
+
+    setBreathPhase(phases[0].name);
     setBreathSeconds(4);
 
+    // Start Inhale animation (expand to 1.45 over 4s)
     Animated.timing(breathAnim, {
       toValue: 1.45,
       duration: 4000,
@@ -449,31 +461,39 @@ export default function HomeScreen() {
     }).start();
 
     breathInterval.current = setInterval(() => {
-      count -= 1;
-      if (count <= 0) {
-        step = (step + 1) % 3;
-        count = 4;
-        if (step === 0) {
-          setBreathPhase('Tarik Napas');
+      seconds -= 1;
+      if (seconds <= 0) {
+        // Move to next breath phase
+        phaseIdx = (phaseIdx + 1) % phases.length;
+        const nextPhase = phases[phaseIdx];
+        seconds = nextPhase.duration;
+
+        setBreathPhase(nextPhase.name);
+        setBreathSeconds(seconds);
+
+        if (nextPhase.name === 'Tarik Napas') {
           Animated.timing(breathAnim, {
             toValue: 1.45,
             duration: 4000,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }).start();
-        } else if (step === 1) {
-          setBreathPhase('Tahan');
-        } else {
-          setBreathPhase('Hembuskan');
+        } else if (nextPhase.name === 'Tahan') {
           Animated.timing(breathAnim, {
-            toValue: 1,
+            toValue: 1.45,
+            duration: 200,
+            useNativeDriver: true,
+          }).start();
+        } else if (nextPhase.name === 'Hembuskan') {
+          Animated.timing(breathAnim, {
+            toValue: 1.0,
             duration: 4000,
             easing: Easing.inOut(Easing.ease),
             useNativeDriver: true,
           }).start();
         }
       } else {
-        setBreathSeconds(count);
+        setBreathSeconds(seconds);
       }
     }, 1000);
   };
@@ -497,7 +517,7 @@ export default function HomeScreen() {
   // SUB-COMPONENT: HERO CARD (FOKUS HARI INI & MOOD CHECK-IN)
   // =========================================================================
   const renderHeroFocusCard = () => {
-    const nearestTask = upcomingTasks.find(t => t.due_date);
+    const nearestTask = upcomingTasks.find(t => t.due_date && !t.is_completed);
     const parsedDeadline = nearestTask?.due_date ? parseDeadline(nearestTask.due_date) : null;
 
     return (
@@ -638,28 +658,50 @@ export default function HomeScreen() {
               const isHigh = task.priority === 'high';
               const isLow = task.priority === 'low';
               return (
-                <View key={task.id} style={[styles.taskCardItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <View
+                  key={task.id}
+                  style={[
+                    styles.taskCardItem,
+                    { backgroundColor: theme.cardInner, borderColor: theme.border },
+                    task.is_completed && { opacity: 0.75 }
+                  ]}
+                >
                   <TouchableOpacity
-                    style={[styles.taskCheckCircle, { borderColor: theme.border }]}
+                    style={[
+                      styles.taskCheckCircle,
+                      { borderColor: theme.border },
+                      task.is_completed && { backgroundColor: theme.primary, borderColor: theme.primary }
+                    ]}
                     onPress={() => toggleTaskDirectly(task.id)}
                     hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
                     accessibilityLabel="Tandai tugas selesai"
                   >
-                    <Ionicons name="checkmark" size={14} color="transparent" />
+                    <Ionicons name="checkmark" size={13} color={task.is_completed ? "#FFFFFF" : "transparent"} />
                   </TouchableOpacity>
 
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.taskItemTitle, { color: theme.text }]} numberOfLines={1}>
+                  <View style={{ flex: 1, minWidth: 0 }}>
+                    <Text
+                      style={[
+                        styles.taskItemTitle,
+                        { color: theme.text },
+                        task.is_completed && { color: theme.muted, textDecorationLine: 'line-through' }
+                      ]}
+                      numberOfLines={1}
+                    >
                       {task.title}
                     </Text>
                     <View style={styles.taskItemMetaRow}>
                       <Text style={[styles.taskSubjectBadge, { color: theme.accentLight, backgroundColor: theme.accentBg }]}>
                         {task.subject}
                       </Text>
-                      {task.due_date ? (() => {
+                      {task.is_completed ? (
+                        <Text style={[styles.taskDueDateBadge, { color: sem.success, fontWeight: '700' }]}>
+                          ✓ Selesai
+                        </Text>
+                      ) : task.due_date ? (() => {
                         const parsed = parseDeadline(task.due_date);
                         return (
-                          <Text style={[styles.taskDueDateBadge, { color: theme.subtext }]}>
+                          <Text style={[styles.taskDueDateBadge, { color: theme.subtext }]} numberOfLines={1}>
                             Jatuh tempo: {parsed ? `${parsed.formattedText}${parsed.badgeLabel ? ` (${parsed.badgeLabel})` : ''}` : task.due_date}
                           </Text>
                         );
@@ -1521,8 +1563,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
-    padding: 10,
-    borderRadius: 10,
+    padding: 11,
+    borderRadius: 12,
     borderWidth: 1,
   },
   taskCheckCircle: {
@@ -1534,13 +1576,14 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   taskItemTitle: {
-    fontSize: 12.5,
+    fontSize: 13,
     fontWeight: '700',
-    marginBottom: 2,
+    marginBottom: 3,
   },
   taskItemMetaRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexWrap: 'wrap',
     gap: 6,
   },
   taskSubjectBadge: {
@@ -1552,12 +1595,14 @@ const styles = StyleSheet.create({
   },
   taskDueDateBadge: {
     fontSize: 11,
+    flexShrink: 1,
   },
   priorityBadge: {
     paddingHorizontal: 7,
     paddingVertical: 3,
     borderRadius: 5,
     borderWidth: 1,
+    alignSelf: 'center',
   },
   priorityBadgeText: {
     fontSize: 10.5,

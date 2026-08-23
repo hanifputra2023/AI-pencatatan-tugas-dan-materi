@@ -206,6 +206,12 @@ export default function AppNavigator() {
             <Stack.Screen name="Admin" component={AdminScreen} />
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />
           </>
+        ) : hasSeenOnboarding ? (
+          <>
+            <Stack.Screen name="Login"      component={LoginScreen} />
+            <Stack.Screen name="Register"   component={RegisterScreen} />
+            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+          </>
         ) : (
           <>
             <Stack.Screen name="Onboarding" component={OnboardingScreen} />

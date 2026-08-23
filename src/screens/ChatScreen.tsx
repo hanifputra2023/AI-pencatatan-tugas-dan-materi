@@ -1,8 +1,8 @@
-import React, { useEffect, useRef, useState, useCallback } from 'react';
+import React, { useEffect, useRef, useState, useCallback, useMemo } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, FlatList,
   StyleSheet, SafeAreaView, KeyboardAvoidingView, Platform,
-  ActivityIndicator, ScrollView, Image, Modal
+  ActivityIndicator, ScrollView, Image, Modal, TouchableWithoutFeedback
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -51,7 +51,7 @@ async function uriToBase64(uri: string): Promise<string> {
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
   'Ada hal yang bikin overthinking tadi',
-  'Mau cerita kejadian menarik hari ini',
+  'Bantu buat rencana belajar minggu ini',
   'Butuh sudut pandang lain soal masalah ini',
 ];
 
@@ -76,6 +76,7 @@ export default function ChatScreen() {
   const [currentSessionId, setCurrentSessionId] = useState<string>('');
   const [currentSessionTitle, setCurrentSessionTitle] = useState<string>('Obrolan Baru');
   const [showSessionDrawer, setShowSessionDrawer] = useState(false);
+  const [showOptionsMenu, setShowOptionsMenu] = useState(false);
   const [loadingSessions, setLoadingSessions] = useState(false);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -86,6 +87,21 @@ export default function ChatScreen() {
   const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+
+  // Lazy Load Older Messages on Scroll Up
+  const CHAT_PAGE_SIZE = 25;
+  const [visibleMsgCount, setVisibleMsgCount] = useState(CHAT_PAGE_SIZE);
+
+  const displayedMessages = useMemo(() => {
+    if (messages.length <= visibleMsgCount) return messages;
+    return messages.slice(messages.length - visibleMsgCount);
+  }, [messages, visibleMsgCount]);
+
+  const hasMoreOldMessages = messages.length > visibleMsgCount;
+
+  const handleLoadMoreOldMessages = () => {
+    setVisibleMsgCount(prev => Math.min(messages.length, prev + CHAT_PAGE_SIZE));
+  };
 
   // Attachment state
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
@@ -318,6 +334,7 @@ export default function ChatScreen() {
   // Export Chat to Journal
   // -------------------------------------------------------------
   const handleExportToJournal = () => {
+    setShowOptionsMenu(false);
     if (messages.length === 0) {
       showAlert('Belum Ada Percakapan', 'Mulai cerita dulu dengan AI sebelum mengekspor ke jurnal.');
       return;
@@ -659,18 +676,21 @@ export default function ChatScreen() {
   };
 
   const clearCurrentSessionChat = () => {
-    confirmAction(
-      'Bersihkan Obrolan Ini?',
-      'Semua pesan di sesi ini akan dikosongkan.',
-      async () => {
-        setMessages([]);
-        if (user) {
-          await safeRemoveChatCache(user.id, currentSessionId);
-          await supabase.from('chat_messages').delete().eq('session_id', currentSessionId);
-        }
-      },
-      'Bersihkan'
-    );
+    setShowOptionsMenu(false);
+    setTimeout(() => {
+      confirmAction(
+        'Bersihkan Obrolan Ini?',
+        'Semua pesan di sesi ini akan dikosongkan.',
+        async () => {
+          setMessages([]);
+          if (user) {
+            await safeRemoveChatCache(user.id, currentSessionId);
+            await supabase.from('chat_messages').delete().eq('session_id', currentSessionId);
+          }
+        },
+        'Bersihkan'
+      );
+    }, 120);
   };
 
   const handleCopyMessage = async (msg: ChatMessage) => {
@@ -684,45 +704,50 @@ export default function ChatScreen() {
     }
   };
 
+  // -------------------------------------------------------------
+  // Render Individual Message Card
+  // -------------------------------------------------------------
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isUser = item.role === 'user';
     const isAi = item.role === 'assistant';
     const isCopied = copiedMsgId === item.id;
 
     return (
-      <View style={[styles.msgRow, isUser ? styles.msgRowUser : styles.msgRowAssistant]}>
-
-        {isAi && (
-          <View style={[styles.aiAvatar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-            <Text style={[styles.aiAvatarLetter, { color: theme.accentLight }]}>{(aiBotName || 'Ara')[0].toUpperCase()}</Text>
-          </View>
-        )}
-
-        <View style={{ maxWidth: '82%' }}>
+      <View style={[styles.msgWrapper, isUser ? styles.msgWrapperUser : styles.msgWrapperAi]}>
+        <View style={[
+          styles.msgCard,
+          isUser
+            ? [styles.msgCardUser, { backgroundColor: theme.primary }]
+            : [styles.msgCardAi, { backgroundColor: theme.card, borderColor: theme.border }]
+        ]}>
 
           {/* Attachment Preview */}
           {item.attachment && (
-            <View style={[styles.attachmentCard, { borderColor: theme.border }]}>
+            <View style={[styles.attachmentCard, { borderColor: isUser ? 'rgba(255,255,255,0.2)' : theme.border }]}>
               {item.attachment.type === 'image' && (
                 <Image source={{ uri: item.attachment.uri }} style={styles.attachmentImg} resizeMode="cover" />
               )}
               {item.attachment.type === 'audio' && (
-                <View style={[styles.fileRow, { backgroundColor: theme.cardInner }]}>
-                  <Ionicons name="musical-notes" size={16} color={theme.accentLight} />
-                  <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={1}>{item.attachment.name}</Text>
+                <View style={[styles.fileRow, { backgroundColor: isUser ? 'rgba(0,0,0,0.15)' : theme.cardInner }]}>
+                  <Ionicons name="musical-notes" size={16} color={isUser ? '#FFFFFF' : theme.accentLight} />
+                  <Text style={[styles.fileName, { color: isUser ? '#FFFFFF' : theme.text }]} numberOfLines={1}>
+                    {item.attachment.name}
+                  </Text>
                 </View>
               )}
               {item.attachment.type === 'document' && (
-                <View style={[styles.fileRow, { backgroundColor: theme.cardInner }]}>
-                  <Ionicons name="document-text" size={16} color={theme.accentLight} />
-                  <Text style={[styles.fileName, { color: theme.text }]} numberOfLines={1}>{item.attachment.name}</Text>
+                <View style={[styles.fileRow, { backgroundColor: isUser ? 'rgba(0,0,0,0.15)' : theme.cardInner }]}>
+                  <Ionicons name="document-text" size={16} color={isUser ? '#FFFFFF' : theme.accentLight} />
+                  <Text style={[styles.fileName, { color: isUser ? '#FFFFFF' : theme.text }]} numberOfLines={1}>
+                    {item.attachment.name}
+                  </Text>
                 </View>
               )}
             </View>
           )}
 
-          {/* Bubble Container */}
-          <View style={[styles.bubble, isUser ? [styles.bubbleUser, { backgroundColor: theme.primary }] : [styles.bubbleAssistant, { backgroundColor: theme.card, borderColor: theme.border }]]}>
+          {/* Message Content */}
+          <View style={styles.msgBodyWrap}>
             {isUser ? (
               <Text style={styles.msgTextUser} selectable>
                 {item.content}
@@ -730,61 +755,137 @@ export default function ChatScreen() {
             ) : (
               <MarkdownRenderer
                 content={item.content}
-                fontSize={13}
+                fontSize={13.5}
                 textColor={theme.text}
               />
             )}
           </View>
 
-          {/* Timestamp & Actions */}
-          <View style={[styles.metaRow, isUser && { justifyContent: 'flex-end' }]}>
-            <Text style={[styles.timeText, { color: theme.muted }]}>
+          {/* Sleek Minimal Message Footer (Timestamp & Action Icons) */}
+          <View style={styles.msgFooterRow}>
+            <Text style={[styles.timeText, { color: isUser ? 'rgba(255,255,255,0.7)' : theme.muted }]}>
               {new Date(item.created_at).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
             </Text>
 
-            {/* Copy Action Button */}
-            <TouchableOpacity
-              onPress={() => handleCopyMessage(item)}
-              style={[
-                styles.actionMsgBtn,
-                isCopied && [styles.copiedBadgeBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]
-              ]}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              accessibilityLabel="Salin Pesan"
-            >
-              {isCopied ? (
-                <View style={styles.copiedInline}>
-                  <Ionicons name="checkmark-circle" size={12} color={theme.accentLight} />
-                  <Text style={[styles.copiedInlineText, { color: theme.accentLight }]}>Tersalin</Text>
-                </View>
-              ) : (
-                <Ionicons name="copy-outline" size={12} color={theme.subtext} />
-              )}
-            </TouchableOpacity>
-
-            {isUser && (
-              <TouchableOpacity onPress={() => handleStartEdit(item)} style={styles.editMsgBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                <Ionicons name="pencil-outline" size={12} color={theme.subtext} />
+            <View style={styles.msgActionsGroup}>
+              {/* Copy Action */}
+              <TouchableOpacity
+                onPress={() => handleCopyMessage(item)}
+                style={styles.actionIconBtn}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityLabel="Salin Pesan"
+              >
+                {isCopied ? (
+                  <Ionicons name="checkmark" size={13} color={isUser ? '#FFFFFF' : theme.accentLight} />
+                ) : (
+                  <Ionicons name="copy-outline" size={13} color={isUser ? 'rgba(255,255,255,0.7)' : theme.subtext} />
+                )}
               </TouchableOpacity>
-            )}
 
-            <TouchableOpacity onPress={() => deleteSingleMessage(item.id)} style={styles.deleteMsgBtn} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-              <Ionicons name="trash-outline" size={12} color={theme.subtext} />
-            </TouchableOpacity>
+              {/* Edit Action (User Only) */}
+              {isUser && (
+                <TouchableOpacity
+                  onPress={() => handleStartEdit(item)}
+                  style={styles.actionIconBtn}
+                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                  accessibilityLabel="Edit Pesan"
+                >
+                  <Ionicons name="pencil-outline" size={13} color="rgba(255,255,255,0.7)" />
+                </TouchableOpacity>
+              )}
+
+              {/* Delete Action */}
+              <TouchableOpacity
+                onPress={() => deleteSingleMessage(item.id)}
+                style={styles.actionIconBtn}
+                hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                accessibilityLabel="Hapus Pesan"
+              >
+                <Ionicons name="trash-outline" size={13} color={isUser ? 'rgba(255,255,255,0.7)' : theme.muted} />
+              </TouchableOpacity>
+            </View>
           </View>
 
         </View>
-
       </View>
     );
   };
+
+  // -------------------------------------------------------------
+  // Sidebar Content (Used for Desktop Panel & Mobile Drawer)
+  // -------------------------------------------------------------
+  const renderSessionSidebarContent = () => (
+    <View style={[styles.sessionSidebarInner, { backgroundColor: theme.card, borderRightColor: theme.border }]}>
+      <View style={[styles.sidebarHeader, { borderBottomColor: theme.border }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+          <Ionicons name="chatbubbles-outline" size={17} color={theme.accentLight} />
+          <Text style={[styles.sidebarTitle, { color: theme.text }]}>Topik Obrolan</Text>
+        </View>
+
+        <TouchableOpacity
+          style={[styles.sidebarNewBtn, { backgroundColor: theme.primary }]}
+          onPress={handleStartNewChat}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="add" size={15} color="#FFFFFF" />
+          <Text style={styles.sidebarNewBtnText}>Baru</Text>
+        </TouchableOpacity>
+      </View>
+
+      <ScrollView style={styles.sidebarScroll} showsVerticalScrollIndicator={false}>
+        {loadingSessions ? (
+          <ActivityIndicator size="small" color={theme.accentLight} style={{ marginVertical: 20 }} />
+        ) : sessions.length === 0 ? (
+          <Text style={[styles.emptySessionText, { color: theme.subtext }]}>Belum ada riwayat sesi.</Text>
+        ) : (
+          sessions.map(s => {
+            const isActive = s.id === currentSessionId;
+            return (
+              <View
+                key={s.id}
+                style={[
+                  styles.sessionItemRow,
+                  { backgroundColor: theme.cardInner, borderColor: theme.border },
+                  isActive && [styles.sessionItemRowActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                ]}
+              >
+                <TouchableOpacity
+                  style={{ flex: 1 }}
+                  onPress={() => handleSelectSession(s)}
+                  activeOpacity={0.7}
+                >
+                  <Text
+                    style={[styles.sessionItemTitle, { color: theme.subtext }, isActive && [styles.sessionItemTitleActive, { color: theme.text }]]}
+                    numberOfLines={1}
+                  >
+                    {s.title || 'Obrolan'}
+                  </Text>
+                  <Text style={[styles.sessionItemTime, { color: theme.muted }]}>
+                    {new Date(s.updated_at || s.created_at || new Date()).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                  </Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={styles.sessionDeleteBtn}
+                  onPress={() => handleDeleteSession(s.id, s.title)}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                </TouchableOpacity>
+              </View>
+            );
+          })
+        )}
+      </ScrollView>
+    </View>
+  );
 
   if (initializing) {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.centerBox}>
           <ActivityIndicator size="small" color={theme.accentLight} />
-          <Text style={[styles.loadingText, { color: theme.subtext }]}>Memuat ruang obrolan...</Text>
+          <Text style={[styles.loadingText, { color: theme.subtext }]}>Mempersiapkan ruang obrolan...</Text>
         </View>
       </SafeAreaView>
     );
@@ -792,350 +893,394 @@ export default function ChatScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
+      <View style={[styles.mainLayout, isWide && [styles.mainLayoutWide, { backgroundColor: theme.card, borderColor: theme.border }]]}>
 
         {/* ========================================================================= */}
-        {/* HEADER WITH MULTI-SESSION THREAD CONTROLS */}
+        {/* DESKTOP PERMANENT SESSION SIDEBAR PANEL */}
         {/* ========================================================================= */}
-        <View style={[styles.header, { backgroundColor: theme.cardInner, borderBottomColor: theme.border }]}>
+        {isWide && (
+          <View style={[styles.desktopSidebarWrapper, { borderRightColor: theme.border }]}>
+            {renderSessionSidebarContent()}
+          </View>
+        )}
 
-          <View style={styles.headerLeft}>
-            {/* Sesi History Button */}
-            <TouchableOpacity
-              style={[styles.sessionHistoryBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
-              onPress={() => {
-                fetchSessions();
-                setShowSessionDrawer(true);
-              }}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <Ionicons name="chatbubbles-outline" size={18} color={theme.accentLight} />
-            </TouchableOpacity>
+        {/* ========================================================================= */}
+        {/* MAIN CHAT CONVERSATION CANVAS */}
+        {/* ========================================================================= */}
+        <View style={[styles.chatCanvas, isWide && { backgroundColor: isLightMode ? '#F8FAFC' : '#0B0F17' }]}>
 
-            <View style={[styles.avatarCircle, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-              <Text style={[styles.avatarLetter, { color: theme.accentLight }]}>{(aiBotName || 'Ara')[0].toUpperCase()}</Text>
+          {/* ULTRA-CLEAN MODERN HEADER */}
+          <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+            <View style={styles.headerLeft}>
+              {/* Mobile Only: Session Drawer Button */}
+              {!isWide && (
+                <TouchableOpacity
+                  style={[styles.mobileDrawerBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  onPress={() => {
+                    fetchSessions();
+                    setShowSessionDrawer(true);
+                  }}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                >
+                  <Ionicons name="chatbubbles-outline" size={16} color={theme.accentLight} />
+                </TouchableOpacity>
+              )}
+
+              <View style={styles.headerInfoBlock}>
+                <View style={styles.headerTitleRow}>
+                  <Text style={[styles.headerTitle, { color: theme.text }]}>
+                    {aiBotName || 'Ara'}
+                  </Text>
+                  <View style={styles.statusDot} />
+                  {activePersona?.name && (
+                    <View style={[styles.personaBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                      <Text style={[styles.personaBadgeText, { color: theme.accentLight }]}>
+                        {activePersona.name.split(' (')[0]}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+                <Text style={[styles.headerSubtitle, { color: theme.subtext }]} numberOfLines={1}>
+                  {currentSessionTitle || 'Teman Belajar & Curhat AI'}
+                </Text>
+              </View>
             </View>
 
-            <View style={{ flex: 1 }}>
-              <View style={styles.nameRow}>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>{aiBotName || 'Ara'}</Text>
-                <View style={styles.statusDot} />
-                {activePersona?.name && (
-                  <View style={[styles.personaHeaderBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Text style={[styles.personaHeaderBadgeText, { color: theme.accentLight }]}>
-                      {activePersona.name.split(' (')[0]}
-                    </Text>
-                  </View>
-                )}
-              </View>
-              <Text style={[styles.headerSubtitle, { color: theme.subtext }]} numberOfLines={1}>
-                {currentSessionTitle || 'Teman Curhat AI'}
-              </Text>
+            {/* Header Right Actions: Quick New Chat & Options Dropdown Menu */}
+            <View style={styles.headerRightActions}>
+              {!isWide && (
+                <TouchableOpacity
+                  style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  onPress={handleStartNewChat}
+                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  accessibilityLabel="Chat Baru"
+                >
+                  <Ionicons name="add" size={18} color={theme.accentLight} />
+                </TouchableOpacity>
+              )}
+
+              <TouchableOpacity
+                style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                onPress={() => setShowOptionsMenu(true)}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityLabel="Opsi Obrolan"
+              >
+                <Ionicons name="ellipsis-vertical" size={16} color={theme.subtext} />
+              </TouchableOpacity>
             </View>
           </View>
 
-          {/* Right Action Icons: New Chat, Export to Journal, Refresh */}
-          <View style={styles.headerRightActions}>
+          {/* ========================================================================= */}
+          {/* MESSAGES VIEW */}
+          {/* ========================================================================= */}
+          <KeyboardAvoidingView
+            style={styles.keyboardContainer}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
+          >
+            {messages.length === 0 ? (
+              <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
+                <View style={[styles.emptyCard, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                  <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name="sparkles" size={24} color={theme.accentLight} />
+                  </View>
+                  <Text style={[styles.emptyTitle, { color: theme.text }]}>Ruang Cerita Bersama {aiBotName || 'Ara'}</Text>
+                  <Text style={[styles.emptyDesc, { color: theme.subtext }]}>
+                    Tulis apapun yang ada di pikiranmu, diskusikan tugas kuliah, atau curhat santai.
+                  </Text>
 
-            <TouchableOpacity
-              style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-              onPress={handleStartNewChat}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="add" size={18} color={theme.accentLight} />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-              onPress={handleExportToJournal}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="book-outline" size={15} color="#FBBF24" />
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-              onPress={() => fetchHistory(currentSessionId)}
-              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-            >
-              <Ionicons name="refresh-outline" size={16} color={refreshing ? theme.accentLight : theme.subtext} />
-            </TouchableOpacity>
-
-            {messages.length > 0 && (
-              <TouchableOpacity
-                onPress={clearCurrentSessionChat}
-                style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-              >
-                <Ionicons name="trash-outline" size={15} color="#EF4444" />
-              </TouchableOpacity>
+                  <View style={styles.promptList}>
+                    {SUGGESTIONS.map((item, idx) => (
+                      <TouchableOpacity
+                        key={idx}
+                        style={[styles.promptChip, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        onPress={() => handleSend(item)}
+                        disabled={loading}
+                        activeOpacity={0.7}
+                      >
+                        <Text style={[styles.promptText, { color: theme.subtext }]}>{item}</Text>
+                        <Ionicons name="arrow-forward" size={12} color={theme.accentLight} />
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              </ScrollView>
+            ) : (
+              <FlatList
+                ref={flatListRef}
+                data={displayedMessages}
+                renderItem={renderMessage}
+                keyExtractor={item => item.id}
+                contentContainerStyle={styles.messageList}
+                onContentSizeChange={() => scrollToBottom(100)}
+                onLayout={() => scrollToBottom(100)}
+                showsVerticalScrollIndicator={false}
+                ListHeaderComponent={
+                  hasMoreOldMessages ? (
+                    <TouchableOpacity
+                      style={[styles.loadMoreChatBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={handleLoadMoreOldMessages}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="time-outline" size={13} color={theme.accentLight} />
+                      <Text style={[styles.loadMoreChatText, { color: theme.accentLight }]}>
+                        Muat pesan sebelumnya ({messages.length - visibleMsgCount} pesan lagi)
+                      </Text>
+                    </TouchableOpacity>
+                  ) : null
+                }
+              />
             )}
 
-          </View>
-
-        </View>
-
-        {/* ========================================================================= */}
-        {/* MESSAGES VIEW */}
-        {/* ========================================================================= */}
-        <KeyboardAvoidingView
-          style={styles.keyboardContainer}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
-        >
-          {messages.length === 0 ? (
-            <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
-              <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                <Ionicons name="sparkles" size={26} color={theme.accentLight} />
+            {/* Minimalist Typing Indicator */}
+            {loading && (
+              <View style={styles.typingContainer}>
+                <View style={[styles.typingDot, { backgroundColor: theme.accentLight }]} />
+                <Text style={[styles.typingText, { color: theme.subtext }]}>{aiBotName || 'Ara'} sedang mengetik...</Text>
               </View>
-              <Text style={[styles.emptyTitle, { color: theme.text }]}>Ruang Cerita Bersama {aiBotName || 'Ara'}</Text>
-              <Text style={[styles.emptyDesc, { color: theme.subtext }]}>
-                Tulis apapun yang ada di pikiranmu atau diskusikan tugas kuliah. Percakapan tersimpan aman di sesi ini.
-              </Text>
+            )}
 
-              <View style={styles.promptList}>
-                {SUGGESTIONS.map((item, idx) => (
-                  <TouchableOpacity
-                    key={idx}
-                    style={[styles.promptChip, { backgroundColor: theme.card, borderColor: theme.border }]}
-                    onPress={() => handleSend(item)}
-                    disabled={loading}
-                  >
-                    <Text style={[styles.promptText, { color: theme.subtext }]}>{item}</Text>
-                    <Ionicons name="arrow-forward" size={13} color={theme.accentLight} />
+            {/* Inline Error Toast */}
+            {errorToast && (
+              <View style={[
+                styles.errorToastWrap,
+                {
+                  backgroundColor: isLightMode ? '#FEF2F2' : '#2D1418',
+                  borderColor: isLightMode ? '#FECACA' : '#571F26',
+                }
+              ]}>
+                <Ionicons name="alert-circle-outline" size={15} color={isLightMode ? '#DC2626' : '#F87171'} />
+                <Text style={[styles.errorToastText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>{errorToast}</Text>
+                <TouchableOpacity onPress={() => setErrorToast(null)} style={{ padding: 2 }}>
+                  <Ionicons name="close" size={14} color={isLightMode ? '#DC2626' : '#9CA3AF'} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Editing Banner */}
+            {editingMsg && (
+              <View style={[
+                styles.editingBanner,
+                {
+                  backgroundColor: isLightMode ? '#EFF6FF' : '#101C2E',
+                  borderColor: isLightMode ? '#BFDBFE' : '#1E355B',
+                }
+              ]}>
+                <Ionicons name="pencil" size={13} color={isLightMode ? '#1D4ED8' : '#60A5FA'} />
+                <Text style={[styles.editingText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>Mengedit pesan sebelumnya</Text>
+                <TouchableOpacity onPress={handleCancelEdit} style={styles.cancelEditBtn}>
+                  <Ionicons name="close-circle" size={15} color={isLightMode ? '#1D4ED8' : '#9CA3AF'} />
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* Active Attachment Pill */}
+            {attachment && (
+              <View style={styles.attachmentBar}>
+                <View style={[styles.attachmentPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                  <Ionicons
+                    name={attachment.type === 'image' ? 'image' : attachment.type === 'audio' ? 'musical-note' : 'document'}
+                    size={13}
+                    color={theme.accentLight}
+                  />
+                  <Text style={[styles.attachmentName, { color: theme.text }]} numberOfLines={1}>{attachment.name}</Text>
+                  <TouchableOpacity onPress={() => setAttachment(null)} style={{ padding: 2 }}>
+                    <Ionicons name="close-circle" size={14} color={theme.subtext} />
                   </TouchableOpacity>
-                ))}
+                </View>
               </View>
-            </ScrollView>
-          ) : (
-            <FlatList
-              ref={flatListRef}
-              data={messages}
-              renderItem={renderMessage}
-              keyExtractor={item => item.id}
-              contentContainerStyle={styles.messageList}
-              onContentSizeChange={() => scrollToBottom(100)}
-              onLayout={() => scrollToBottom(100)}
-              showsVerticalScrollIndicator={false}
-            />
-          )}
+            )}
 
-          {/* Minimalist Typing indicator */}
-          {loading && (
-            <View style={styles.typingContainer}>
-              <View style={styles.typingDot} />
-              <Text style={styles.typingText}>{aiBotName || 'Ara'} sedang berpikir...</Text>
-            </View>
-          )}
+            {/* Attachment Options Menu Popup */}
+            {showAttachMenu && (
+              <View style={[styles.attachMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <TouchableOpacity style={styles.attachOption} onPress={pickImage}>
+                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name="images" size={16} color={theme.accentLight} />
+                  </View>
+                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Galeri</Text>
+                </TouchableOpacity>
 
-          {/* Graceful Inline Error Toast */}
-          {errorToast && (
-            <View style={[
-              styles.errorToastWrap,
-              {
-                backgroundColor: isLightMode ? '#FEF2F2' : '#2D1418',
-                borderColor: isLightMode ? '#FECACA' : '#571F26',
-              }
-            ]}>
-              <Ionicons name="alert-circle-outline" size={15} color={isLightMode ? '#DC2626' : '#F87171'} />
-              <Text style={[styles.errorToastText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>{errorToast}</Text>
-              <TouchableOpacity onPress={() => setErrorToast(null)} style={{ padding: 2 }}>
-                <Ionicons name="close" size={14} color={isLightMode ? '#DC2626' : '#9CA3AF'} />
-              </TouchableOpacity>
-            </View>
-          )}
+                <TouchableOpacity style={styles.attachOption} onPress={takePhoto}>
+                  <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B', borderColor: theme.border }]}>
+                    <Ionicons name="camera" size={16} color={isLightMode ? '#16A34A' : '#34D399'} />
+                  </View>
+                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Kamera</Text>
+                </TouchableOpacity>
 
-          {/* Editing Banner Mode */}
-          {editingMsg && (
-            <View style={[
-              styles.editingBanner,
-              {
-                backgroundColor: isLightMode ? '#EFF6FF' : '#101C2E',
-                borderColor: isLightMode ? '#BFDBFE' : '#1E355B',
-              }
-            ]}>
-              <Ionicons name="pencil" size={13} color={isLightMode ? '#1D4ED8' : '#60A5FA'} />
-              <Text style={[styles.editingText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>Mengedit pesan sebelumnya</Text>
-              <TouchableOpacity onPress={handleCancelEdit} style={styles.cancelEditBtn}>
-                <Ionicons name="close-circle" size={15} color={isLightMode ? '#1D4ED8' : '#9CA3AF'} />
-              </TouchableOpacity>
-            </View>
-          )}
+                <TouchableOpacity style={styles.attachOption} onPress={pickAudio}>
+                  <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FCE7F3' : '#4C1D40', borderColor: theme.border }]}>
+                    <Ionicons name="mic" size={16} color={isLightMode ? '#EC4899' : '#F472B6'} />
+                  </View>
+                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Audio</Text>
+                </TouchableOpacity>
 
-          {/* Active Attachment Pill */}
-          {attachment && (
-            <View style={styles.attachmentBar}>
-              <View style={[styles.attachmentPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                <Ionicons
-                  name={attachment.type === 'image' ? 'image' : attachment.type === 'audio' ? 'musical-note' : 'document'}
-                  size={13}
-                  color={theme.accentLight}
+                <TouchableOpacity style={styles.attachOption} onPress={pickDocument}>
+                  <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#78350F', borderColor: theme.border }]}>
+                    <Ionicons name="document-text" size={16} color={isLightMode ? '#D97706' : '#FBBF24'} />
+                  </View>
+                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Dokumen</Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
+            {/* ======================================================================= */}
+            {/* FLOATING CAPSULE INPUT BAR */}
+            {/* ======================================================================= */}
+            <View style={styles.floatingInputWrapper}>
+              <View style={[styles.capsuleInputCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                
+                {/* Plus Attachment Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.capsuleAttachBtn,
+                    { backgroundColor: showAttachMenu ? theme.accentBg : theme.cardInner, borderColor: theme.border }
+                  ]}
+                  onPress={() => setShowAttachMenu(!showAttachMenu)}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name={showAttachMenu ? "close" : "add"} size={17} color={showAttachMenu ? theme.accentLight : theme.subtext} />
+                </TouchableOpacity>
+
+                {/* Text Input */}
+                <TextInput
+                  ref={inputRef}
+                  style={[styles.capsuleInput, { color: theme.text }]}
+                  placeholder={editingMsg ? "Edit pesanmu..." : `Tanya atau curhat ke ${aiBotName || 'Ara'}...`}
+                  placeholderTextColor={theme.muted}
+                  value={inputText}
+                  onChangeText={setInputText}
+                  multiline
+                  maxLength={1000}
+                  editable={!loading}
+                  // @ts-ignore
+                  onKeyDown={handleKeyDown}
                 />
-                <Text style={[styles.attachmentName, { color: theme.text }]} numberOfLines={1}>{attachment.name}</Text>
-                <TouchableOpacity onPress={() => setAttachment(null)} style={{ padding: 2 }}>
-                  <Ionicons name="close-circle" size={14} color={theme.subtext} />
+
+                {/* Send Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.capsuleSendBtn,
+                    (!inputText.trim() && !attachment) || loading
+                      ? [styles.capsuleSendBtnDisabled, { backgroundColor: theme.cardInner, borderColor: theme.border }]
+                      : [styles.capsuleSendBtnActive, { backgroundColor: theme.primary }],
+                  ]}
+                  onPress={() => handleSend()}
+                  disabled={(!inputText.trim() && !attachment) || loading}
+                  activeOpacity={0.8}
+                >
+                  {loading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Ionicons
+                      name="arrow-up"
+                      size={16}
+                      color={(!inputText.trim() && !attachment) ? theme.muted : '#FFFFFF'}
+                    />
+                  )}
                 </TouchableOpacity>
               </View>
             </View>
-          )}
 
-          {/* Attachment Options Menu */}
-          {showAttachMenu && (
-            <View style={[styles.attachMenu, { backgroundColor: theme.cardInner, borderTopColor: theme.border }]}>
-              <TouchableOpacity style={styles.attachOption} onPress={pickImage}>
-                <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                  <Ionicons name="images" size={17} color={theme.accentLight} />
-                </View>
-                <Text style={[styles.attachLabel, { color: theme.subtext }]}>Galeri</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.attachOption} onPress={takePhoto}>
-                <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B', borderColor: theme.border }]}>
-                  <Ionicons name="camera" size={17} color={isLightMode ? '#16A34A' : '#34D399'} />
-                </View>
-                <Text style={[styles.attachLabel, { color: theme.subtext }]}>Kamera</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.attachOption} onPress={pickAudio}>
-                <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FCE7F3' : '#4C1D40', borderColor: theme.border }]}>
-                  <Ionicons name="mic" size={17} color={isLightMode ? '#EC4899' : '#F472B6'} />
-                </View>
-                <Text style={[styles.attachLabel, { color: theme.subtext }]}>Audio</Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity style={styles.attachOption} onPress={pickDocument}>
-                <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#78350F', borderColor: theme.border }]}>
-                  <Ionicons name="document-text" size={17} color={isLightMode ? '#D97706' : '#FBBF24'} />
-                </View>
-                <Text style={[styles.attachLabel, { color: theme.subtext }]}>Dokumen</Text>
-              </TouchableOpacity>
-            </View>
-          )}
-
-          {/* ======================================================================= */}
-          {/* SYMMETRICAL COMPACT INPUT BAR (EQUAL HEIGHT TO SUBMIT BUTTON) */}
-          {/* ======================================================================= */}
-          <View style={[styles.inputContainer, { backgroundColor: theme.cardInner, borderTopColor: theme.border }]}>
-            <TouchableOpacity
-              style={[styles.plusBtn, { backgroundColor: theme.card, borderColor: theme.border }, showAttachMenu && { backgroundColor: theme.accentBg, borderColor: theme.accent }]}
-              onPress={() => setShowAttachMenu(!showAttachMenu)}
-              disabled={loading}
-            >
-              <Ionicons name={showAttachMenu ? "close" : "add"} size={18} color={showAttachMenu ? theme.accentLight : theme.subtext} />
-            </TouchableOpacity>
-
-            <TextInput
-              ref={inputRef}
-              style={[styles.input, { backgroundColor: theme.bg, borderColor: theme.border, color: theme.text }]}
-              placeholder={editingMsg ? "Edit pesanmu..." : `Ceritakan apapun ke ${aiBotName || 'Ara'}...`}
-              placeholderTextColor={theme.muted}
-              value={inputText}
-              onChangeText={setInputText}
-              returnKeyType="send"
-              onSubmitEditing={() => handleSend()}
-              maxLength={1000}
-              editable={!loading}
-              // @ts-ignore
-              onKeyDown={handleKeyDown}
-            />
-
-            <TouchableOpacity
-              style={[
-                styles.sendBtn,
-                (!inputText.trim() && !attachment) || loading
-                  ? [styles.sendBtnDisabled, { backgroundColor: theme.cardInner, borderWidth: 1, borderColor: theme.border }]
-                  : styles.sendBtnActive,
-              ]}
-              onPress={() => handleSend()}
-              disabled={(!inputText.trim() && !attachment) || loading}
-            >
-              {loading ? (
-                <ActivityIndicator size="small" color="#FFFFFF" />
-              ) : (
-                <Ionicons name="arrow-up" size={16} color={(!inputText.trim() && !attachment) ? theme.muted : '#FFFFFF'} />
-              )}
-            </TouchableOpacity>
-          </View>
-
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </View>
 
       {/* ========================================================================= */}
-      {/* SESSION DRAWER MODAL (RIWAYAT SESI OBROLAN / MULTI-THREAD CHAT) */}
+      {/* OPTIONS MENU MODAL */}
       {/* ========================================================================= */}
       <Modal
-        visible={showSessionDrawer}
+        visible={showOptionsMenu}
         transparent
         animationType="fade"
-        onRequestClose={() => setShowSessionDrawer(false)}
+        onRequestClose={() => setShowOptionsMenu(false)}
       >
-        <View style={styles.sessionModalOverlay}>
-          <TouchableOpacity
-            style={styles.sessionBackdrop}
-            activeOpacity={1}
-            onPress={() => setShowSessionDrawer(false)}
-          />
+        <TouchableWithoutFeedback onPress={() => setShowOptionsMenu(false)}>
+          <View style={styles.modalOverlayCenter}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.optionsMenuCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.optionsMenuHeader, { borderBottomColor: theme.border }]}>
+                  <Text style={[styles.optionsMenuTitle, { color: theme.text }]}>Menu Obrolan</Text>
+                  <TouchableOpacity onPress={() => setShowOptionsMenu(false)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                    <Ionicons name="close" size={18} color={theme.subtext} />
+                  </TouchableOpacity>
+                </View>
 
-          <View style={[styles.sessionDrawerCard, { backgroundColor: theme.card, borderRightColor: theme.border }]}>
-            <View style={[styles.drawerHeader, { borderBottomColor: theme.border }]}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Ionicons name="chatbubbles" size={18} color={theme.accentLight} />
-                <Text style={[styles.drawerTitle, { color: theme.text }]}>Riwayat Sesi Curhat</Text>
-              </View>
-              <TouchableOpacity onPress={() => setShowSessionDrawer(false)} style={styles.closeDrawerBtn}>
-                <Ionicons name="close" size={18} color={theme.subtext} />
-              </TouchableOpacity>
-            </View>
+                {/* Option: Export to Journal */}
+                <TouchableOpacity
+                  style={[styles.optionRow, { borderBottomColor: theme.cardInner }]}
+                  onPress={handleExportToJournal}
+                >
+                  <View style={[styles.optionIconBox, { backgroundColor: isLightMode ? '#FEF3C7' : '#2D2008' }]}>
+                    <Ionicons name="book-outline" size={16} color="#F59E0B" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.optionLabel, { color: theme.text }]}>Simpan ke Jurnal</Text>
+                    <Text style={[styles.optionSub, { color: theme.subtext }]}>Ekspor ringkasan percakapan ke catatan refleksi</Text>
+                  </View>
+                </TouchableOpacity>
 
-            <TouchableOpacity style={[styles.drawerNewChatBtn, { backgroundColor: theme.primary }]} onPress={handleStartNewChat}>
-              <Ionicons name="add" size={16} color="#FFFFFF" />
-              <Text style={styles.drawerNewChatText}>Mulai Percakapan Baru</Text>
-            </TouchableOpacity>
+                {/* Option: Refresh Messages */}
+                <TouchableOpacity
+                  style={[styles.optionRow, { borderBottomColor: theme.cardInner }]}
+                  onPress={() => {
+                    setShowOptionsMenu(false);
+                    fetchHistory(currentSessionId);
+                  }}
+                >
+                  <View style={[styles.optionIconBox, { backgroundColor: theme.accentBg }]}>
+                    <Ionicons name="refresh-outline" size={16} color={theme.accentLight} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.optionLabel, { color: theme.text }]}>Muat Ulang Pesan</Text>
+                    <Text style={[styles.optionSub, { color: theme.subtext }]}>Sinkronkan kembali riwayat obrolan</Text>
+                  </View>
+                </TouchableOpacity>
 
-            <ScrollView style={styles.drawerSessionList} showsVerticalScrollIndicator={false}>
-              {loadingSessions ? (
-                <ActivityIndicator size="small" color={theme.accentLight} style={{ marginVertical: 20 }} />
-              ) : sessions.length === 0 ? (
-                <Text style={[styles.emptySessionText, { color: theme.subtext }]}>Belum ada riwayat sesi.</Text>
-              ) : (
-                sessions.map(s => {
-                  const isActive = s.id === currentSessionId;
-                  return (
-                    <View
-                      key={s.id}
-                      style={[
-                        styles.sessionItemRow,
-                        { backgroundColor: theme.cardInner, borderColor: theme.border },
-                        isActive && [styles.sessionItemRowActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                      ]}
-                    >
-                      <TouchableOpacity
-                        style={{ flex: 1 }}
-                        onPress={() => handleSelectSession(s)}
-                      >
-                        <Text style={[styles.sessionItemTitle, { color: theme.subtext }, isActive && [styles.sessionItemTitleActive, { color: theme.text }]]} numberOfLines={1}>
-                          {s.title || 'Obrolan'}
-                        </Text>
-                        <Text style={[styles.sessionItemTime, { color: theme.muted }]}>
-                          {new Date(s.updated_at || s.created_at || new Date()).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
-                        </Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={styles.sessionDeleteBtn}
-                        onPress={() => handleDeleteSession(s.id, s.title)}
-                        hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                      >
-                        <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                      </TouchableOpacity>
+                {/* Option: Clear Session Chat */}
+                {messages.length > 0 && (
+                  <TouchableOpacity
+                    style={styles.optionRow}
+                    onPress={clearCurrentSessionChat}
+                  >
+                    <View style={[styles.optionIconBox, { backgroundColor: isLightMode ? '#FEE2E2' : '#3B1418' }]}>
+                      <Ionicons name="trash-outline" size={16} color="#EF4444" />
                     </View>
-                  );
-                })
-              )}
-            </ScrollView>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.optionLabel, { color: '#EF4444' }]}>Bersihkan Obrolan Ini</Text>
+                      <Text style={[styles.optionSub, { color: theme.subtext }]}>Hapus semua pesan dalam sesi ini</Text>
+                    </View>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </TouchableWithoutFeedback>
           </View>
-        </View>
+        </TouchableWithoutFeedback>
       </Modal>
+
+      {/* ========================================================================= */}
+      {/* MOBILE SESSION DRAWER MODAL */}
+      {/* ========================================================================= */}
+      {!isWide && (
+        <Modal
+          visible={showSessionDrawer}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setShowSessionDrawer(false)}
+        >
+          <View style={styles.sessionModalOverlay}>
+            <TouchableOpacity
+              style={styles.sessionBackdrop}
+              activeOpacity={1}
+              onPress={() => setShowSessionDrawer(false)}
+            />
+            <View style={styles.mobileDrawerWrapper}>
+              {renderSessionSidebarContent()}
+            </View>
+          </View>
+        </Modal>
+      )}
 
     </SafeAreaView>
   );
@@ -1146,13 +1291,33 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: 'transparent',
   },
-  innerContainer: {
+  mainLayout: {
     flex: 1,
+    flexDirection: 'row',
     width: '100%',
   },
-  innerContainerWide: {
-    maxWidth: 1040,
+  mainLayoutWide: {
+    maxWidth: 1140,
+    width: '100%',
     alignSelf: 'center',
+    marginVertical: 14,
+    borderRadius: 20,
+    overflow: 'hidden',
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.16,
+    shadowRadius: 24,
+    elevation: 6,
+  },
+  desktopSidebarWrapper: {
+    width: 280,
+    height: '100%',
+    borderRightWidth: 1,
+  },
+  chatCanvas: {
+    flex: 1,
+    height: '100%',
   },
   centerBox: {
     flex: 1,
@@ -1161,8 +1326,7 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   loadingText: {
-    color: '#6B7280',
-    fontSize: 12,
+    fontSize: 12.5,
   },
 
   /* Header */
@@ -1171,10 +1335,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingHorizontal: 16,
-    paddingVertical: 10,
-    backgroundColor: '#11141C',
+    paddingVertical: 12,
     borderBottomWidth: 1,
-    borderBottomColor: '#1E2430',
   },
   headerLeft: {
     flexDirection: 'row',
@@ -1182,39 +1344,24 @@ const styles = StyleSheet.create({
     gap: 10,
     flex: 1,
   },
-  sessionHistoryBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 8,
-    backgroundColor: '#16233B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#253856',
-  },
-  avatarCircle: {
+  mobileDrawerBtn: {
     width: 34,
     height: 34,
-    borderRadius: 17,
-    backgroundColor: '#1E293B',
+    borderRadius: 9,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#202634',
   },
-  avatarLetter: {
-    color: '#60A5FA',
-    fontSize: 14,
-    fontWeight: '700',
+  headerInfoBlock: {
+    flex: 1,
   },
-  nameRow: {
+  headerTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
   },
   headerTitle: {
-    color: '#F3F4F6',
-    fontSize: 14,
+    fontSize: 14.5,
     fontWeight: '700',
   },
   statusDot: {
@@ -1223,19 +1370,19 @@ const styles = StyleSheet.create({
     borderRadius: 3,
     backgroundColor: '#10B981',
   },
-  personaHeaderBadge: {
+  personaBadge: {
     paddingHorizontal: 6,
-    paddingVertical: 2,
+    paddingVertical: 1.5,
     borderRadius: 6,
     borderWidth: 1,
   },
-  personaHeaderBadgeText: {
-    fontSize: 11,
+  personaBadgeText: {
+    fontSize: 10.5,
     fontWeight: '600',
   },
   headerSubtitle: {
-    color: '#6B7280',
-    fontSize: 12,
+    fontSize: 11.5,
+    marginTop: 1,
   },
   headerRightActions: {
     flexDirection: 'row',
@@ -1243,14 +1390,12 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   headerActionBtn: {
-    width: 30,
-    height: 30,
+    width: 32,
+    height: 32,
     borderRadius: 8,
-    backgroundColor: '#141822',
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#202634',
   },
 
   /* Content */
@@ -1261,227 +1406,163 @@ const styles = StyleSheet.create({
     flexGrow: 1,
     justifyContent: 'center',
     alignItems: 'center',
-    paddingHorizontal: 24,
+    paddingHorizontal: 20,
     paddingVertical: 24,
   },
+  emptyCard: {
+    width: '100%',
+    maxWidth: 520,
+    padding: 24,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.12,
+    shadowRadius: 18,
+    elevation: 4,
+  },
   emptyIconBox: {
-    width: 52,
-    height: 52,
+    width: 48,
+    height: 48,
     borderRadius: 14,
-    backgroundColor: '#16233B',
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 12,
     borderWidth: 1,
-    borderColor: '#253856',
   },
   emptyTitle: {
-    color: '#F3F4F6',
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     marginBottom: 6,
+    textAlign: 'center',
   },
   emptyDesc: {
-    color: '#6B7280',
-    fontSize: 12,
+    fontSize: 12.5,
     textAlign: 'center',
     lineHeight: 18,
     marginBottom: 20,
-    maxWidth: 320,
+    maxWidth: 380,
   },
   promptList: {
     width: '100%',
-    maxWidth: 400,
     gap: 8,
   },
   promptChip: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    backgroundColor: '#141822',
-    paddingHorizontal: 12,
-    paddingVertical: 10,
-    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 11,
+    borderRadius: 12,
     borderWidth: 1,
-    borderColor: '#202634',
   },
   promptText: {
-    color: '#9CA3AF',
-    fontSize: 11.5,
+    fontSize: 12.5,
     flex: 1,
   },
+
+  /* Messages */
   messageList: {
     paddingHorizontal: 16,
-    paddingVertical: 12,
-    gap: 10,
+    paddingTop: 14,
+    paddingBottom: 16,
+    gap: 12,
+    maxWidth: 860,
+    width: '100%',
+    alignSelf: 'center',
   },
-  msgRow: {
+  loadMoreChatBtn: {
     flexDirection: 'row',
-    gap: 8,
-    marginBottom: 2,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 7,
+    paddingHorizontal: 14,
+    borderRadius: 20,
+    borderWidth: 1,
+    alignSelf: 'center',
+    marginBottom: 10,
   },
-  msgRowUser: {
+  loadMoreChatText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  msgWrapper: {
+    flexDirection: 'row',
+    width: '100%',
+  },
+  msgWrapperUser: {
     justifyContent: 'flex-end',
   },
-  msgRowAssistant: {
+  msgWrapperAi: {
     justifyContent: 'flex-start',
   },
-  aiAvatar: {
-    width: 26,
-    height: 26,
-    borderRadius: 13,
-    backgroundColor: '#1E293B',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginTop: 4,
+  msgCard: {
+    borderRadius: 18,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
     borderWidth: 1,
-    borderColor: '#202634',
   },
-  aiAvatarLetter: {
-    color: '#60A5FA',
-    fontSize: 11,
-    fontWeight: '700',
+  msgCardUser: {
+    maxWidth: '86%',
+    borderBottomRightRadius: 4,
+    borderColor: 'transparent',
   },
-  bubble: {
-    borderRadius: 12,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+  msgCardAi: {
+    maxWidth: '92%',
+    borderBottomLeftRadius: 4,
   },
-  bubbleUser: {
-    backgroundColor: '#2563EB',
-    borderTopRightRadius: 2,
-  },
-  bubbleAssistant: {
-    backgroundColor: '#141822',
-    borderTopLeftRadius: 2,
-    borderWidth: 1,
-    borderColor: '#202634',
-  },
-  msgText: {
-    fontSize: 12.5,
-    lineHeight: 19,
+  msgBodyWrap: {
+    marginBottom: 4,
   },
   msgTextUser: {
     color: '#FFFFFF',
+    fontSize: 13.5,
+    lineHeight: 20,
   },
-  msgTextAssistant: {
-    color: '#E5E7EB',
-  },
-  metaRow: {
+  msgFooterRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
+    justifyContent: 'flex-end',
+    gap: 8,
     marginTop: 2,
-    paddingHorizontal: 4,
   },
   timeText: {
-    fontSize: 11,
+    fontSize: 10.5,
   },
-  editMsgBtn: {
-    padding: 2,
-  },
-  actionMsgBtn: {
-    padding: 2,
-    borderRadius: 6,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  copiedBadgeBtn: {
-    paddingHorizontal: 6,
-    paddingVertical: 1,
-    borderWidth: 1,
-  },
-  copiedInline: {
+  msgActionsGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 4,
   },
-  copiedInlineText: {
-    fontSize: 11,
-    fontWeight: '600',
+  actionIconBtn: {
+    padding: 3,
+    borderRadius: 4,
   },
-  deleteMsgBtn: {
-    padding: 2,
-  },
+
+  /* Attachment */
   attachmentCard: {
-    marginBottom: 4,
-    borderRadius: 10,
+    marginBottom: 8,
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: '#202634',
   },
   attachmentImg: {
-    width: 180,
-    height: 120,
+    width: 220,
+    height: 140,
     borderRadius: 10,
   },
   fileRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#141822',
-    padding: 8,
+    gap: 8,
+    padding: 10,
+    borderRadius: 8,
   },
   fileName: {
-    color: '#E5E7EB',
-    fontSize: 11,
+    fontSize: 12,
     flex: 1,
-  },
-  typingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 20,
-    paddingVertical: 6,
-  },
-  typingDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-    backgroundColor: '#60A5FA',
-  },
-  typingText: {
-    color: '#6B7280',
-    fontSize: 11,
-  },
-  errorToastWrap: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    backgroundColor: '#201214',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#4A1D24',
-    marginBottom: 6,
-  },
-  errorToastText: {
-    color: '#F87171',
-    fontSize: 11,
-    flex: 1,
-  },
-  editingBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: '#16233B',
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    marginHorizontal: 16,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#253856',
-    marginBottom: 6,
-  },
-  editingText: {
-    color: '#60A5FA',
-    fontSize: 11,
-    flex: 1,
-  },
-  cancelEditBtn: {
-    padding: 2,
   },
   attachmentBar: {
     paddingHorizontal: 16,
@@ -1491,100 +1572,220 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#141822',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 8,
     alignSelf: 'flex-start',
     borderWidth: 1,
-    borderColor: '#202634',
   },
   attachmentName: {
-    color: '#E5E7EB',
-    fontSize: 11,
+    fontSize: 11.5,
     maxWidth: 200,
   },
+
+  /* Attachment Popup Menu */
   attachMenu: {
     flexDirection: 'row',
     justifyContent: 'space-around',
-    backgroundColor: '#11141C',
-    paddingVertical: 10,
-    borderTopWidth: 1,
-    borderTopColor: '#1E2430',
+    paddingVertical: 12,
+    marginHorizontal: 14,
+    marginBottom: 8,
+    borderRadius: 16,
+    borderWidth: 1,
   },
   attachOption: {
     alignItems: 'center',
     gap: 4,
   },
   attachIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 10,
+    width: 38,
+    height: 38,
+    borderRadius: 11,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#202634',
   },
   attachLabel: {
-    color: '#9CA3AF',
     fontSize: 11,
+    fontWeight: '500',
   },
 
-  /* Symmetrical Input Bar */
-  inputContainer: {
+  /* Floating Capsule Input Bar */
+  floatingInputWrapper: {
+    paddingHorizontal: 16,
+    paddingBottom: Platform.OS === 'ios' ? 10 : 14,
+    paddingTop: 6,
+    maxWidth: 860,
+    width: '100%',
+    alignSelf: 'center',
+  },
+  capsuleInputCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 24,
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 4,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 10,
+    elevation: 3,
+  },
+  capsuleAttachBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  capsuleInput: {
+    flex: 1,
+    fontSize: 13.5,
+    maxHeight: 100,
+    paddingVertical: 4,
+    paddingHorizontal: 6,
+  },
+  capsuleSendBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  capsuleSendBtnActive: {
+    borderColor: 'transparent',
+  },
+  capsuleSendBtnDisabled: {
+    borderWidth: 1,
+  },
+
+  /* Typing & Banners */
+  typingContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 18,
+    paddingVertical: 6,
+  },
+  typingDot: {
+    width: 5,
+    height: 5,
+    borderRadius: 2.5,
+  },
+  typingText: {
+    fontSize: 11.5,
+    fontStyle: 'italic',
+  },
+  errorToastWrap: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    paddingHorizontal: 14,
-    paddingVertical: 10,
-    backgroundColor: '#11141C',
-    borderTopWidth: 1,
-    borderTopColor: '#1E2430',
-  },
-  plusBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    backgroundColor: '#141822',
-    justifyContent: 'center',
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: '#202634',
-  },
-  plusBtnActive: {
-    backgroundColor: '#16233B',
-    borderColor: '#253856',
-  },
-  input: {
-    flex: 1,
-    height: 38,
-    backgroundColor: '#0E1117',
-    borderRadius: 10,
     paddingHorizontal: 12,
-    color: '#F3F4F6',
-    fontSize: 13,
+    paddingVertical: 6,
+    marginHorizontal: 14,
+    borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#202634',
+    marginBottom: 6,
   },
-  sendBtn: {
-    width: 38,
-    height: 38,
-    borderRadius: 10,
-    justifyContent: 'center',
+  errorToastText: {
+    fontSize: 11.5,
+    flex: 1,
+  },
+  editingBanner: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    marginHorizontal: 14,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 6,
   },
-  sendBtnActive: {
-    backgroundColor: '#2563EB',
+  editingText: {
+    fontSize: 11.5,
+    flex: 1,
   },
-  sendBtnDisabled: {
-    backgroundColor: '#1E2430',
+  cancelEditBtn: {
+    padding: 2,
   },
 
-  /* Session Drawer Modal */
+  /* Sidebar Component Styles */
+  sessionSidebarInner: {
+    flex: 1,
+    borderRightWidth: 1,
+    paddingVertical: 14,
+    paddingHorizontal: 12,
+  },
+  sidebarHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    marginBottom: 10,
+  },
+  sidebarTitle: {
+    fontSize: 13.5,
+    fontWeight: '700',
+  },
+  sidebarNewBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  sidebarNewBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  sidebarScroll: {
+    flex: 1,
+  },
+  emptySessionText: {
+    fontSize: 11.5,
+    textAlign: 'center',
+    marginTop: 24,
+  },
+  sessionItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderRadius: 10,
+    padding: 9,
+    marginBottom: 6,
+    borderWidth: 1,
+  },
+  sessionItemRowActive: {
+    borderWidth: 1,
+  },
+  sessionItemTitle: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  sessionItemTitleActive: {
+    fontWeight: '700',
+  },
+  sessionItemTime: {
+    fontSize: 10.5,
+    marginTop: 2,
+  },
+  sessionDeleteBtn: {
+    padding: 4,
+  },
+
+  /* Mobile Drawer Overlay */
   sessionModalOverlay: {
     flex: 1,
     flexDirection: 'row',
-    backgroundColor: 'rgba(0,0,0,0.7)',
+    backgroundColor: 'rgba(0,0,0,0.6)',
   },
   sessionBackdrop: {
     position: 'absolute',
@@ -1593,127 +1794,65 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
   },
-  sessionDrawerCard: {
-    width: '82%',
-    maxWidth: 320,
+  mobileDrawerWrapper: {
+    width: '80%',
+    maxWidth: 300,
     height: '100%',
-    backgroundColor: '#11141C',
-    borderRightWidth: 1,
-    borderRightColor: '#1E2430',
-    paddingVertical: 16,
-    paddingHorizontal: 14,
-    justifyContent: 'space-between',
-    elevation: 25,
   },
-  drawerHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    paddingBottom: 12,
-    borderBottomWidth: 1,
-    borderBottomColor: '#1A202C',
-  },
-  drawerTitle: {
-    color: '#F3F4F6',
-    fontSize: 13.5,
-    fontWeight: '700',
-  },
-  closeDrawerBtn: {
-    padding: 4,
-  },
-  drawerNewChatBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
+
+  /* Options Menu Modal */
+  modalOverlayCenter: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
     justifyContent: 'center',
-    gap: 6,
-    backgroundColor: '#2563EB',
-    borderRadius: 8,
-    paddingVertical: 8,
-    marginVertical: 10,
-  },
-  drawerNewChatText: {
-    color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  drawerSessionList: {
-    flex: 1,
-  },
-  emptySessionText: {
-    color: '#6B7280',
-    fontSize: 11.5,
-    textAlign: 'center',
-    marginTop: 20,
-  },
-  sessionItemRow: {
-    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: '#141822',
-    borderRadius: 8,
-    padding: 9,
-    marginBottom: 6,
-    borderWidth: 1,
-    borderColor: '#202634',
-  },
-  sessionItemRowActive: {
-    backgroundColor: '#16233B',
-    borderColor: '#253856',
-  },
-  sessionItemTitle: {
-    color: '#9CA3AF',
-    fontSize: 11.5,
-    fontWeight: '500',
-  },
-  sessionItemTitleActive: {
-    color: '#F3F4F6',
-    fontWeight: '600',
-  },
-  sessionItemTime: {
-    color: '#4B5565',
-    fontSize: 11,
-    marginTop: 2,
-  },
-  sessionDeleteBtn: {
-    padding: 4,
-  },
-  attachModalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.6)',
-    justifyContent: 'flex-end',
-  },
-  attachMenuCard: {
-    backgroundColor: '#11141C',
-    borderTopLeftRadius: 18,
-    borderTopRightRadius: 18,
-    borderWidth: 1,
-    borderColor: '#1E2430',
     padding: 20,
-    gap: 12,
   },
-  attachMenuTitle: {
-    color: '#F3F4F6',
-    fontSize: 14,
-    fontWeight: '700',
+  optionsMenuCard: {
+    width: '100%',
+    maxWidth: 340,
+    borderRadius: 18,
+    borderWidth: 1,
+    padding: 16,
+    gap: 6,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  optionsMenuHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: 10,
+    borderBottomWidth: 1,
     marginBottom: 4,
   },
-  attachOptionRow: {
+  optionsMenuTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  optionRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: '#141822',
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#202634',
+    paddingVertical: 10,
   },
-  attachOptionLabel: {
-    color: '#F3F4F6',
+  optionIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  optionLabel: {
     fontSize: 13,
     fontWeight: '600',
   },
-  attachOptionSub: {
-    color: '#6B7280',
+  optionSub: {
     fontSize: 11,
+    marginTop: 1,
   },
 });
+

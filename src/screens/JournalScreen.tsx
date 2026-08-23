@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
   View, Text, FlatList, TouchableOpacity,
   StyleSheet, SafeAreaView, ActivityIndicator,
@@ -148,10 +148,26 @@ export default function JournalScreen() {
   const publishedEntries = entries.filter(e => !e.is_draft);
   const draftEntries = entries.filter(e => !!e.is_draft);
 
-  const displayedEntries = (activeTab === 'drafts' ? draftEntries : publishedEntries).filter(e => {
-    if (!filterMood) return true;
-    return e.mood === filterMood;
-  });
+  // Progressive Lazy-Loading on Scroll
+  const JOURNAL_PAGE_SIZE = 12;
+  const [visibleJournalCount, setVisibleJournalCount] = useState(JOURNAL_PAGE_SIZE);
+
+  const filteredEntries = useMemo(() => {
+    return (activeTab === 'drafts' ? draftEntries : publishedEntries).filter(e => {
+      if (!filterMood) return true;
+      return e.mood === filterMood;
+    });
+  }, [activeTab, draftEntries, publishedEntries, filterMood]);
+
+  const displayedEntries = useMemo(() => {
+    return filteredEntries.slice(0, visibleJournalCount);
+  }, [filteredEntries, visibleJournalCount]);
+
+  const hasMoreJournals = filteredEntries.length > visibleJournalCount;
+
+  const handleLoadMoreJournals = () => {
+    setVisibleJournalCount(prev => Math.min(filteredEntries.length, prev + JOURNAL_PAGE_SIZE));
+  };
 
   const renderItem = ({ item }: { item: JournalEntry }) => {
     const mood = moods.find(m => m.type === item.mood);
@@ -299,6 +315,15 @@ export default function JournalScreen() {
           columnWrapperStyle={isWide ? { gap: 12 } : undefined}
           contentContainerStyle={styles.list}
           showsVerticalScrollIndicator={false}
+          onEndReached={handleLoadMoreJournals}
+          onEndReachedThreshold={0.5}
+          ListFooterComponent={
+            hasMoreJournals ? (
+              <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                <ActivityIndicator size="small" color={theme.accentLight} />
+              </View>
+            ) : null
+          }
         />
       )}
       </View>

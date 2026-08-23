@@ -10,6 +10,7 @@ import { copyToClipboard } from '../lib/clipboard';
 import { sendMessageToGemini } from '../lib/gemini';
 import { showAlert } from '../lib/alert';
 import { isDeviceOnline } from '../lib/offlineSync';
+import { exportTaskToPdf } from '../lib/pdfExporter';
 
 interface TaskWorkpadModalProps {
   visible: boolean;
@@ -36,7 +37,19 @@ export default function TaskWorkpadModal({
     }
   }, [task, visible]);
 
-  if (!task) return null;
+  const [exportingPdf, setExportingPdf] = useState(false);
+
+  const handleExportPdf = async () => {
+    if (!task) return;
+    setExportingPdf(true);
+    try {
+      await exportTaskToPdf(task, [], content);
+    } catch (e: any) {
+      showAlert('Gagal Cetak PDF', e?.message || 'Terjadi kesalahan saat memproses dokumen PDF.');
+    } finally {
+      setExportingPdf(false);
+    }
+  };
 
   const handleCopy = async () => {
     if (!content.trim()) return;
@@ -48,12 +61,14 @@ export default function TaskWorkpadModal({
   };
 
   const handleSave = () => {
+    if (!task) return;
     onSaveNotes(task.id, content);
     showAlert('Tersimpan! ✨', 'Catatan lembar kerja tugas berhasil diperbarui.');
     onClose();
   };
 
   const handleGenerateAiOutline = async (mode: 'outline' | 'draft') => {
+    if (!task) return;
     const online = await isDeviceOnline();
     if (!online) {
       showAlert('Mode Offline ☁️', 'Fitur AI (Outline & Draft) memerlukan koneksi internet. Silakan sambungkan perangkat ke internet.');
@@ -106,6 +121,8 @@ Tuliskan draft penjelasan yang akademis, jelas, dan terstruktur sesuai topik unt
 
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const charCount = content.length;
+
+  if (!task) return null;
 
   return (
     <Modal
@@ -166,6 +183,21 @@ Tuliskan draft penjelasan yang akademis, jelas, dan terstruktur sesuai topik unt
                 >
                   <Ionicons name="document-text-outline" size={12} color={theme.text} />
                   <Text style={[styles.aiActionBtnText, { color: theme.text }]}>Draft Jawaban</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  style={[styles.copyBtn, { backgroundColor: theme.card, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
+                  onPress={handleExportPdf}
+                  disabled={exportingPdf}
+                >
+                  {exportingPdf ? (
+                    <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                  ) : (
+                    <Ionicons name="print-outline" size={12} color={theme.accentLight} />
+                  )}
+                  <Text style={[styles.copyBtnText, { color: theme.accentLight }]}>
+                    Cetak PDF
+                  </Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
