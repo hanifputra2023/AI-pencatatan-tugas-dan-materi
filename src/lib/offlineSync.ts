@@ -200,14 +200,15 @@ export async function queueOfflineAction(action: Omit<OfflineAction, 'id' | 'tim
 export const STRICTLY_LOCAL_STORAGE_KEY = '@privacy_strictly_local_mode';
 
 /**
- * Check if the user has enabled Strictly Local Mode (Privacy Mode)
+ * Check if the user has enabled Strictly Local Mode (Privacy Mode) - Defaults to TRUE (100% Local Engine)
  */
 export async function isStrictlyLocalMode(): Promise<boolean> {
   try {
     const val = await AsyncStorage.getItem(STRICTLY_LOCAL_STORAGE_KEY);
+    if (val === null) return true; // Default: Strictly Local Mode
     return val === 'true';
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -220,6 +221,97 @@ export async function setStrictlyLocalMode(enabled: boolean): Promise<void> {
   } catch (e) {
     console.log('Error setting strictly local mode:', e);
   }
+}
+
+/**
+ * Local Subjects Management
+ */
+export async function getCachedSubjects(userId: string): Promise<{ id: string; name: string }[]> {
+  try {
+    const key = `@offline_cached_subjects_${userId}`;
+    const raw = await AsyncStorage.getItem(key);
+    if (raw) return JSON.parse(raw);
+  } catch (e) {}
+  return [];
+}
+
+export async function cacheSubjectsLocally(userId: string, subjects: { id: string; name: string }[]): Promise<void> {
+  try {
+    const key = `@offline_cached_subjects_${userId}`;
+    await AsyncStorage.setItem(key, JSON.stringify(subjects));
+  } catch (e) {}
+}
+
+/**
+ * Local CRUD: Notes
+ */
+export async function localSaveNote(userId: string, note: StudyNote): Promise<StudyNote[]> {
+  const existing = await getCachedNotes(userId);
+  const idx = existing.findIndex(n => n.id === note.id);
+  let updated: StudyNote[];
+  if (idx >= 0) {
+    updated = [...existing];
+    updated[idx] = { ...updated[idx], ...note, updated_at: new Date().toISOString() };
+  } else {
+    updated = [note, ...existing];
+  }
+  await cacheNotesLocally(userId, updated);
+  return updated;
+}
+
+export async function localDeleteNote(userId: string, noteId: string): Promise<StudyNote[]> {
+  const existing = await getCachedNotes(userId);
+  const updated = existing.filter(n => n.id !== noteId);
+  await cacheNotesLocally(userId, updated);
+  return updated;
+}
+
+/**
+ * Local CRUD: Tasks
+ */
+export async function localSaveTask(userId: string, task: StudentTask): Promise<StudentTask[]> {
+  const existing = await getCachedTasks(userId);
+  const idx = existing.findIndex(t => t.id === task.id);
+  let updated: StudentTask[];
+  if (idx >= 0) {
+    updated = [...existing];
+    updated[idx] = { ...updated[idx], ...task };
+  } else {
+    updated = [task, ...existing];
+  }
+  await cacheTasksLocally(userId, updated);
+  return updated;
+}
+
+export async function localDeleteTask(userId: string, taskId: string): Promise<StudentTask[]> {
+  const existing = await getCachedTasks(userId);
+  const updated = existing.filter(t => t.id !== taskId);
+  await cacheTasksLocally(userId, updated);
+  return updated;
+}
+
+/**
+ * Local CRUD: Journals
+ */
+export async function localSaveJournal(userId: string, entry: JournalEntry): Promise<JournalEntry[]> {
+  const existing = await getCachedJournals(userId);
+  const idx = existing.findIndex(j => j.id === entry.id);
+  let updated: JournalEntry[];
+  if (idx >= 0) {
+    updated = [...existing];
+    updated[idx] = { ...updated[idx], ...entry, updated_at: new Date().toISOString() };
+  } else {
+    updated = [entry, ...existing];
+  }
+  await cacheJournalsLocally(userId, updated);
+  return updated;
+}
+
+export async function localDeleteJournal(userId: string, journalId: string): Promise<JournalEntry[]> {
+  const existing = await getCachedJournals(userId);
+  const updated = existing.filter(j => j.id !== journalId);
+  await cacheJournalsLocally(userId, updated);
+  return updated;
 }
 
 /**
