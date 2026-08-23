@@ -197,8 +197,43 @@ export async function queueOfflineAction(action: Omit<OfflineAction, 'id' | 'tim
 /**
  * Process and flush the Offline Sync Queue to Supabase
  */
+export const STRICTLY_LOCAL_STORAGE_KEY = '@privacy_strictly_local_mode';
+
+/**
+ * Check if the user has enabled Strictly Local Mode (Privacy Mode)
+ */
+export async function isStrictlyLocalMode(): Promise<boolean> {
+  try {
+    const val = await AsyncStorage.getItem(STRICTLY_LOCAL_STORAGE_KEY);
+    return val === 'true';
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Set Strictly Local Mode
+ */
+export async function setStrictlyLocalMode(enabled: boolean): Promise<void> {
+  try {
+    await AsyncStorage.setItem(STRICTLY_LOCAL_STORAGE_KEY, enabled ? 'true' : 'false');
+  } catch (e) {
+    console.log('Error setting strictly local mode:', e);
+  }
+}
+
+/**
+ * Process offline sync queue, transferring pending actions to Supabase.
+ * If strictly local mode is active, skips remote sync.
+ */
 export async function processOfflineSyncQueue(userId: string): Promise<{ syncedCount: number }> {
   if (!userId) return { syncedCount: 0 };
+
+  const isLocalOnly = await isStrictlyLocalMode();
+  if (isLocalOnly) {
+    console.log('[Offline Sync] Skipped: Strictly Local Mode is Active.');
+    return { syncedCount: 0 };
+  }
 
   const online = await isDeviceOnline();
   if (!online) return { syncedCount: 0 };
@@ -307,4 +342,96 @@ export async function processOfflineSyncQueue(userId: string): Promise<{ syncedC
   await AsyncStorage.setItem(key, JSON.stringify(remainingQueue));
   console.log(`[Offline Sync] Finished. Synced: ${syncedCount}, Remaining: ${remainingQueue.length}`);
   return { syncedCount };
+}
+
+/**
+ * Export all cached notes, tasks, journals, and chat sessions into a JSON backup payload
+ */
+export async function exportAllAppDataAsJson(userId: string): Promise<string> {
+  const [cachedNotes, cachedTasks, cachedJournals, cachedSessions, cachedProfile] = await Promise.all([
+    getCachedNotes(userId),
+    getCachedTasks(userId),
+    getCachedJournals(userId),
+    AsyncStorage.getItem('@chat_sessions_' + userId).then(r => r ? JSON.parse(r) : []),
+    AsyncStorage.getItem('@user_profile_cache_' + userId).then(r => r ? JSON.parse(r) : null),
+  ]);
+
+  const backupObject = {
+    app: 'StudyBot AI',
+    version: '2.4',
+    exported_at: new Date().toISOString(),
+    userId,
+    profile: cachedProfile,
+    notes: cachedNotes || [],
+    tasks: cachedTasks || [],
+    journals: cachedJournals || [],
+    chat_sessions: cachedSessions || [],
+  };
+
+  return JSON.stringify(backupObject, null, 2);
+}
+
+/**
+ * Import and merge data from a backup JSON string
+ */
+export async function importAllAppDataFromJson(userId: string, jsonString: string): Promise<{
+  notesCount: number;
+  tasksCount: number;
+  journalsCount: number;
+  sessionsCount: number;
+}> {
+  const parsed = JSON.parse(jsonString);
+  if (!parsed || (typeof parsed !== 'object')) {
+    throw new Error('Format file cadangan tidak valid.');
+  }
+
+  const notes: StudyNote[] = Array.isArray(parsed.notes) ? parsed.notes : [];
+  const tasks: StudentTask[] = Array.isArray(parsed.tasks) ? parsed.tasks : [];
+  const journals: JournalEntry[] = Array.isArray(parsed.journals) ? parsed.journals : [];
+  const sessions = Array.isArray(parsed.chat_sessions) ? parsed.chat_sessions : [];
+
+  // 1. Merge and save to local caches
+  const [existingNotes, existingTasks, existingJournals, existingSessionsRaw] = await Promise.all([
+    getCachedNotes(userId),
+    getCachedTasks(userId),
+    getCachedJournals(userId),
+    AsyncStorage.getItem('@chat_sessions_' + userId),
+  ]);
+
+  const existingSessions = existingSessionsRaw ? JSON.parse(existingSessionsRaw) : [];
+
+  // Merge items by ID
+  const mergedNotesMap = new Map<string, StudyNote>();
+  existingNotes.forEach(n => mergedNotesMap.set(n.id, n));
+  notes.forEach(n => mergedNotesMap.set(n.id, { ...n, user_id: userId }));
+  const mergedNotes = Array.from(mergedNotesMap.values());
+
+  const mergedTasksMap = new Map<string, StudentTask>();
+  existingTasks.forEach(t => mergedTasksMap.set(t.id, t));
+  tasks.forEach(t => mergedTasksMap.set(t.id, { ...t, user_id: userId }));
+  const mergedTasks = Array.from(mergedTasksMap.values());
+
+  const mergedJournalsMap = new Map<string, JournalEntry>();
+  existingJournals.forEach(j => mergedJournalsMap.set(j.id, j));
+  journals.forEach(j => mergedJournalsMap.set(j.id, { ...j, user_id: userId }));
+  const mergedJournals = Array.from(mergedJournalsMap.values());
+
+  const mergedSessionsMap = new Map<string, any>();
+  existingSessions.forEach((s: any) => mergedSessionsMap.set(s.id, s));
+  sessions.forEach((s: any) => mergedSessionsMap.set(s.id, { ...s, user_id: userId }));
+  const mergedSessions = Array.from(mergedSessionsMap.values());
+
+  await Promise.all([
+    cacheNotesLocally(userId, mergedNotes),
+    cacheTasksLocally(userId, mergedTasks),
+    cacheJournalsLocally(userId, mergedJournals),
+    AsyncStorage.setItem('@chat_sessions_' + userId, JSON.stringify(mergedSessions)),
+  ]);
+
+  return {
+    notesCount: notes.length,
+    tasksCount: tasks.length,
+    journalsCount: journals.length,
+    sessionsCount: sessions.length,
+  };
 }

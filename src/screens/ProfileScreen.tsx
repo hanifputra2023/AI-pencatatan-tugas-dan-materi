@@ -5,6 +5,9 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
@@ -17,6 +20,12 @@ import { confirmAction, showAlert } from '../lib/alert';
 import { compressImage } from '../lib/imageCompressor';
 import { PersonaPreset } from '../types';
 import { calculateRealStreak } from '../lib/streakCalculator';
+import {
+  isStrictlyLocalMode,
+  setStrictlyLocalMode,
+  exportAllAppDataAsJson,
+  importAllAppDataFromJson
+} from '../lib/offlineSync';
 
 const BG_COLOR_PRESETS = [
   { label: 'Obsidian Dark', hex: '#0E1117' },
@@ -424,6 +433,108 @@ export default function ProfileScreen() {
     setSaving(false);
     setEditing(false);
     showAlert('Sukses', 'Profil berhasil disimpan.');
+  };
+
+  // Strictly Local Privacy & Backup State
+  const [isStrictLocal, setIsStrictLocal] = useState(false);
+  const [exportingBackup, setExportingBackup] = useState(false);
+  const [importingBackup, setImportingBackup] = useState(false);
+
+  useEffect(() => {
+    isStrictlyLocalMode().then(setIsStrictLocal);
+  }, []);
+
+  const handleToggleStrictLocal = async () => {
+    const nextVal = !isStrictLocal;
+    setIsStrictLocal(nextVal);
+    await setStrictlyLocalMode(nextVal);
+    showAlert(
+      nextVal ? 'Mode Lokal Aktif 🔒' : 'Cloud Sync Aktif ☁️',
+      nextVal
+        ? 'Data catatan, tugas, dan jurnal sekarang HANYA disimpan di perangkat ini dan tidak akan dikirim ke cloud.'
+        : 'Data catatan, tugas, dan jurnal akan tersinkronisasi otomatis dengan database cloud.'
+    );
+  };
+
+  const handleExportBackup = async () => {
+    if (!user) {
+      showAlert('Perhatian', 'Silakan login terlebih dahulu untuk mengekspor cadangan.');
+      return;
+    }
+    setExportingBackup(true);
+    try {
+      const jsonString = await exportAllAppDataAsJson(user.id);
+      const filename = `studybot_backup_${new Date().toISOString().slice(0, 10)}.json`;
+
+      if (Platform.OS === 'web' && typeof document !== 'undefined') {
+        const blob = new Blob([jsonString], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        showAlert('Cadangan Berhasil Diunduh 📦', `File "${filename}" telah disimpan.`);
+      } else {
+        const fileUri = (FileSystem.documentDirectory || '') + filename;
+        await FileSystem.writeAsStringAsync(fileUri, jsonString, { encoding: FileSystem.EncodingType.UTF8 });
+        await Sharing.shareAsync(fileUri, { mimeType: 'application/json', dialogTitle: 'Simpan Cadangan StudyBot AI' });
+      }
+    } catch (e: any) {
+      showAlert('Gagal Ekspor Cadangan', e?.message || 'Terjadi kesalahan saat mengekspor data.');
+    } finally {
+      setExportingBackup(false);
+    }
+  };
+
+  const handleImportBackup = async () => {
+    if (!user) {
+      showAlert('Perhatian', 'Silakan login terlebih dahulu untuk mengimpor cadangan.');
+      return;
+    }
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: ['application/json', 'text/json', '*/*'],
+        copyToCacheDirectory: true,
+      });
+
+      if (res.canceled || !res.assets || res.assets.length === 0) return;
+
+      const file = res.assets[0];
+      setImportingBackup(true);
+      let jsonString = '';
+
+      if (Platform.OS === 'web' && file.file) {
+        jsonString = await (file.file as File).text();
+      } else {
+        jsonString = await FileSystem.readAsStringAsync(file.uri, { encoding: FileSystem.EncodingType.UTF8 });
+      }
+
+      confirmAction(
+        'Pulihkan Data Cadangan?',
+        'Data catatan, tugas, jurnal, dan sesi obrolan dari file ini akan digabungkan ke perangkat Anda.',
+        async () => {
+          try {
+            const summary = await importAllAppDataFromJson(user.id, jsonString);
+            showAlert(
+              'Pemulihan Berhasil 🎉',
+              `Berhasil memulihkan:\n• ${summary.notesCount} Catatan Kuliah\n• ${summary.tasksCount} Tugas Kuliah\n• ${summary.journalsCount} Jurnal Refleksi\n• ${summary.sessionsCount} Sesi Chat`
+            );
+            fetchStats();
+          } catch (err: any) {
+            showAlert('Gagal Memulihkan Data', err?.message || 'Format file cadangan tidak valid.');
+          } finally {
+            setImportingBackup(false);
+          }
+        },
+        'Pulihkan'
+      );
+    } catch (e: any) {
+      setImportingBackup(false);
+      showAlert('Gagal Mengimpor File', e?.message || 'Terjadi kesalahan saat membaca file.');
+    }
   };
 
   const handleSignOut = () => {
@@ -1203,7 +1314,84 @@ export default function ProfileScreen() {
                   </Text>
                 </View>
               </View>
-{/* 7. LOGOUT BUTTON */}
+
+              {/* 6.5 PRIVACY & LOCAL DATA BACKUP / RESTORE SECTION */}
+              <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.themeHeaderRow}>
+                  <View style={[styles.themeHeaderIconWrap, { backgroundColor: isStrictLocal ? (isLightMode ? '#FEF3C7' : '#332014') : theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name={isStrictLocal ? "shield-half" : "cloud-outline"} size={17} color={isStrictLocal ? "#F59E0B" : theme.accentLight} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Privasi & Data Cadangan</Text>
+                    <Text style={[styles.themeHeaderSub, { color: theme.subtext }]}>
+                      Pilih penyimpanan offline lokal atau ekspor-impor data cadangan (.json)
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Strictly Local Toggle Card */}
+                <View style={[styles.privacyToggleCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <Ionicons name="hardware-chip-outline" size={15} color={theme.text} />
+                      <Text style={[styles.privacyToggleTitle, { color: theme.text }]}>Mode Penyimpanan Lokal Saja</Text>
+                    </View>
+                    <Text style={[styles.privacyToggleDesc, { color: theme.subtext }]}>
+                      {isStrictLocal
+                        ? '🔒 Aktif: Catatan, tugas & jurnal HANYA disimpan di HP ini dan TIDAK dikirim ke server Supabase.'
+                        : '☁️ Nonaktif: Data tersinkronisasi otomatis dengan server cloud untuk keamanan cadangan saat ganti HP.'}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.customSwitch,
+                      { backgroundColor: isStrictLocal ? '#10B981' : (isLightMode ? '#CBD5E1' : '#334155') }
+                    ]}
+                    onPress={handleToggleStrictLocal}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.switchThumb, isStrictLocal && styles.switchThumbActive]} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Backup & Restore Action Buttons */}
+                <View style={styles.backupButtonsRow}>
+                  <TouchableOpacity
+                    style={[styles.backupActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, exportingBackup && { opacity: 0.6 }]}
+                    onPress={handleExportBackup}
+                    disabled={exportingBackup}
+                    activeOpacity={0.7}
+                  >
+                    {exportingBackup ? (
+                      <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.8 }] }} />
+                    ) : (
+                      <>
+                        <Ionicons name="download-outline" size={15} color={theme.accentLight} />
+                        <Text style={[styles.backupActionBtnText, { color: theme.accentLight }]}>Unduh Cadangan (.json)</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.backupActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, importingBackup && { opacity: 0.6 }]}
+                    onPress={handleImportBackup}
+                    disabled={importingBackup}
+                    activeOpacity={0.7}
+                  >
+                    {importingBackup ? (
+                      <ActivityIndicator size="small" color="#10B981" style={{ transform: [{ scale: 0.8 }] }} />
+                    ) : (
+                      <>
+                        <Ionicons name="cloud-upload-outline" size={15} color={isLightMode ? '#16A34A' : '#34D399'} />
+                        <Text style={[styles.backupActionBtnText, { color: isLightMode ? '#16A34A' : '#34D399' }]}>Pulihkan / Impor</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* 7. LOGOUT BUTTON */}
               {user && (
                 <TouchableOpacity style={[styles.logoutBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={handleSignOut}>
                   <Ionicons name="log-out-outline" size={16} color="#EF4444" />
@@ -2629,5 +2817,59 @@ const styles = StyleSheet.create({
   },
   tourBtnSub: {
     fontSize: 11,
+  },
+  privacyToggleCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 6,
+    marginBottom: 12,
+  },
+  privacyToggleTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  privacyToggleDesc: {
+    fontSize: 11.5,
+    lineHeight: 16,
+  },
+  customSwitch: {
+    width: 44,
+    height: 24,
+    borderRadius: 12,
+    padding: 2,
+    justifyContent: 'center',
+  },
+  switchThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: '#FFFFFF',
+  },
+  switchThumbActive: {
+    alignSelf: 'flex-end',
+  },
+  backupButtonsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 4,
+  },
+  backupActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    paddingHorizontal: 12,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  backupActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
   },
 });
