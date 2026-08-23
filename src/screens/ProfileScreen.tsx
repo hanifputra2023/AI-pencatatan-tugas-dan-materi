@@ -345,13 +345,36 @@ export default function ProfileScreen() {
       setLoading(false);
       return;
     }
-    const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
-    if (data) {
-      setUsername(data.username ?? '');
-      setAvatarUrl(data.avatar_url);
+
+    // 1. Read from local cache immediately (offline resilient)
+    try {
+      const cached = await AsyncStorage.getItem('@user_profile_cache_' + user.id);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.username !== undefined) setUsername(parsed.username || '');
+        if (parsed.avatar_url !== undefined) setAvatarUrl(parsed.avatar_url || null);
+      }
+    } catch (e) {}
+
+    // 2. Fetch from Supabase database if online
+    try {
+      const { data } = await supabase.from('profiles').select('*').eq('id', user.id).single();
+      if (data) {
+        setUsername(data.username ?? '');
+        setAvatarUrl(data.avatar_url);
+        await AsyncStorage.setItem('@user_profile_cache_' + user.id, JSON.stringify({
+          username: data.username ?? '',
+          avatar_url: data.avatar_url,
+          role: data.role || 'student',
+        }));
+        updateProfileCache({ username: data.username, avatar_url: data.avatar_url });
+      }
+    } catch (e) {
+      // Offline / network issue: Keep cached profile data
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
-  }, [user]);
+  }, [user, updateProfileCache]);
 
   const fetchStats = useCallback(async () => {
     if (!user) return;
@@ -425,8 +448,24 @@ export default function ProfileScreen() {
   const saveProfile = async () => {
     if (!user) return;
     setSaving(true);
-    await supabase.from('profiles').upsert({ id: user.id, username, avatar_url: avatarUrl });
+
+    // 1. Save to local cache first so it's permanent even when offline
     updateProfileCache({ username, avatar_url: avatarUrl });
+    try {
+      await AsyncStorage.setItem('@user_profile_cache_' + user.id, JSON.stringify({
+        username,
+        avatar_url: avatarUrl,
+        role,
+      }));
+    } catch (e) {}
+
+    // 2. Sync to Supabase database if online
+    try {
+      await supabase.from('profiles').upsert({ id: user.id, username, avatar_url: avatarUrl });
+    } catch (e) {
+      console.log('Offline/Network: profile saved locally.');
+    }
+
     setSaving(false);
     setEditing(false);
     showAlert('Sukses', 'Profil berhasil disimpan.');
