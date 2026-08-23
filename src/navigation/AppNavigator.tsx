@@ -192,32 +192,29 @@ export default function AppNavigator() {
   return (
     <NavigationContainer theme={transparentNavTheme}>
       <Stack.Navigator
-        initialRouteName={session ? 'Main' : hasSeenOnboarding ? 'Login' : 'Onboarding'}
         screenOptions={{
           headerShown: false,
           contentStyle: { backgroundColor: 'transparent' },
         }}
       >
         {session ? (
-          <>
+          <Stack.Group>
             <Stack.Screen name="Main" component={MainTabs} />
             <Stack.Screen name="StudyNoteDetail" component={StudyNoteDetailScreen} />
             <Stack.Screen name="JournalEntry" component={JournalEntryScreen} />
             <Stack.Screen name="Admin" component={AdminScreen} />
-            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-          </>
-        ) : hasSeenOnboarding ? (
-          <>
-            <Stack.Screen name="Login"      component={LoginScreen} />
-            <Stack.Screen name="Register"   component={RegisterScreen} />
-            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-          </>
+          </Stack.Group>
         ) : (
-          <>
-            <Stack.Screen name="Onboarding" component={OnboardingScreen} />
-            <Stack.Screen name="Login"      component={LoginScreen} />
-            <Stack.Screen name="Register"   component={RegisterScreen} />
-          </>
+          <Stack.Group>
+            {!hasSeenOnboarding && (
+              <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+            )}
+            <Stack.Screen name="Login" component={LoginScreen} />
+            <Stack.Screen name="Register" component={RegisterScreen} />
+            {hasSeenOnboarding && (
+              <Stack.Screen name="Onboarding" component={OnboardingScreen} />
+            )}
+          </Stack.Group>
         )}
       </Stack.Navigator>
     </NavigationContainer>

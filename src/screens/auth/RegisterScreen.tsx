@@ -44,22 +44,43 @@ export default function RegisterScreen({ navigation }: Props) {
     }
 
     setLoading(true);
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email: email.trim(),
       password: password.trim(),
       options: {
         data: { username: username.trim() || email.split('@')[0] },
       },
     });
-    setLoading(false);
 
     if (error) {
+      setLoading(false);
       showAlert('Gagal Mendaftar', error.message || 'Terjadi kesalahan saat pendaftaran.');
+      return;
+    }
+
+    try {
+      await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
+    } catch (e) {}
+
+    // If Supabase immediately created a session
+    if (data?.session) {
+      setLoading(false);
+      // AuthContext onAuthStateChange will automatically switch to MainTabs
     } else {
-      try {
-        await AsyncStorage.setItem(ONBOARDING_STORAGE_KEY, 'true');
-      } catch (e) {}
-      showAlert('Pendaftaran Berhasil 🎉', 'Akun kamu telah siap digunakan. Selamat belajar bersama Ara!');
+      // Attempt immediate login if auto-confirmation is active
+      const { error: signInErr } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password: password.trim(),
+      });
+      setLoading(false);
+
+      if (signInErr) {
+        showAlert(
+          'Pendaftaran Berhasil 🎉',
+          'Akun kamu telah berhasil dibuat. Silakan masuk menggunakan email dan kata sandi kamu.'
+        );
+        navigation.replace('Login');
+      }
     }
   };
 
