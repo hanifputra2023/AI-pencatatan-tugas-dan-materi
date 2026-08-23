@@ -67,64 +67,7 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
         }
       }
 
-      // 2. If logged in, fetch from Cloud (User Metadata + Study Notes + Student Subjects table)
-      if (user) {
-        const existingNames = new Set(currentList.map(s => s.name.toLowerCase().trim()));
-
-        // A. From Supabase Auth user_metadata
-        const cloudMetaSubjects = user.user_metadata?.student_subjects;
-        if (Array.isArray(cloudMetaSubjects) && cloudMetaSubjects.length > 0) {
-          cloudMetaSubjects.forEach((s: any) => {
-            const name = typeof s === 'string' ? s : s.name;
-            if (name && !existingNames.has(name.toLowerCase().trim())) {
-              existingNames.add(name.toLowerCase().trim());
-              currentList.push({
-                id: (typeof s === 'object' && s.id) ? s.id : 'cloud_' + Math.random().toString(36).substring(2, 8),
-                name: name.trim(),
-              });
-            }
-          });
-        }
-
-        // B. From user's existing study notes in Supabase
-        try {
-          const { data: noteSubjects } = await supabase
-            .from('study_notes')
-            .select('subject')
-            .eq('user_id', user.id);
-
-          if (noteSubjects && noteSubjects.length > 0) {
-            noteSubjects.forEach((n: any) => {
-              if (n.subject && n.subject.trim() && !existingNames.has(n.subject.toLowerCase().trim())) {
-                existingNames.add(n.subject.toLowerCase().trim());
-                currentList.push({
-                  id: 'note_subj_' + Math.random().toString(36).substring(2, 8),
-                  name: n.subject.trim(),
-                });
-              }
-            });
-          }
-        } catch (e) { }
-
-        // C. Try table student_subjects if available
-        try {
-          const { data: tableData } = await supabase
-            .from('student_subjects')
-            .select('*')
-            .eq('user_id', user.id);
-
-          if (tableData && tableData.length > 0) {
-            tableData.forEach((t: any) => {
-              if (t.name && !existingNames.has(t.name.toLowerCase().trim())) {
-                existingNames.add(t.name.toLowerCase().trim());
-                currentList.push({ id: t.id, name: t.name.trim() });
-              }
-            });
-          }
-        } catch (e) { }
-      }
-
-      // 3. If list is completely empty for a brand new user, initialize with defaults
+      // 2. If list is completely empty for a brand new user, initialize with defaults
       if (currentList.length === 0) {
         currentList = DEFAULT_SUBJECT_NAMES.map((name, i) => ({
           id: 'def_' + i,
@@ -167,30 +110,6 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     const storageKey = getStorageKey(user?.id);
     await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
 
-    if (user) {
-      // 1. Sync to Supabase Auth user_metadata (100% reliable cloud sync)
-      try {
-        await supabase.auth.updateUser({
-          data: { student_subjects: updated },
-        });
-      } catch (e) { }
-
-      // 2. Try saving to table if available
-      try {
-        const { data } = await supabase
-          .from('student_subjects')
-          .insert({ user_id: user.id, name: trimmed })
-          .select()
-          .single();
-        if (data) {
-          newSubj.id = data.id;
-          const finalized = updated.map(s => s.id === tempId ? { ...s, id: data.id } : s);
-          setSubjects(finalized);
-          await AsyncStorage.setItem(storageKey, JSON.stringify(finalized));
-        }
-      } catch (e) { }
-    }
-
     return newSubj;
   };
 
@@ -201,18 +120,6 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
 
     const storageKey = getStorageKey(user?.id);
     await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
-
-    if (user) {
-      try {
-        await supabase.auth.updateUser({
-          data: { student_subjects: updated },
-        });
-      } catch (e) { }
-
-      try {
-        await supabase.from('student_subjects').delete().eq('id', id);
-      } catch (e) { }
-    }
     return true;
   };
 

@@ -23,6 +23,11 @@ import {
   subscribeNetworkStatus,
   getCachedDashboard,
   cacheDashboardLocally,
+  getCachedNotes,
+  getCachedTasks,
+  getCachedJournals,
+  cacheTasksLocally,
+  cacheJournalsLocally,
   processOfflineSyncQueue,
   queueOfflineAction,
 } from '../lib/offlineSync';
@@ -178,98 +183,46 @@ export default function HomeScreen() {
       return;
     }
 
-    // 1. Instant load from local cache
     try {
-      const cached = await getCachedDashboard(user.id);
-      if (cached) {
-        if (cached.username) setUsername(cached.username);
-        if (typeof cached.streak === 'number') setStreak(cached.streak);
-        if (cached.todayMood !== undefined) setTodayMood(cached.todayMood);
-        if (cached.recentEntries) setRecentEntries(cached.recentEntries);
-        if (cached.upcomingTasks) setUpcomingTasks(cached.upcomingTasks);
-        if (cached.recentStudyNotes) setRecentStudyNotes(cached.recentStudyNotes);
-        if (typeof cached.pendingTasksCount === 'number') setPendingTasksCount(cached.pendingTasksCount);
-        if (typeof cached.totalNotesCount === 'number') setTotalNotesCount(cached.totalNotesCount);
-        setLoading(false);
-      }
-    } catch (e) { }
-
-    // 2. Fetch fresh data from Supabase
-    try {
-      const [profileRes, recentRes, journalDatesRes, chatDatesRes, tasksRes, notesRes, allTasksCountRes, allNotesCountRes] = await Promise.all([
-        supabase.from('profiles').select('username').eq('id', user.id).single(),
-        supabase.from('journal_entries').select('*').eq('user_id', user.id).order('created_at', { ascending: false }).limit(4),
-        supabase.from('journal_entries').select('created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(100),
-        supabase.from('chat_messages').select('created_at').eq('user_id', user.id).eq('role', 'user').order('created_at', { ascending: false }).limit(100),
-        supabase.from('student_tasks').select('*').eq('user_id', user.id).eq('is_completed', false).order('created_at', { ascending: false }).limit(6),
-        supabase.from('study_notes').select('*').eq('user_id', user.id).order('updated_at', { ascending: false }).limit(4),
-        supabase.from('student_tasks').select('id', { count: 'exact', head: true }).eq('user_id', user.id).eq('is_completed', false),
-        supabase.from('study_notes').select('id', { count: 'exact', head: true }).eq('user_id', user.id),
+      const [notes, tasks, journals, cachedProfile, localMoodHistoryRaw] = await Promise.all([
+        getCachedNotes(user.id),
+        getCachedTasks(user.id),
+        getCachedJournals(user.id),
+        AsyncStorage.getItem('@user_profile_cache_' + user.id).then(r => r ? JSON.parse(r) : null),
+        AsyncStorage.getItem(`@mood_history_${user.id}`).then(r => r ? JSON.parse(r) : []),
       ]);
 
-      const fetchedUsername = profileRes.data?.username || user.email?.split('@')[0] || 'Mahasiswa';
+      const fetchedUsername = cachedProfile?.username || user.user_metadata?.name || user.email?.split('@')[0] || 'Mahasiswa';
       setUsername(fetchedUsername);
 
-      let hasTodayJournal = false;
-      let hasTodayChat = false;
-      let calculatedTodayMood: string | null = null;
-      let fetchedEntries: JournalEntry[] = [];
-      let fetchedTasks: StudentTask[] = [];
-      let fetchedNotes: StudyNote[] = [];
-      let fetchedPendingCount = 0;
-      let fetchedTotalNotes = 0;
+      const activeTasks = (tasks || []).filter((t: StudentTask) => !t.is_completed);
+      setUpcomingTasks(activeTasks.slice(0, 6));
+      setPendingTasksCount(activeTasks.length);
 
-      if (recentRes.data) {
-        fetchedEntries = recentRes.data as JournalEntry[];
-        setRecentEntries(fetchedEntries);
-        const todayStr = new Date().toDateString();
-        const todayEntry = fetchedEntries.find(e => new Date(e.created_at).toDateString() === todayStr);
-        calculatedTodayMood = todayEntry ? todayEntry.mood : null;
-        setTodayMood(calculatedTodayMood);
-        hasTodayJournal = !!todayEntry;
-      }
+      setRecentStudyNotes((notes || []).slice(0, 4));
+      setTotalNotesCount((notes || []).length);
 
-      if (chatDatesRes.data) {
-        const todayStr = new Date().toDateString();
-        hasTodayChat = chatDatesRes.data.some(c => new Date(c.created_at).toDateString() === todayStr);
-      }
+      const journalList: JournalEntry[] = journals || [];
+      setRecentEntries(journalList.slice(0, 4));
 
-      if (tasksRes.data) {
-        fetchedTasks = tasksRes.data as StudentTask[];
-        setUpcomingTasks(fetchedTasks);
-      }
+      const todayStr = new Date().toDateString();
+      const todayEntry = journalList.find((e: JournalEntry) => new Date(e.created_at).toDateString() === todayStr);
+      const todayMoodHistory = (localMoodHistoryRaw || []).find((m: any) => new Date(m.created_at || m.date).toDateString() === todayStr);
+      const calculatedTodayMood = todayEntry?.mood || todayMoodHistory?.mood || null;
+      setTodayMood(calculatedTodayMood);
 
-      if (notesRes.data) {
-        fetchedNotes = notesRes.data as StudyNote[];
-        setRecentStudyNotes(fetchedNotes);
-      }
+      const hasTodayJournal = !!todayEntry;
+      const hasTodayChat = false;
 
-      fetchedPendingCount = typeof allTasksCountRes.count === 'number' ? allTasksCountRes.count : (tasksRes.data?.length || 0);
-      setPendingTasksCount(fetchedPendingCount);
-
-      fetchedTotalNotes = typeof allNotesCountRes.count === 'number' ? allNotesCountRes.count : (notesRes.data?.length || 0);
-      setTotalNotesCount(fetchedTotalNotes);
-
-      // Real streak calculator
       const allTimestamps: string[] = [
-        ...(journalDatesRes.data?.map(d => d.created_at) || []),
-        ...(chatDatesRes.data?.map(d => d.created_at) || []),
-        ...(notesRes.data?.map(d => d.created_at) || []),
-        ...(tasksRes.data?.map(d => d.created_at) || []),
-      ];
+        ...journalList.map((d: JournalEntry) => d.created_at),
+        ...(notes || []).map((d: StudyNote) => d.created_at),
+        ...(tasks || []).map((d: StudentTask) => d.created_at),
+        ...(localMoodHistoryRaw || []).map((m: any) => m.created_at || m.date),
+      ].filter(Boolean);
+
       const calculatedStreak = calculateRealStreak(allTimestamps);
       setStreak(calculatedStreak);
-
-      cacheDashboardLocally(user.id, {
-        username: fetchedUsername,
-        streak: calculatedStreak,
-        todayMood: calculatedTodayMood,
-        recentEntries: fetchedEntries,
-        upcomingTasks: fetchedTasks,
-        recentStudyNotes: fetchedNotes,
-        pendingTasksCount: fetchedPendingCount,
-        totalNotesCount: fetchedTotalNotes,
-      });
 
       // Check Active Draft
       try {
@@ -290,8 +243,8 @@ export default function HomeScreen() {
       }
 
       loadDailyQuests(hasTodayChat, hasTodayJournal);
-    } catch (err) {
-      console.log('Error fetching home dashboard data:', err);
+    } catch (e) {
+      console.log('HomeScreen fetchData error:', e);
     } finally {
       setLoading(false);
     }
@@ -343,12 +296,12 @@ export default function HomeScreen() {
   const toggleTaskDirectly = async (taskId: string) => {
     setUpcomingTasks(prev => prev.filter(t => t.id !== taskId));
     setPendingTasksCount(prev => Math.max(0, prev - 1));
-    showAlert('Tugas Selesai', 'Satu tugas kuliahmu berhasil diselesaikan.');
-    try {
-      await supabase.from('student_tasks').update({ is_completed: true }).eq('id', taskId);
-    } catch (e) {
-      console.log('Error updating task status:', e);
+    if (user) {
+      const currentTasks = await getCachedTasks(user.id);
+      const updated = currentTasks.map(t => t.id === taskId ? { ...t, is_completed: true } : t);
+      await cacheTasksLocally(user.id, updated);
     }
+    showAlert('Tugas Selesai', 'Satu tugas kuliahmu berhasil diselesaikan.');
   };
 
   const handleQuickSelectMood = (moodOption: MoodOption) => {
@@ -374,54 +327,27 @@ export default function HomeScreen() {
     if (!gratitudeText.trim()) return;
     setSavingGratitude(true);
     const content = gratitudeText.trim();
-    const payload = {
-      user_id: user?.id || 'anonymous',
-      title: 'Refleksi Syukur Hari Ini',
-      content,
-      mood: 'happy',
-      tags: ['syukur', 'mindfulness'],
-    };
 
-    const online = await isDeviceOnline();
-    if (!online) {
-      if (user) {
-        queueOfflineAction({
-          userId: user.id,
-          type: 'CREATE_JOURNAL',
-          payload,
-        });
-      }
-      setGratitudeText('');
-      setSavingGratitude(false);
-      showAlert('Tersimpan Offline', 'Catatan rasa syukur disimpan di HP & otomatis di-sync saat online.');
-      const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
-      saveDailyQuests(updated);
-      return;
+    if (user) {
+      const cached = await getCachedJournals(user.id);
+      const newEntry: JournalEntry = {
+        id: `journal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        user_id: user.id,
+        title: 'Refleksi Syukur Hari Ini',
+        content,
+        mood: 'happy',
+        tags: ['syukur', 'mindfulness'],
+        image_url: null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await cacheJournalsLocally(user.id, [newEntry, ...cached]);
     }
-
-    try {
-      if (user) {
-        await supabase.from('journal_entries').insert(payload);
-      }
-      setGratitudeText('');
-      showAlert('Tersimpan', 'Catatan rasa syukur berhasil disimpan ke Jurnal.');
-      const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
-      saveDailyQuests(updated);
-    } catch (e: any) {
-      if (user) {
-        queueOfflineAction({
-          userId: user.id,
-          type: 'CREATE_JOURNAL',
-          payload,
-        });
-      }
-      setGratitudeText('');
-      showAlert('Tersimpan Offline', 'Catatan rasa syukur disimpan di HP & otomatis di-sync saat online.');
-      const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
-      saveDailyQuests(updated);
-    } finally {
-      setSavingGratitude(false);
-    }
+    setGratitudeText('');
+    setSavingGratitude(false);
+    showAlert('Tersimpan', 'Catatan rasa syukur berhasil disimpan ke Jurnal.');
+    const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
+    saveDailyQuests(updated);
   };
 
   const startBreathwork = () => {

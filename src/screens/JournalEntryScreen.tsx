@@ -20,7 +20,9 @@ import { sendMessageToGemini } from '../lib/gemini';
 import { compressImage } from '../lib/imageCompressor';
 import {
   isDeviceOnline,
-  queueOfflineAction
+  queueOfflineAction,
+  getCachedJournals,
+  cacheJournalsLocally
 } from '../lib/offlineSync';
 
 type JournalEntryRouteProp = RouteProp<RootStackParamList, 'JournalEntry'>;
@@ -68,11 +70,14 @@ export default function JournalEntryScreen() {
   // Fetch existing journal or check draft
   // -------------------------------------------------------------
   const fetchEntry = useCallback(async () => {
-    if (!entryId) return;
+    if (!entryId || !user) {
+      setFetching(false);
+      return;
+    }
     try {
-      const { data } = await supabase.from('journal_entries').select('*').eq('id', entryId).single();
-      if (data) {
-        const entry = data as JournalEntry;
+      const cached = await getCachedJournals(user.id);
+      const entry = cached.find(j => j.id === entryId);
+      if (entry) {
         setTitle(entry.title ?? '');
         setContent(entry.content || '');
         setMood(entry.mood || 'neutral');
@@ -82,11 +87,11 @@ export default function JournalEntryScreen() {
         setIsDraft(!!entry.is_draft);
       }
     } catch (e) {
-      console.log('Error fetching journal entry:', e);
+      console.log('Error fetching local journal entry:', e);
     } finally {
       setFetching(false);
     }
-  }, [entryId]);
+  }, [entryId, user]);
 
   const checkDraft = useCallback(async () => {
     if (entryId) return;
@@ -325,85 +330,52 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
     }
     setLoading(true);
 
-    const payload = {
-      user_id: user?.id || 'anonymous',
-      title: title.trim(),
-      content: content.trim(),
-      mood,
-      tags,
-      image_url: imageUri,
-      is_draft: asDraft,
-    };
+    if (user) {
+      const cached = await getCachedJournals(user.id);
+      const targetId = entryId || `journal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const newEntry: JournalEntry = {
+        id: targetId,
+        user_id: user.id,
+        title: title.trim(),
+        content: content.trim(),
+        mood,
+        tags,
+        image_url: imageUri,
+        is_draft: asDraft,
+        created_at: createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
 
-    const online = await isDeviceOnline();
-
-    if (!online) {
-      if (user) {
-        if (entryId) {
-          queueOfflineAction({
-            userId: user.id,
-            type: 'UPDATE_JOURNAL',
-            payload: { id: entryId, ...payload },
-          });
-          setIsDraft(asDraft);
-          setIsEditing(false);
-        } else {
-          queueOfflineAction({
-            userId: user.id,
-            type: 'CREATE_JOURNAL',
-            payload,
-          });
-          const key = `@journal_draft_${user.id}`;
-          await AsyncStorage.removeItem(key);
-        }
+      const idx = cached.findIndex(j => j.id === targetId);
+      let updated: JournalEntry[];
+      if (idx >= 0) {
+        updated = [...cached];
+        updated[idx] = newEntry;
+      } else {
+        updated = [newEntry, ...cached];
       }
-      setLoading(false);
-      showAlert('Tersimpan Offline 💾', 'Jurnal berhasil disimpan di HP & otomatis di-upload ke database saat online.');
-      if (!entryId) {
+      await cacheJournalsLocally(user.id, updated);
+
+      // Clear temp draft
+      try {
+        const key = `@journal_draft_${user.id}`;
+        await AsyncStorage.removeItem(key);
+      } catch (e) {}
+
+      showAlert(
+        asDraft ? 'Draf Disimpan' : 'Tersimpan',
+        asDraft ? 'Perubahan disimpan ke dalam Draf Saya.' : 'Perubahan jurnal berhasil disimpan dan dipublikasikan.'
+      );
+
+      if (entryId) {
+        setIsDraft(asDraft);
+        setIsEditing(false);
+      } else {
         navigation.goBack();
       }
-      return;
     }
 
-    try {
-      if (user) {
-        if (entryId) {
-          await supabase.from('journal_entries').update(payload).eq('id', entryId);
-          setIsDraft(asDraft);
-          setIsEditing(false);
-          showAlert(
-            asDraft ? 'Draf Disimpan' : 'Tersimpan',
-            asDraft ? 'Perubahan disimpan ke dalam Draf Saya.' : 'Perubahan jurnal berhasil disimpan dan dipublikasikan.'
-          );
-        } else {
-          await supabase.from('journal_entries').insert(payload);
-          // Clear temp local draft
-          const key = `@journal_draft_${user.id}`;
-          await AsyncStorage.removeItem(key);
-          showAlert(
-            asDraft ? 'Draf Tersimpan' : 'Tersimpan',
-            asDraft ? 'Tersimpan di tab Draf Saya.' : 'Jurnal berhasil dipublikasikan.'
-          );
-          navigation.goBack();
-        }
-      }
-    } catch (e: any) {
-      if (user) {
-        queueOfflineAction({
-          userId: user.id,
-          type: entryId ? 'UPDATE_JOURNAL' : 'CREATE_JOURNAL',
-          payload: entryId ? { id: entryId, ...payload } : payload,
-        });
-      }
-      setLoading(false);
-      showAlert('Tersimpan Offline 💾', 'Jurnal berhasil disimpan di HP & otomatis di-upload ke database saat online.');
-      if (!entryId) {
-        navigation.goBack();
-      }
-      return;
-    } finally {
-      setLoading(false);
-    }
+    setLoading(false);
   };
 
   const handleDelete = () => {
@@ -412,24 +384,9 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
       'Catatan ini akan dihapus secara permanen dan tidak bisa dikembalikan.',
       async () => {
         if (user && entryId) {
-          const online = await isDeviceOnline();
-          if (online) {
-            try {
-              await supabase.from('journal_entries').delete().eq('id', entryId);
-            } catch (e) {
-              queueOfflineAction({
-                userId: user.id,
-                type: 'DELETE_JOURNAL',
-                payload: { id: entryId },
-              });
-            }
-          } else {
-            queueOfflineAction({
-              userId: user.id,
-              type: 'DELETE_JOURNAL',
-              payload: { id: entryId },
-            });
-          }
+          const cached = await getCachedJournals(user.id);
+          const updated = cached.filter(j => j.id !== entryId);
+          await cacheJournalsLocally(user.id, updated);
           navigation.goBack();
         }
       },

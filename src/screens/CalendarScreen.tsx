@@ -52,44 +52,11 @@ export default function CalendarScreen() {
         getCachedNotes(user.id),
         getCachedTasks(user.id),
       ]);
-      if (cJournals.length) setJournals(cJournals);
-      if (cNotes.length) setNotes(cNotes);
-      if (cTasks.length) setTasks(cTasks);
-      if (cJournals.length || cNotes.length || cTasks.length) {
-        setLoading(false);
-      }
-    } catch (e) {}
-
-    const thirtyDaysAgo = new Date();
-    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-    const thirtyDaysIso = thirtyDaysAgo.toISOString();
-
-    try {
-      const [journalRes, notesRes, tasksRes] = await Promise.all([
-        supabase
-          .from('journal_entries')
-          .select('*')
-          .eq('user_id', user.id)
-          .gte('created_at', thirtyDaysIso)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('study_notes')
-          .select('*')
-          .eq('user_id', user.id)
-          .gte('created_at', thirtyDaysIso)
-          .order('created_at', { ascending: false }),
-        supabase
-          .from('student_tasks')
-          .select('*')
-          .eq('user_id', user.id)
-          .order('created_at', { ascending: false }),
-      ]);
-
-      if (journalRes.data) setJournals(journalRes.data as JournalEntry[]);
-      if (notesRes.data) setNotes(notesRes.data as StudyNote[]);
-      if (tasksRes.data) setTasks(tasksRes.data as StudentTask[]);
+      setJournals(cJournals || []);
+      setNotes(cNotes || []);
+      setTasks(cTasks || []);
     } catch (e) {
-      console.log('Calendar fetch error:', e);
+      console.log('Calendar local fetch error:', e);
     } finally {
       setLoading(false);
     }
@@ -97,19 +64,6 @@ export default function CalendarScreen() {
 
   useEffect(() => {
     fetchData();
-
-    if (!user) return;
-
-    const channel = supabase
-      .channel('calendar_multi_realtime_' + user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_notes', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_tasks', filter: `user_id=eq.${user.id}` }, () => fetchData())
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
   }, [user, fetchData]);
 
   useFocusEffect(

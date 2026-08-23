@@ -252,29 +252,14 @@ export default function StudyNotesScreen() {
       setLoadingNotes(false);
       return;
     }
-
-    // 1. Instant load from local cache
-    const cached = await getCachedNotes(user.id);
-    if (cached && cached.length > 0) {
-      setNotes(cached);
+    try {
+      const cached = await getCachedNotes(user.id);
+      setNotes(cached || []);
+    } catch (e) {
+      console.log('fetchNotes error:', e);
+    } finally {
       setLoadingNotes(false);
     }
-
-    // 2. Fetch fresh data from Supabase
-    try {
-      const { data } = await supabase
-        .from('study_notes')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false });
-      if (data) {
-        setNotes(data as StudyNote[]);
-        cacheNotesLocally(user.id, data as StudyNote[]);
-      }
-    } catch (e) {
-      console.log('fetchNotes offline fallback:', e);
-    }
-    setLoadingNotes(false);
   }, [user]);
 
   const fetchTasks = useCallback(async () => {
@@ -282,50 +267,15 @@ export default function StudyNotesScreen() {
       setLoadingTasks(false);
       return;
     }
-
-    const localSubtasksKey = `@student_tasks_subtasks_${user.id}`;
-    const localNotesKey = `@student_tasks_notes_${user.id}`;
-    let localSubtasksMap: Record<string, TaskSubtask[]> = {};
-    let localNotesMap: Record<string, string> = {};
     try {
-      const [rawSubtasks, rawNotes] = await Promise.all([
-        AsyncStorage.getItem(localSubtasksKey),
-        AsyncStorage.getItem(localNotesKey),
-      ]);
-      if (rawSubtasks) localSubtasksMap = JSON.parse(rawSubtasks);
-      if (rawNotes) localNotesMap = JSON.parse(rawNotes);
-    } catch (e) {}
-
-    // 1. Instant load from local cache
-    const cached = await getCachedTasks(user.id);
-    if (cached && cached.length > 0) {
-      setTasks(cached);
+      const cached = await getCachedTasks(user.id);
+      setTasks(cached || []);
+      syncAllTaskDeadlines(cached || []);
+    } catch (e) {
+      console.log('fetchTasks error:', e);
+    } finally {
       setLoadingTasks(false);
     }
-
-    // 2. Fetch fresh data from Supabase
-    try {
-      const { data } = await supabase
-        .from('student_tasks')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('is_completed', { ascending: true })
-        .order('created_at', { ascending: false });
-
-      if (data) {
-        const mergedTasks: StudentTask[] = (data as StudentTask[]).map(t => ({
-          ...t,
-          subtasks: t.subtasks || localSubtasksMap[t.id] || [],
-          notes: t.notes || localNotesMap[t.id] || '',
-        }));
-        setTasks(mergedTasks);
-        cacheTasksLocally(user.id, mergedTasks);
-        syncAllTaskDeadlines(mergedTasks);
-      }
-    } catch (e) {
-      console.log('fetchTasks offline fallback:', e);
-    }
-    setLoadingTasks(false);
   }, [user]);
 
   const persistTaskSubtasks = async (taskId: string, newSubtasks: TaskSubtask[]) => {
@@ -357,9 +307,6 @@ export default function StudyNotesScreen() {
       await AsyncStorage.setItem(localNotesKey, JSON.stringify(map));
 
       // Attempt supabase update if column exists
-      try {
-        await supabase.from('student_tasks').update({ notes: newNotes } as any).eq('id', taskId);
-      } catch (err) {}
     } catch (e) {
       console.log('Error persisting task notes:', e);
     }
@@ -373,32 +320,6 @@ export default function StudyNotesScreen() {
     if (Platform.OS !== 'web') {
       requestNotificationPermissions();
     }
-
-    // Subscribe to online/offline network changes & trigger auto-sync
-    const unsubscribeNetwork = subscribeNetworkStatus(async (online) => {
-      setIsOnline(online);
-      if (online && user) {
-        const { syncedCount } = await processOfflineSyncQueue(user.id);
-        if (syncedCount > 0) {
-          fetchTasks();
-          fetchNotes();
-          showAlert('Sinkronisasi Sukses 🔄', `${syncedCount} aktivitas offline telah berhasil di-upload ke database!`);
-        }
-      }
-    });
-
-    if (!user) return () => unsubscribeNetwork();
-
-    const channel = supabase
-      .channel('study_realtime_' + user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'study_notes', filter: `user_id=eq.${user.id}` }, () => fetchNotes())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'student_tasks', filter: `user_id=eq.${user.id}` }, () => fetchTasks())
-      .subscribe();
-
-    return () => {
-      unsubscribeNetwork();
-      supabase.removeChannel(channel);
-    };
   }, [user, fetchNotes, fetchTasks, checkDraft]);
 
   useFocusEffect(
@@ -492,101 +413,32 @@ export default function StudyNotesScreen() {
     if (!user) return;
 
     const chosenSubject = newTaskSubject.trim() || (subjects.length > 0 ? subjects[0].name : 'Umum');
+    const tempId = `task_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 
-    const dbPayload = {
+    const initialTask: StudentTask = {
+      id: tempId,
       user_id: user.id,
       title: newTaskTitle.trim(),
       subject: chosenSubject,
       priority: newTaskPriority,
       due_date: newTaskDueDate.trim() || null,
       is_completed: false,
+      created_at: new Date().toISOString(),
+      subtasks: [],
+      notes: newTaskNotes.trim(),
     };
-
-    const online = await isDeviceOnline();
-
-    if (!online) {
-      // Offline fallback: save locally and queue for upload
-      const tempId = `local_task_${Date.now()}`;
-      const initialTask: StudentTask = {
-        id: tempId,
-        user_id: user.id,
-        title: newTaskTitle.trim(),
-        subject: chosenSubject,
-        priority: newTaskPriority,
-        due_date: newTaskDueDate.trim() || null,
-        is_completed: false,
-        created_at: new Date().toISOString(),
-        subtasks: [],
-        notes: newTaskNotes.trim(),
-      };
-      if (newTaskNotes.trim()) {
-        handleSaveTaskNotes(tempId, newTaskNotes.trim());
-      }
-      scheduleTaskDeadlineNotification(initialTask);
-      const updated = [initialTask, ...tasks];
-      setTasks(updated);
-      cacheTasksLocally(user.id, updated);
-      queueOfflineAction({
-        userId: user.id,
-        type: 'CREATE_TASK',
-        payload: dbPayload,
-      });
-      setNewTaskTitle('');
-      setNewTaskDueDate('');
-      setNewTaskNotes('');
-      if (isMobile) setShowTaskForm(false);
-      showAlert('Tersimpan Offline 💾', 'Tugas disimpan di HP & otomatis di-upload ke database saat online.');
-      return;
+    if (newTaskNotes.trim()) {
+      handleSaveTaskNotes(tempId, newTaskNotes.trim());
     }
-
-    try {
-      const { data, error } = await supabase.from('student_tasks').insert(dbPayload).select().single();
-      if (error) throw error;
-      if (data) {
-        const created = data as StudentTask;
-        const initialTask: StudentTask = {
-          ...created,
-          subtasks: [],
-          notes: newTaskNotes.trim(),
-        };
-        if (newTaskNotes.trim()) {
-          handleSaveTaskNotes(created.id, newTaskNotes.trim());
-        }
-        scheduleTaskDeadlineNotification(initialTask);
-        const updated = [initialTask, ...tasks];
-        setTasks(updated);
-        cacheTasksLocally(user.id, updated);
-        setNewTaskTitle('');
-        setNewTaskDueDate('');
-        setNewTaskNotes('');
-        if (isMobile) setShowTaskForm(false);
-        showAlert('Sukses', 'Tugas kuliah berhasil ditambahkan.');
-      }
-    } catch (err: any) {
-      // If error occurs due to network drop, fallback to queue
-      const tempId = `local_task_${Date.now()}`;
-      const initialTask: StudentTask = {
-        id: tempId,
-        user_id: user.id,
-        title: newTaskTitle.trim(),
-        subject: chosenSubject,
-        priority: newTaskPriority,
-        due_date: newTaskDueDate.trim() || null,
-        is_completed: false,
-        created_at: new Date().toISOString(),
-        subtasks: [],
-        notes: newTaskNotes.trim(),
-      };
-      const updated = [initialTask, ...tasks];
-      setTasks(updated);
-      cacheTasksLocally(user.id, updated);
-      queueOfflineAction({
-        userId: user.id,
-        type: 'CREATE_TASK',
-        payload: dbPayload,
-      });
-      showAlert('Tersimpan Offline 💾', 'Tugas disimpan di HP & otomatis di-upload saat online.');
-    }
+    scheduleTaskDeadlineNotification(initialTask);
+    const updated = [initialTask, ...tasks];
+    setTasks(updated);
+    cacheTasksLocally(user.id, updated);
+    setNewTaskTitle('');
+    setNewTaskDueDate('');
+    setNewTaskNotes('');
+    if (isMobile) setShowTaskForm(false);
+    showAlert('Sukses', 'Tugas kuliah berhasil disimpan.');
   };
 
   // Toggle Task Completion
@@ -601,16 +453,6 @@ export default function StudyNotesScreen() {
     setTasks(updated);
     if (user) {
       cacheTasksLocally(user.id, updated);
-      const online = await isDeviceOnline();
-      if (online) {
-        await supabase.from('student_tasks').update({ is_completed: newStatus }).eq('id', task.id);
-      } else {
-        queueOfflineAction({
-          userId: user.id,
-          type: 'UPDATE_TASK',
-          payload: { id: task.id, is_completed: newStatus },
-        });
-      }
     }
   };
 
@@ -648,35 +490,60 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
         throw new Error('AI tidak mengembalikan langkah tugas. Coba klik sekali lagi.');
       }
 
-      const generatedSubtasks: TaskSubtask[] = stepStrings.map((stepText, idx) => ({
-        id: `st_${Date.now()}_${idx}`,
-        title: stepText.replace(/^\d+[\.\)]\s*/, ''),
+      const generatedSubtasks: TaskSubtask[] = stepStrings.map((step, idx) => ({
+        id: `sub_${Date.now()}_${idx}`,
+        title: step,
         is_completed: false,
       }));
 
-      const updatedTasks = tasks.map(t => {
+      const updated = tasks.map(t => {
         if (t.id === task.id) {
-          const currentSubtasks = t.subtasks || [];
-          const combined = [...currentSubtasks, ...generatedSubtasks];
-          persistTaskSubtasks(t.id, combined);
-          return { ...t, subtasks: combined };
+          const merged = [...(t.subtasks || []), ...generatedSubtasks];
+          persistTaskSubtasks(t.id, merged);
+          return { ...t, subtasks: merged };
         }
         return t;
       });
 
-      setTasks(updatedTasks);
-      setExpandedTaskIds(prev => ({ ...prev, [task.id]: true }));
-      showAlert('AI Breakdown Berhasil ✨', `${generatedSubtasks.length} langkah pengerjaan tugas telah dibuatkan.`);
+      setTasks(updated);
+      if (user) cacheTasksLocally(user.id, updated);
+      showAlert('Langkah Terurai ✨', `${generatedSubtasks.length} subtask telah otomatis ditambahkan ke tugas ini!`);
     } catch (e: any) {
-      showAlert('Gagal Memecah Tugas', e.message || 'Terjadi kesalahan saat memanggil AI.');
+      showAlert('Gagal Mengurai Tugas', e.message || 'AI sedang sibuk. Silakan coba sesaat lagi.');
     } finally {
       setBreakingDownTaskId(null);
     }
   };
 
+  // Add Manual Subtask
+  const handleAddManualSubtask = (taskId: string) => {
+    const inputVal = (newSubtaskInputs[taskId] || '').trim();
+    if (!inputVal) return;
+
+    const newSub: TaskSubtask = {
+      id: `st_man_${Date.now()}`,
+      title: inputVal,
+      is_completed: false,
+    };
+
+    const updated = tasks.map(t => {
+      if (t.id === taskId) {
+        const current = t.subtasks || [];
+        const combined = [...current, newSub];
+        persistTaskSubtasks(taskId, combined);
+        return { ...t, subtasks: combined };
+      }
+      return t;
+    });
+
+    setTasks(updated);
+    if (user) cacheTasksLocally(user.id, updated);
+    setNewSubtaskInputs(prev => ({ ...prev, [taskId]: '' }));
+  };
+
   // Toggle Subtask Completion
   const handleToggleSubtask = (taskId: string, subtaskId: string) => {
-    setTasks(prev => prev.map(t => {
+    const updated = tasks.map(t => {
       if (t.id === taskId) {
         const currentList = t.subtasks || [];
         const updatedSubtasks = currentList.map(st =>
@@ -692,43 +559,23 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
         return { ...t, subtasks: updatedSubtasks };
       }
       return t;
-    }));
-  };
-
-  // Add Manual Subtask
-  const handleAddManualSubtask = (taskId: string) => {
-    const inputVal = (newSubtaskInputs[taskId] || '').trim();
-    if (!inputVal) return;
-
-    const newSub: TaskSubtask = {
-      id: `st_man_${Date.now()}`,
-      title: inputVal,
-      is_completed: false,
-    };
-
-    setTasks(prev => prev.map(t => {
-      if (t.id === taskId) {
-        const current = t.subtasks || [];
-        const combined = [...current, newSub];
-        persistTaskSubtasks(taskId, combined);
-        return { ...t, subtasks: combined };
-      }
-      return t;
-    }));
-
-    setNewSubtaskInputs(prev => ({ ...prev, [taskId]: '' }));
+    });
+    setTasks(updated);
+    if (user) cacheTasksLocally(user.id, updated);
   };
 
   // Delete Subtask
   const handleDeleteSubtask = (taskId: string, subtaskId: string) => {
-    setTasks(prev => prev.map(t => {
+    const updated = tasks.map(t => {
       if (t.id === taskId) {
-        const updated = (t.subtasks || []).filter(st => st.id !== subtaskId);
-        persistTaskSubtasks(taskId, updated);
-        return { ...t, subtasks: updated };
+        const merged = (t.subtasks || []).filter(s => s.id !== subtaskId);
+        persistTaskSubtasks(taskId, merged);
+        return { ...t, subtasks: merged };
       }
       return t;
-    }));
+    });
+    setTasks(updated);
+    if (user) cacheTasksLocally(user.id, updated);
   };
 
   // Toggle Subtasks Accordion Expand/Collapse
@@ -763,7 +610,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
   // Save Edit Task
   const handleSaveEditTask = async () => {
     if (!editingTask || !editTitle.trim()) {
-      showAlert('Perhatian', 'Judul tugas wajib diisi.');
+      showAlert('Perhatian', 'Judul tugas kuliah tidak boleh kosong.');
       return;
     }
 
@@ -788,29 +635,6 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 
     if (user) {
       cacheTasksLocally(user.id, updated);
-      const online = await isDeviceOnline();
-      if (online) {
-        try {
-          await supabase.from('student_tasks').update({
-            title: updatedTask.title,
-            subject: updatedTask.subject,
-            priority: updatedTask.priority,
-            due_date: updatedTask.due_date,
-          }).eq('id', editingTask.id);
-        } catch (e) {
-          queueOfflineAction({
-            userId: user.id,
-            type: 'UPDATE_TASK',
-            payload: updatedTask,
-          });
-        }
-      } else {
-        queueOfflineAction({
-          userId: user.id,
-          type: 'UPDATE_TASK',
-          payload: updatedTask,
-        });
-      }
     }
     showAlert('Tersimpan', 'Perubahan tugas berhasil disimpan.');
   };
@@ -826,24 +650,6 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
       }
       if (user) {
         cacheTasksLocally(user.id, updated);
-        const online = await isDeviceOnline();
-        if (online) {
-          try {
-            await supabase.from('student_tasks').delete().eq('id', taskId);
-          } catch (e) {
-            queueOfflineAction({
-              userId: user.id,
-              type: 'DELETE_TASK',
-              payload: { id: taskId },
-            });
-          }
-        } else {
-          queueOfflineAction({
-            userId: user.id,
-            type: 'DELETE_TASK',
-            payload: { id: taskId },
-          });
-        }
       }
     }, 'Hapus');
   };
@@ -851,9 +657,10 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
   // Delete Note
   const deleteNote = (noteId: string) => {
     confirmAction('Hapus Catatan?', 'Catatan kuliah ini akan dihapus permanen.', async () => {
-      setNotes(prev => prev.filter(n => n.id !== noteId));
+      const updated = notes.filter(n => n.id !== noteId);
+      setNotes(updated);
       if (user) {
-        await supabase.from('study_notes').delete().eq('id', noteId);
+        cacheNotesLocally(user.id, updated);
       }
     }, 'Hapus');
   };

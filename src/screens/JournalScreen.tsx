@@ -42,68 +42,18 @@ export default function JournalScreen() {
       setLoading(false);
       return;
     }
-
-    // 1. Instant load from local cache
-    const cached = await getCachedJournals(user.id);
-    if (cached && cached.length > 0) {
-      setEntries(cached);
+    try {
+      const cached = await getCachedJournals(user.id);
+      setEntries(cached || []);
+    } catch (e) {
+      console.log('fetchEntries error:', e);
+    } finally {
       setLoading(false);
     }
-
-    // 2. Fetch fresh data from Supabase
-    try {
-      let query = supabase
-        .from('journal_entries')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('created_at', { ascending: false });
-      const { data } = await query;
-      if (data) {
-        setEntries(data as JournalEntry[]);
-        cacheJournalsLocally(user.id, data as JournalEntry[]);
-      }
-    } catch (e) {
-      console.log('fetchEntries offline fallback:', e);
-    }
-    setLoading(false);
   }, [user]);
 
   useEffect(() => {
     fetchEntries();
-
-    const unsubscribeNetwork = subscribeNetworkStatus(async (online) => {
-      setIsOnline(online);
-      if (online && user) {
-        const { syncedCount } = await processOfflineSyncQueue(user.id);
-        if (syncedCount > 0) {
-          fetchEntries();
-          showAlert('Sinkronisasi Sukses 🔄', `${syncedCount} jurnal offline berhasil di-upload ke database!`);
-        }
-      }
-    });
-
-    if (!user) return () => unsubscribeNetwork();
-
-    const channel = supabase
-      .channel('journal_realtime_' + user.id)
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, payload => {
-        if (payload.eventType === 'INSERT') {
-          const newEntry = payload.new as JournalEntry;
-          setEntries(prev => [newEntry, ...prev.filter(e => e.id !== newEntry.id)]);
-        } else if (payload.eventType === 'UPDATE') {
-          const updated = payload.new as JournalEntry;
-          setEntries(prev => prev.map(e => (e.id === updated.id ? updated : e)));
-        } else if (payload.eventType === 'DELETE') {
-          const oldId = payload.old.id;
-          setEntries(prev => prev.filter(e => e.id !== oldId));
-        }
-      })
-      .subscribe();
-
-    return () => {
-      unsubscribeNetwork();
-      supabase.removeChannel(channel);
-    };
   }, [user, fetchEntries]);
 
   useFocusEffect(
@@ -121,24 +71,6 @@ export default function JournalScreen() {
         setEntries(updated);
         if (user) {
           cacheJournalsLocally(user.id, updated);
-          const online = await isDeviceOnline();
-          if (online) {
-            try {
-              await supabase.from('journal_entries').delete().eq('id', id);
-            } catch (e) {
-              queueOfflineAction({
-                userId: user.id,
-                type: 'DELETE_JOURNAL',
-                payload: { id },
-              });
-            }
-          } else {
-            queueOfflineAction({
-              userId: user.id,
-              type: 'DELETE_JOURNAL',
-              payload: { id },
-            });
-          }
         }
       },
       'Hapus'

@@ -4,6 +4,7 @@ import {
   Image, ActivityIndicator, ScrollView, TextInput, Modal, Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system';
@@ -24,7 +25,10 @@ import {
   isStrictlyLocalMode,
   setStrictlyLocalMode,
   exportAllAppDataAsJson,
-  importAllAppDataFromJson
+  importAllAppDataFromJson,
+  getCachedJournals,
+  getCachedNotes,
+  getCachedTasks,
 } from '../lib/offlineSync';
 
 const BG_COLOR_PRESETS = [
@@ -352,26 +356,21 @@ export default function ProfileScreen() {
   const fetchStats = useCallback(async () => {
     if (!user) return;
     try {
-      const [journalRes, chatRes, notesRes, tasksRes] = await Promise.all([
-        supabase.from('journal_entries').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('chat_messages').select('id, created_at').eq('user_id', user.id).eq('role', 'user').order('created_at', { ascending: false }),
-        supabase.from('study_notes').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
-        supabase.from('student_tasks').select('id, created_at').eq('user_id', user.id).order('created_at', { ascending: false }),
+      const [entries, notes, tasks, rawSessions] = await Promise.all([
+        getCachedJournals(user.id),
+        getCachedNotes(user.id),
+        getCachedTasks(user.id),
+        AsyncStorage.getItem('@chat_sessions_' + user.id).then((r: string | null) => r ? JSON.parse(r) : []),
       ]);
-      const entries = journalRes.data ?? [];
-      const chats = chatRes.data ?? [];
-      const notes = notesRes.data ?? [];
-      const tasks = tasksRes.data ?? [];
 
       const allTimestamps: string[] = [
-        ...entries.map(d => d.created_at),
-        ...chats.map(d => d.created_at),
-        ...notes.map(d => d.created_at),
-        ...tasks.map(d => d.created_at),
-      ];
+        ...entries.map((d: any) => d.created_at),
+        ...notes.map((d: any) => d.created_at),
+        ...tasks.map((d: any) => d.created_at),
+      ].filter(Boolean);
 
       const streak = calculateRealStreak(allTimestamps);
-      setStats({ total: entries.length, streak, chats: chats.length });
+      setStats({ total: entries.length, streak, chats: (rawSessions || []).length });
     } catch (e) {
       console.log('Error fetching stats in ProfileScreen:', e);
     }
@@ -389,8 +388,6 @@ export default function ProfileScreen() {
         fetchProfile();
         refreshProfileRole();
       })
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'journal_entries', filter: `user_id=eq.${user.id}` }, () => fetchStats())
-      .on('postgres_changes', { event: '*', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${user.id}` }, () => fetchStats())
       .subscribe();
 
     return () => {

@@ -134,20 +134,7 @@ export default function ChatScreen() {
         setSessions(sessionList);
       }
 
-      // 2. Read from Supabase DB
-      const { data, error } = await supabase
-        .from('chat_sessions')
-        .select('*')
-        .eq('user_id', user.id)
-        .order('updated_at', { ascending: false });
-
-      if (!error && data && data.length > 0) {
-        sessionList = data as ChatSession[];
-        setSessions(sessionList);
-        await safeSaveSessions(user.id, sessionList);
-      }
-
-      // 3. Set active session if not set yet
+      // Set active session if not set yet
       if (!currentSessionId) {
         if (sessionList.length > 0) {
           setCurrentSessionId(sessionList[0].id);
@@ -159,7 +146,7 @@ export default function ChatScreen() {
         }
       }
     } catch (e) {
-      console.log('Error fetching sessions:', e);
+      console.log('Error fetching local sessions:', e);
     } finally {
       setLoadingSessions(false);
     }
@@ -175,31 +162,18 @@ export default function ChatScreen() {
     }
     setRefreshing(true);
     try {
-      // 1. Load from local cache immediately for instant response
+      // Load from local cache
       const cachedMsgs = await AsyncStorage.getItem(`@chat_msgs_${user.id}_${sessionId}`);
       if (cachedMsgs) {
         try {
           setMessages(JSON.parse(cachedMsgs));
           scrollToBottom(150);
         } catch (e) { }
-      }
-
-      // 2. Fetch from Supabase
-      const { data, error } = await supabase
-        .from('chat_messages')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('session_id', sessionId)
-        .order('created_at', { ascending: true })
-        .limit(100);
-
-      if (!error && data) {
-        setMessages(data as ChatMessage[]);
-        await safeSaveChatMessages(user.id, sessionId, data as ChatMessage[]);
-        scrollToBottom(250);
+      } else {
+        setMessages([]);
       }
     } catch (e) {
-      console.log('Error fetching messages:', e);
+      console.log('Error fetching local chat messages:', e);
     } finally {
       setInitializing(false);
       setRefreshing(false);
@@ -215,42 +189,6 @@ export default function ChatScreen() {
       fetchHistory(currentSessionId);
     }
   }, [currentSessionId, fetchHistory]);
-
-  // Realtime Supabase Sync
-  useEffect(() => {
-    if (!user || !currentSessionId) return;
-
-    const channel = supabase
-      .channel('chat_realtime_' + user.id + '_' + currentSessionId)
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${user.id}` },
-        payload => {
-          const newMsg = payload.new as ChatMessage;
-          if (newMsg.session_id === currentSessionId || !newMsg.session_id) {
-            setMessages(prev => {
-              if (prev.some(m => m.id === newMsg.id || (m.content === newMsg.content && m.role === newMsg.role && Math.abs(new Date(m.created_at).getTime() - new Date(newMsg.created_at).getTime()) < 3000))) {
-                return prev;
-              }
-              return [...prev, newMsg];
-            });
-            scrollToBottom(150);
-          }
-        }
-      )
-      .on(
-        'postgres_changes',
-        { event: 'DELETE', schema: 'public', table: 'chat_messages', filter: `user_id=eq.${user.id}` },
-        () => {
-          fetchHistory(currentSessionId);
-        }
-      )
-      .subscribe();
-
-    return () => {
-      supabase.removeChannel(channel);
-    };
-  }, [user, currentSessionId, fetchHistory, scrollToBottom]);
 
   useEffect(() => {
     if (messages.length > 0) {
@@ -284,13 +222,6 @@ export default function ChatScreen() {
     if (user) {
       const updatedList = [newSessionItem, ...sessions.filter(s => s.id !== newSessionId)];
       await safeSaveSessions(user.id, updatedList);
-      try {
-        await supabase.from('chat_sessions').insert({
-          id: newSessionId,
-          user_id: user.id,
-          title: newTitle,
-        });
-      } catch (e) { }
     }
   };
 
@@ -312,10 +243,6 @@ export default function ChatScreen() {
         if (user) {
           await safeSaveSessions(user.id, updated);
           await safeRemoveChatCache(user.id, sessionId);
-          try {
-            await supabase.from('chat_messages').delete().eq('session_id', sessionId);
-            await supabase.from('chat_sessions').delete().eq('id', sessionId);
-          } catch (e) { }
         }
 
         if (currentSessionId === sessionId) {
@@ -565,12 +492,6 @@ export default function ChatScreen() {
 
           if (user) {
             await safeSaveChatMessages(user.id, activeSessionId, updatedMessages);
-            if (!targetId.startsWith('usr_')) {
-              await supabase.from('chat_messages').update({ content: text }).eq('id', targetId);
-            }
-            if (!nextMsg.id.startsWith('ai_')) {
-              await supabase.from('chat_messages').update({ content: newAiReply }).eq('id', nextMsg.id);
-            }
           }
         }
       } catch (err: any) {
@@ -619,25 +540,9 @@ export default function ChatScreen() {
       setMessages(newFullList);
       scrollToBottom(100);
 
-      // Save to local cache
+      // Save to local cache only
       if (user) {
         await safeSaveChatMessages(user.id, activeSessionId, newFullList);
-
-        // Save to remote Supabase database
-        await supabase.from('chat_messages').insert([
-          {
-            user_id: user.id,
-            session_id: activeSessionId,
-            role: 'user',
-            content: text,
-          },
-          {
-            user_id: user.id,
-            session_id: activeSessionId,
-            role: 'assistant',
-            content: aiReply,
-          },
-        ]);
       }
     } catch (err: any) {
       console.error('Chat error:', err);
@@ -666,9 +571,6 @@ export default function ChatScreen() {
         setMessages(updated);
         if (user) {
           await safeSaveChatMessages(user.id, currentSessionId, updated);
-          if (!msgId.startsWith('usr_') && !msgId.startsWith('ai_')) {
-            await supabase.from('chat_messages').delete().eq('id', msgId);
-          }
         }
       },
       'Hapus'
@@ -685,7 +587,6 @@ export default function ChatScreen() {
           setMessages([]);
           if (user) {
             await safeRemoveChatCache(user.id, currentSessionId);
-            await supabase.from('chat_messages').delete().eq('session_id', currentSessionId);
           }
         },
         'Bersihkan'

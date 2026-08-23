@@ -448,17 +448,26 @@ export default function StudyNoteDetailScreen() {
   };
 
   const fetchNote = async () => {
-    const { data } = await supabase.from('study_notes').select('*').eq('id', noteId).single();
-    if (data) {
-      const n = data as StudyNote;
-      setTitle(n.title);
-      setSubject(n.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
-      setContent(n.content);
-      setSummary(n.summary || null);
-      setQuizData(n.quiz_data || []);
-      setCreatedAt(n.created_at);
+    if (!user || !noteId) {
+      setFetching(false);
+      return;
     }
-    setFetching(false);
+    try {
+      const cached = await getCachedNotes(user.id);
+      const found = cached.find(n => n.id === noteId);
+      if (found) {
+        setTitle(found.title);
+        setSubject(found.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
+        setContent(found.content);
+        setSummary(found.summary || null);
+        setQuizData(found.quiz_data || []);
+        setCreatedAt(found.created_at);
+      }
+    } catch (e) {
+      console.log('Error fetching local note:', e);
+    } finally {
+      setFetching(false);
+    }
   };
 
   // AI Feature 1: Advanced Structured Academic Summarizer
@@ -492,7 +501,9 @@ ${content}`;
       const aiReply = await sendMessageToGemini([], prompt);
       setSummary(aiReply);
       if (noteId && user) {
-        await supabase.from('study_notes').update({ summary: aiReply, updated_at: new Date().toISOString() }).eq('id', noteId);
+        const currentNotes = await getCachedNotes(user.id);
+        const updated = currentNotes.map(n => n.id === noteId ? { ...n, summary: aiReply, updated_at: new Date().toISOString() } : n);
+        await cacheNotesLocally(user.id, updated);
       }
       showAlert('Rangkuman Selesai', 'Intisari materi telah dibuat dan otomatis tersimpan ke catatan.');
     } catch (e: any) {
@@ -508,7 +519,9 @@ ${content}`;
     const newContent = `${content.trim()}\n\n---\n### Rangkuman Intisari AI:\n${summary.trim()}`;
     setContent(newContent);
     if (noteId && user) {
-      await supabase.from('study_notes').update({ content: newContent, updated_at: new Date().toISOString() }).eq('id', noteId);
+      const currentNotes = await getCachedNotes(user.id);
+      const updated = currentNotes.map(n => n.id === noteId ? { ...n, content: newContent, updated_at: new Date().toISOString() } : n);
+      await cacheNotesLocally(user.id, updated);
     }
     showAlert('Berhasil Disisipkan', 'Rangkuman telah digabungkan ke dalam catatan kuliah dan tersimpan.');
   };
@@ -559,34 +572,28 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         if (found) rawArray = found as any[];
       }
 
-      if (rawArray.length === 0) {
-        throw new Error('AI tidak mengembalikan daftar pertanyaan kuis. Coba klik Buat Kuis sekali lagi.');
+      if (!rawArray || rawArray.length === 0) {
+        throw new Error('Format kuis dari AI tidak valid. Coba buat lagi.');
       }
 
-      const cleanQuestions: QuizQuestion[] = rawArray.map((q: any, idx: number) => {
+      const cleanQuestions: QuizQuestion[] = rawArray.slice(0, quizCount).map((q: any, idx: number) => {
+        const options: string[] = Array.isArray(q.options) && q.options.length >= 2
+          ? q.options.slice(0, 4).map((opt: any) => String(opt).trim())
+          : ['Opsi A', 'Opsi B', 'Opsi C', 'Opsi D'];
+        
         let correctIdx = 0;
         if (typeof q.correctIndex === 'number') {
           correctIdx = q.correctIndex;
-        } else if (typeof q.correctIndex === 'string') {
-          const c = q.correctIndex.toUpperCase().trim();
-          if (c === 'A' || c === '0') correctIdx = 0;
-          else if (c === 'B' || c === '1') correctIdx = 1;
-          else if (c === 'C' || c === '2') correctIdx = 2;
-          else if (c === 'D' || c === '3') correctIdx = 3;
-        } else if (typeof q.answer === 'string') {
-          const c = q.answer.toUpperCase().trim();
-          if (c === 'A' || c === '0') correctIdx = 0;
-          else if (c === 'B' || c === '1') correctIdx = 1;
-          else if (c === 'C' || c === '2') correctIdx = 2;
-          else if (c === 'D' || c === '3') correctIdx = 3;
+        } else if (typeof q.answerIndex === 'number') {
+          correctIdx = q.answerIndex;
+        } else if (typeof q.correctAnswer === 'string') {
+          const foundIdx = options.findIndex(o => o.toLowerCase() === q.correctAnswer.toLowerCase());
+          if (foundIdx !== -1) correctIdx = foundIdx;
         }
 
-        const options = Array.isArray(q.options) && q.options.length >= 2
-          ? q.options.map((o: any) => String(o))
-          : ['Opsi A', 'Opsi B', 'Opsi C', 'Opsi D'];
-
         return {
-          question: q.question || `Pertanyaan Soal #${idx + 1}`,
+          id: `q_${Date.now()}_${idx}`,
+          question: q.question || `Pertanyaan ${idx + 1}`,
           options,
           correctIndex: Math.min(Math.max(0, correctIdx), options.length - 1),
           explanation: q.explanation || 'Jawaban didasarkan pada materi catatan kuliah.',
@@ -597,7 +604,9 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
       setSelectedAnswers({});
 
       if (noteId && user) {
-        await supabase.from('study_notes').update({ quiz_data: cleanQuestions, updated_at: new Date().toISOString() }).eq('id', noteId);
+        const currentNotes = await getCachedNotes(user.id);
+        const updated = currentNotes.map(n => n.id === noteId ? { ...n, quiz_data: cleanQuestions, updated_at: new Date().toISOString() } : n);
+        await cacheNotesLocally(user.id, updated);
       }
 
       showAlert('Kuis Siap 🧠', `${cleanQuestions.length} soal kuis telah dibuat dan otomatis tersimpan ke catatan!`);
@@ -617,7 +626,9 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         setQuizData([]);
         setSelectedAnswers({});
         if (noteId && user) {
-          await supabase.from('study_notes').update({ quiz_data: [], updated_at: new Date().toISOString() }).eq('id', noteId);
+          const currentNotes = await getCachedNotes(user.id);
+          const updated = currentNotes.map(n => n.id === noteId ? { ...n, quiz_data: [], updated_at: new Date().toISOString() } : n);
+          await cacheNotesLocally(user.id, updated);
         }
       },
       'Hapus Kuis'
@@ -641,89 +652,43 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     }
     setLoading(true);
 
-    const payload = {
-      user_id: user?.id || 'anonymous',
-      title: title.trim(),
-      subject: finalSubject,
-      content: content.trim(),
-      summary,
-      quiz_data: quizData,
-      updated_at: new Date().toISOString(),
-    };
-
-    const online = await isDeviceOnline();
-
-    if (!online) {
-      // Offline Flow
-      if (user) {
-        if (noteId) {
-          queueOfflineAction({
-            userId: user.id,
-            type: 'UPDATE_NOTE',
-            payload: { id: noteId, ...payload },
-          });
-        } else {
-          const tempNoteId = `local_note_${Date.now()}`;
-          queueOfflineAction({
-            userId: user.id,
-            type: 'CREATE_NOTE',
-            payload,
-          });
-          try {
-            const draftKey = getDraftKey();
-            await AsyncStorage.removeItem(draftKey);
-            setHasRestoredDraft(false);
-            setDraftSavedTime(null);
-          } catch (e) {}
-        }
-      }
-      setLoading(false);
-      showAlert('Tersimpan Offline 💾', 'Catatan kuliah tersimpan di HP & otomatis di-upload ke database saat online.');
-      if (noteId) {
-        setViewMode('reader');
+    if (user) {
+      const currentNotes = await getCachedNotes(user.id);
+      const targetId = noteId || `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const newNoteObj: StudyNote = {
+        id: targetId,
+        user_id: user.id,
+        title: title.trim(),
+        subject: finalSubject,
+        content: content.trim(),
+        summary,
+        quiz_data: quizData,
+        created_at: createdAt || new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const idx = currentNotes.findIndex(n => n.id === targetId);
+      let updated: StudyNote[];
+      if (idx >= 0) {
+        updated = [...currentNotes];
+        updated[idx] = newNoteObj;
       } else {
-        navigation.goBack();
+        updated = [newNoteObj, ...currentNotes];
       }
-      return;
+      await cacheNotesLocally(user.id, updated);
+      try {
+        const draftKey = getDraftKey();
+        await AsyncStorage.removeItem(draftKey);
+        setHasRestoredDraft(false);
+        setDraftSavedTime(null);
+      } catch (e) {}
     }
 
-    try {
-      if (user) {
-        if (noteId) {
-          await supabase.from('study_notes').update(payload).eq('id', noteId);
-        } else {
-          await supabase.from('study_notes').insert(payload);
-          try {
-            const draftKey = getDraftKey();
-            await AsyncStorage.removeItem(draftKey);
-            setHasRestoredDraft(false);
-            setDraftSavedTime(null);
-          } catch (e) {}
-        }
-      }
-      setLoading(false);
-      showAlert('Tersimpan', 'Catatan kuliah berhasil disimpan.');
-      if (noteId) {
-        setViewMode('reader');
-      } else {
-        navigation.goBack();
-      }
-    } catch (err) {
-      // Network drop fallback
-      if (user) {
-        queueOfflineAction({
-          userId: user.id,
-          type: noteId ? 'UPDATE_NOTE' : 'CREATE_NOTE',
-          payload: noteId ? { id: noteId, ...payload } : payload,
-        });
-      }
-      setLoading(false);
-      showAlert('Tersimpan Offline 💾', 'Catatan kuliah tersimpan di HP & otomatis di-upload ke database saat online.');
-      if (noteId) {
-        setViewMode('reader');
-      } else {
-        navigation.goBack();
-      }
+    setLoading(false);
+    showAlert('Tersimpan', 'Catatan kuliah berhasil disimpan.');
+    if (noteId) {
+      setViewMode('reader');
+    } else {
+      navigation.goBack();
     }
   };
 
@@ -735,7 +700,9 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
       'Catatan materi kuliah ini akan dihapus permanen.',
       async () => {
         if (user) {
-          await supabase.from('study_notes').delete().eq('id', noteId);
+          const currentNotes = await getCachedNotes(user.id);
+          const updated = currentNotes.filter(n => n.id !== noteId);
+          await cacheNotesLocally(user.id, updated);
         }
         showAlert('Terhapus', 'Catatan kuliah berhasil dihapus.');
         navigation.goBack();
