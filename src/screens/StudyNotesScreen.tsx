@@ -1463,7 +1463,12 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
             <View style={[styles.taskListColumn, isWide && styles.taskListColumnWide]}>
 
               {/* Filter Tabs */}
-              <View style={styles.taskFilterRow}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.taskFilterRow}
+                style={{ marginBottom: 12 }}
+              >
                 <TouchableOpacity
                   style={[
                     styles.taskFilterChip,
@@ -1508,11 +1513,12 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                   style={[styles.taskFilterChip, { backgroundColor: theme.card, borderColor: theme.border }]}
                   onPress={handleExportAllTasksPdf}
                 >
+                  <Ionicons name="print-outline" size={13} color={theme.accentLight} style={{ marginRight: 4 }} />
                   <Text style={[styles.taskFilterText, { color: theme.accentLight, fontWeight: '700' }]}>
                     Rekap PDF
                   </Text>
                 </TouchableOpacity>
-              </View>
+              </ScrollView>
 
               {loadingTasks ? (
                 <View style={styles.loaderCenter}><ActivityIndicator size="small" color={theme.subtext} /></View>

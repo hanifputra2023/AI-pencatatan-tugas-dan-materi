@@ -12,6 +12,8 @@ import { showAlert } from '../lib/alert';
 import { isDeviceOnline } from '../lib/offlineSync';
 import { exportTaskToPdf } from '../lib/pdfExporter';
 
+import { parseDeadline } from '../lib/dateUtils';
+
 interface TaskWorkpadModalProps {
   visible: boolean;
   task: StudentTask | null;
@@ -124,6 +126,8 @@ Tuliskan draft penjelasan yang akademis, jelas, dan terstruktur sesuai topik unt
 
   if (!task) return null;
 
+  const parsedDeadline = task.due_date ? parseDeadline(task.due_date) : null;
+
   return (
     <Modal
       visible={visible}
@@ -143,10 +147,10 @@ Tuliskan draft penjelasan yang akademis, jelas, dan terstruktur sesuai topik unt
                     <View style={[styles.subjectBadge, { backgroundColor: theme.accentBg }]}>
                       <Text style={[styles.subjectText, { color: theme.accentLight }]}>{task.subject}</Text>
                     </View>
-                    {task.due_date ? (
-                      <View style={[styles.dueBadge, { backgroundColor: theme.cardInner }]}>
-                        <Ionicons name="calendar-outline" size={11} color={theme.subtext} />
-                        <Text style={[styles.dueText, { color: theme.subtext }]}>{task.due_date}</Text>
+                    {parsedDeadline ? (
+                      <View style={[styles.dueBadge, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <Ionicons name="calendar-outline" size={11} color={theme.accentLight} />
+                        <Text style={[styles.dueText, { color: theme.text }]}>{parsedDeadline.formattedText}</Text>
                       </View>
                     ) : null}
                   </View>
@@ -160,55 +164,69 @@ Tuliskan draft penjelasan yang akademis, jelas, dan terstruktur sesuai topik unt
                 </TouchableOpacity>
               </View>
 
-              {/* AI Quick Actions Bar */}
-              <View style={[styles.aiActionBar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                <Text style={[styles.aiBarLabel, { color: theme.subtext }]}>Bantuan AI:</Text>
-                <TouchableOpacity
-                  style={[styles.aiActionBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
-                  onPress={() => handleGenerateAiOutline('outline')}
-                  disabled={loadingAi}
+              {/* AI Quick Actions Scrollable Bar */}
+              <View style={[styles.aiActionBarWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.aiActionBarScroll}
                 >
-                  {loadingAi ? (
-                    <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
-                  ) : (
+                  <View style={styles.aiLabelChip}>
                     <Ionicons name="sparkles" size={12} color={theme.accentLight} />
-                  )}
-                  <Text style={[styles.aiActionBtnText, { color: theme.accentLight }]}>Buat Outline</Text>
-                </TouchableOpacity>
+                    <Text style={[styles.aiBarLabel, { color: theme.subtext }]}>Bantuan AI:</Text>
+                  </View>
 
-                <TouchableOpacity
-                  style={[styles.aiActionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => handleGenerateAiOutline('draft')}
-                  disabled={loadingAi}
-                >
-                  <Ionicons name="document-text-outline" size={12} color={theme.text} />
-                  <Text style={[styles.aiActionBtnText, { color: theme.text }]}>Draft Jawaban</Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.aiActionBtn, { backgroundColor: theme.accentBg, borderColor: theme.accent }]}
+                    onPress={() => handleGenerateAiOutline('outline')}
+                    disabled={loadingAi}
+                    activeOpacity={0.7}
+                  >
+                    {loadingAi ? (
+                      <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <Ionicons name="sparkles" size={12} color={theme.accentLight} />
+                    )}
+                    <Text style={[styles.aiActionBtnText, { color: theme.accentLight, fontWeight: '700' }]}>Buat Outline</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.copyBtn, { backgroundColor: theme.card, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
-                  onPress={handleExportPdf}
-                  disabled={exportingPdf}
-                >
-                  {exportingPdf ? (
-                    <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
-                  ) : (
-                    <Ionicons name="print-outline" size={12} color={theme.accentLight} />
-                  )}
-                  <Text style={[styles.copyBtnText, { color: theme.accentLight }]}>
-                    Cetak PDF
-                  </Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.aiActionBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={() => handleGenerateAiOutline('draft')}
+                    disabled={loadingAi}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="document-text-outline" size={12} color={theme.text} />
+                    <Text style={[styles.aiActionBtnText, { color: theme.text }]}>Draft Jawaban</Text>
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.copyBtn, { backgroundColor: copied ? '#10B981' : theme.card, borderColor: theme.border }]}
-                  onPress={handleCopy}
-                >
-                  <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={12} color={copied ? '#FFFFFF' : theme.subtext} />
-                  <Text style={[styles.copyBtnText, { color: copied ? '#FFFFFF' : theme.subtext }]}>
-                    {copied ? 'Tersalin!' : 'Salin'}
-                  </Text>
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.aiActionBtn, { backgroundColor: theme.card, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
+                    onPress={handleExportPdf}
+                    disabled={exportingPdf}
+                    activeOpacity={0.7}
+                  >
+                    {exportingPdf ? (
+                      <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <Ionicons name="print-outline" size={12} color={theme.accentLight} />
+                    )}
+                    <Text style={[styles.aiActionBtnText, { color: theme.accentLight, fontWeight: '700' }]}>
+                      Cetak PDF
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.aiActionBtn, { backgroundColor: copied ? '#10B981' : theme.card, borderColor: copied ? '#10B981' : theme.border }]}
+                    onPress={handleCopy}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name={copied ? 'checkmark' : 'copy-outline'} size={12} color={copied ? '#FFFFFF' : theme.subtext} />
+                    <Text style={[styles.aiActionBtnText, { color: copied ? '#FFFFFF' : theme.subtext }]}>
+                      {copied ? 'Tersalin!' : 'Salin'}
+                    </Text>
+                  </TouchableOpacity>
+                </ScrollView>
               </View>
 
               {/* Multiline Editor Area */}
@@ -308,45 +326,39 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     lineHeight: 20,
   },
-  aiActionBar: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    padding: 8,
+  aiActionBarWrap: {
     borderRadius: 10,
     borderWidth: 1,
     marginBottom: 10,
+    overflow: 'hidden',
+  },
+  aiActionBarScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 8,
+    gap: 8,
+  },
+  aiLabelChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginRight: 2,
   },
   aiBarLabel: {
     fontSize: 11,
-    fontWeight: '600',
-    marginRight: 2,
+    fontWeight: '700',
   },
   aiActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 7,
     borderWidth: 1,
   },
   aiActionBtnText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  copyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-    borderWidth: 1,
-    marginLeft: 'auto',
-  },
-  copyBtnText: {
-    fontSize: 11,
+    fontSize: 11.5,
     fontWeight: '600',
   },
   editorContainer: {

@@ -452,13 +452,18 @@ MATA_KULIAH_DISARANKAN: [Tuliskan nama mata pelajaran atau mata kuliah yang pali
                   </View>
                 </View>
 
-                <View style={[styles.resultContentCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <ScrollView
+                  style={[styles.resultContentCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  contentContainerStyle={styles.resultContentScroll}
+                  nestedScrollEnabled={true}
+                  showsVerticalScrollIndicator={true}
+                >
                   {resultTab === 'preview' ? (
                     <MarkdownRenderer content={aiResultText} fontSize={14} textColor={theme.text} />
                   ) : (
                     <Text style={[styles.rawTextDisplay, { color: theme.text }]}>{aiResultText}</Text>
                   )}
-                </View>
+                </ScrollView>
 
                 {/* Apply Buttons */}
                 <View style={styles.applyBtnGroup}>
@@ -735,9 +740,12 @@ const styles = StyleSheet.create({
   resultContentCard: {
     borderRadius: 10,
     borderWidth: 1,
+    maxHeight: 340,
+    minHeight: 120,
+  },
+  resultContentScroll: {
     padding: 14,
-    maxHeight: 260,
-    overflow: 'hidden',
+    paddingBottom: 20,
   },
   rawTextDisplay: {
     fontSize: 12.5,
