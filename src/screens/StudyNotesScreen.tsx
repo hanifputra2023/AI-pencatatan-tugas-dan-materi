@@ -1508,7 +1508,6 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                   style={[styles.taskFilterChip, { backgroundColor: theme.card, borderColor: theme.border }]}
                   onPress={handleExportAllTasksPdf}
                 >
-                  <Ionicons name="print-outline" size={12} color={theme.accentLight} />
                   <Text style={[styles.taskFilterText, { color: theme.accentLight, fontWeight: '700' }]}>
                     Rekap PDF
                   </Text>
