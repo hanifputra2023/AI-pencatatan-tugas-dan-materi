@@ -16,6 +16,10 @@ interface MoodContextType {
   updateAiPersona: (prompt: string) => Promise<void>;
   aiBotName: string;
   updateAiBotName: (name: string) => Promise<void>;
+  customAiName: string;
+  customAiAvatar: string | null;
+  updateUserCustomAi: (data: { botName?: string; avatarUrl?: string | null }) => Promise<void>;
+  resetUserCustomAi: () => Promise<void>;
   allPersonas: PersonaPreset[];
   activePersona: PersonaPreset;
   selectPersona: (persona: PersonaPreset) => Promise<void>;
@@ -47,6 +51,10 @@ const MoodContext = createContext<MoodContextType>({
   updateAiPersona: async () => {},
   aiBotName: 'Ara',
   updateAiBotName: async () => {},
+  customAiName: '',
+  customAiAvatar: null,
+  updateUserCustomAi: async () => {},
+  resetUserCustomAi: async () => {},
   allPersonas: DEFAULT_PERSONAS,
   activePersona: DEFAULT_PERSONAS[0],
   selectPersona: async () => {},
@@ -71,6 +79,8 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const [moods, setMoods] = useState<MoodOption[]>(DEFAULT_MOOD_OPTIONS);
   const [aiPersona, setAiPersona] = useState<string>('');
   const [aiBotName, setAiBotName] = useState<string>('Ara');
+  const [customAiName, setCustomAiName] = useState<string>('');
+  const [customAiAvatar, setCustomAiAvatar] = useState<string | null>(null);
   const [appLogoUrl, setAppLogoUrl] = useState<string | null>(null);
   const [appBrandName, setAppBrandName] = useState<string>('StudyBot AI');
   const [appBrandTagline, setAppBrandTagline] = useState<string>('Smart Academic & Journal');
@@ -85,12 +95,21 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const fetchMoodsAndSettings = useCallback(async () => {
     try {
       // 1. Check local storage cache for instant offline responsiveness
-      const [cachedKeys, cachedLogo, cachedName, cachedTagline] = await Promise.all([
+      const [cachedKeys, cachedLogo, cachedName, cachedTagline, cachedCustomAi] = await Promise.all([
         AsyncStorage.getItem('@gemini_api_keys'),
         AsyncStorage.getItem('@app_logo_url'),
         AsyncStorage.getItem('@app_brand_name'),
         AsyncStorage.getItem('@app_brand_tagline'),
+        AsyncStorage.getItem('@user_custom_ai_profile'),
       ]);
+
+      if (cachedCustomAi) {
+        try {
+          const parsed = JSON.parse(cachedCustomAi);
+          if (parsed.botName) setCustomAiName(parsed.botName);
+          if (parsed.avatarUrl !== undefined) setCustomAiAvatar(parsed.avatarUrl);
+        } catch (e) {}
+      }
 
       if (cachedKeys) {
         try {
@@ -373,6 +392,34 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
     await updateSetting('app_brand_tagline', clean);
   };
 
+  const updateUserCustomAi = async (data: { botName?: string; avatarUrl?: string | null }) => {
+    let nextName = customAiName;
+    let nextAvatar = customAiAvatar;
+
+    if (data.botName !== undefined) {
+      nextName = data.botName.trim();
+      setCustomAiName(nextName);
+    }
+    if (data.avatarUrl !== undefined) {
+      nextAvatar = data.avatarUrl;
+      setCustomAiAvatar(nextAvatar);
+    }
+
+    const payload = {
+      botName: nextName,
+      avatarUrl: nextAvatar,
+    };
+    await AsyncStorage.setItem('@user_custom_ai_profile', JSON.stringify(payload));
+  };
+
+  const resetUserCustomAi = async () => {
+    setCustomAiName('');
+    setCustomAiAvatar(null);
+    await AsyncStorage.removeItem('@user_custom_ai_profile');
+  };
+
+  const effectiveBotName = customAiName || activePersona.botName || aiBotName || 'Ara';
+
   return (
     <MoodContext.Provider
       value={{
@@ -384,8 +431,12 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         resetToDefaults,
         aiPersona: activePersona.prompt || aiPersona || DEFAULT_PERSONAS[0].prompt,
         updateAiPersona,
-        aiBotName: activePersona.botName || aiBotName || DEFAULT_PERSONAS[0].botName,
+        aiBotName: effectiveBotName,
         updateAiBotName,
+        customAiName,
+        customAiAvatar,
+        updateUserCustomAi,
+        resetUserCustomAi,
         allPersonas,
         activePersona,
         selectPersona,

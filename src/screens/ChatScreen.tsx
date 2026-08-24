@@ -66,7 +66,8 @@ function generateUUID(): string {
 export default function ChatScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
-  const { aiPersona, aiBotName, activePersona } = useMoods();
+  const { aiPersona, aiBotName, activePersona, customAiName, customAiAvatar } = useMoods();
+  const effectiveBotName = customAiName || aiBotName || activePersona.botName || 'Ara';
   const { theme, isLightMode } = useTheme();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -525,7 +526,8 @@ export default function ChatScreen() {
         parts: [{ text: m.content }],
       }));
 
-      const aiReply = await sendMessageToGemini(history, text, currentAttachment, aiPersona);
+      const customAiPrompt = `Nama kamu adalah "${effectiveBotName}". Sapa dirimu dengan nama ini jika pengguna menanyakan siapa namamu atau saat memperkenalkan diri.\n\n${aiPersona}`;
+      const aiReply = await sendMessageToGemini(history, text, currentAttachment, customAiPrompt);
 
       const tempAiMsg: ChatMessage = {
         id: 'ai_' + Date.now(),
@@ -649,6 +651,21 @@ export default function ChatScreen() {
 
           {/* Message Content */}
           <View style={styles.msgBodyWrap}>
+            {isAi && (
+              <View style={styles.msgAiBubbleHeader}>
+                <View style={[styles.msgAiAvatarWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                  {customAiAvatar ? (
+                    <Image source={{ uri: customAiAvatar }} style={styles.msgAiAvatarImg} />
+                  ) : (
+                    <Ionicons name="sparkles" size={10} color={theme.accentLight} />
+                  )}
+                </View>
+                <Text style={[styles.msgAiBubbleName, { color: theme.accentLight }]}>
+                  {effectiveBotName}
+                </Text>
+              </View>
+            )}
+
             {isUser ? (
               <Text style={styles.msgTextUser} selectable>
                 {item.content}
@@ -827,10 +844,23 @@ export default function ChatScreen() {
                 </TouchableOpacity>
               )}
 
+              {/* AI Avatar In Header */}
+              <TouchableOpacity
+                style={[styles.headerAiAvatarWrap, { borderColor: theme.accentLight, backgroundColor: theme.cardInner }]}
+                onPress={() => navigation.navigate('Main', { screen: 'Profile' })}
+                activeOpacity={0.8}
+              >
+                {customAiAvatar ? (
+                  <Image source={{ uri: customAiAvatar }} style={styles.headerAiAvatarImg} />
+                ) : (
+                  <Ionicons name="sparkles" size={15} color={theme.accentLight} />
+                )}
+              </TouchableOpacity>
+
               <View style={styles.headerInfoBlock}>
                 <View style={styles.headerTitleRow}>
                   <Text style={[styles.headerTitle, { color: theme.text }]}>
-                    {aiBotName || 'Ara'}
+                    {effectiveBotName}
                   </Text>
                   <View style={styles.statusDot} />
                   {activePersona?.name && (
@@ -1281,6 +1311,21 @@ const styles = StyleSheet.create({
     fontSize: 10.5,
     fontWeight: '600',
   },
+  headerAiAvatarWrap: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 2,
+    overflow: 'hidden',
+  },
+  headerAiAvatarImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 16,
+  },
   headerSubtitle: {
     fontSize: 11.5,
     marginTop: 1,
@@ -1297,6 +1342,30 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
+  },
+  msgAiBubbleHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  msgAiAvatarWrap: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  msgAiAvatarImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 10,
+  },
+  msgAiBubbleName: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   /* Content */

@@ -323,16 +323,17 @@ export async function processOfflineSyncQueue(userId: string): Promise<{ syncedC
 }
 
 /**
- * Export all cached notes, tasks, journals, subjects, and chat sessions into a JSON backup payload
+ * Export all cached notes, tasks, journals, subjects, custom AI profile, and chat sessions into a JSON backup payload
  */
 export async function exportAllAppDataAsJson(userId: string): Promise<string> {
-  const [cachedNotes, cachedTasks, cachedJournals, cachedSessions, cachedProfile, cachedSubjects] = await Promise.all([
+  const [cachedNotes, cachedTasks, cachedJournals, cachedSessions, cachedProfile, cachedSubjects, cachedCustomAi] = await Promise.all([
     getCachedNotes(userId),
     getCachedTasks(userId),
     getCachedJournals(userId),
     AsyncStorage.getItem('@chat_sessions_' + userId).then(r => r ? JSON.parse(r) : []),
     AsyncStorage.getItem('@user_profile_cache_' + userId).then(r => r ? JSON.parse(r) : null),
     AsyncStorage.getItem('@my_student_subjects_' + userId).then(r => r ? JSON.parse(r) : []),
+    AsyncStorage.getItem('@user_custom_ai_profile').then(r => r ? JSON.parse(r) : null),
   ]);
 
   const backupObject = {
@@ -341,6 +342,7 @@ export async function exportAllAppDataAsJson(userId: string): Promise<string> {
     exported_at: new Date().toISOString(),
     userId,
     profile: cachedProfile,
+    custom_ai: cachedCustomAi,
     subjects: cachedSubjects || [],
     notes: cachedNotes || [],
     tasks: cachedTasks || [],
@@ -410,13 +412,19 @@ export async function importAllAppDataFromJson(userId: string, jsonString: strin
   sessions.forEach((s: any) => mergedSessionsMap.set(s.id, { ...s, user_id: userId }));
   const mergedSessions = Array.from(mergedSessionsMap.values());
 
-  await Promise.all([
+  const promises: Promise<any>[] = [
     cacheNotesLocally(userId, mergedNotes),
     cacheTasksLocally(userId, mergedTasks),
     cacheJournalsLocally(userId, mergedJournals),
     AsyncStorage.setItem('@chat_sessions_' + userId, JSON.stringify(mergedSessions)),
     AsyncStorage.setItem('@my_student_subjects_' + userId, JSON.stringify(mergedSubjects)),
-  ]);
+  ];
+
+  if (parsed.custom_ai) {
+    promises.push(AsyncStorage.setItem('@user_custom_ai_profile', JSON.stringify(parsed.custom_ai)));
+  }
+
+  await Promise.all(promises);
 
   return {
     notesCount: notes.length,

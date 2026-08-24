@@ -179,7 +179,17 @@ const COLOR_PAMPHLET_CATEGORIES: ColorPamphletCategory[] = [
 
 export default function ProfileScreen() {
   const { user, signOut, isAdmin, role, claimAdminRole, refreshProfileRole, updateProfileCache } = useAuth();
-  const { allPersonas, activePersona, selectPersona, refreshMoodsAndSettings } = useMoods();
+  const {
+    allPersonas,
+    activePersona,
+    selectPersona,
+    refreshMoodsAndSettings,
+    customAiName,
+    customAiAvatar,
+    updateUserCustomAi,
+    resetUserCustomAi,
+    aiBotName,
+  } = useMoods();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -208,6 +218,8 @@ export default function ProfileScreen() {
     setBgDimmingOpacity,
     setBgFitMode,
   } = useTheme();
+
+  const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
   const handlePickWallpaperImage = async () => {
     try {
@@ -248,6 +260,57 @@ export default function ProfileScreen() {
   // AI Persona Selection Modal State
   const [showPersonaModal, setShowPersonaModal] = useState(false);
   const [personaSearchQuery, setPersonaSearchQuery] = useState('');
+
+  // Custom AI Avatar & Name Modal State
+  const [showCustomAiModal, setShowCustomAiModal] = useState(false);
+  const [tempAiName, setTempAiName] = useState(customAiName || aiBotName || 'Ara');
+  const [tempAiAvatar, setTempAiAvatar] = useState<string | null>(customAiAvatar);
+  const [savingCustomAi, setSavingCustomAi] = useState(false);
+
+  const handlePickCustomAiAvatar = async () => {
+    try {
+      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Izin Dibutuhkan', 'Izinkan akses galeri foto untuk memilih avatar kustom AI.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        const rawUri = result.assets[0].uri;
+        const compressed = await compressImage(rawUri, { maxWidth: 300, quality: 0.7 });
+        setTempAiAvatar(compressed);
+      }
+    } catch (e: any) {
+      showAlert('Gagal', 'Gagal memuat foto avatar AI dari galeri.');
+    }
+  };
+
+  const handleSaveCustomAi = async () => {
+    setSavingCustomAi(true);
+    const finalName = tempAiName.trim() || 'Ara';
+    await updateUserCustomAi({
+      botName: finalName,
+      avatarUrl: tempAiAvatar,
+    });
+    setSavingCustomAi(false);
+    setShowCustomAiModal(false);
+    showAlert('Kustomisasi AI Tersimpan ✨', `Teman AI kamu sekarang bernama "${finalName}" dengan avatar kustom.`);
+  };
+
+  const handleResetCustomAi = async () => {
+    setTempAiName('Ara');
+    setTempAiAvatar(null);
+    await resetUserCustomAi();
+    setShowCustomAiModal(false);
+    showAlert('Avatar & Nama AI Direset', 'Avatar dan nama teman AI telah dikembalikan ke pengaturan bawaan.');
+  };
 
   // Custom Color Hex Inputs State
   const [customBgHex, setCustomBgHex] = useState(theme.bg);
@@ -730,40 +793,73 @@ export default function ProfileScreen() {
                 </View>
               </View>
 
-              {/* 3. PILIHAN KEPRIBADIAN & KARAKTER TEMAN AI */}
+              {/* 3. KUSTOMISASI AVATAR, NAMA & KEPRIBADIAN TEMAN AI */}
               <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 10 }]}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
-                    <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                      <Ionicons name="sparkles" size={17} color={theme.accentLight} />
-                    </View>
+                    {/* Live AI Avatar Image or Icon */}
+                    <TouchableOpacity
+                      onPress={() => {
+                        setTempAiName(customAiName || aiBotName || 'Ara');
+                        setTempAiAvatar(customAiAvatar);
+                        setShowCustomAiModal(true);
+                      }}
+                      activeOpacity={0.8}
+                      style={[styles.aiAvatarPreviewWrap, { borderColor: theme.accentLight, backgroundColor: theme.cardInner }]}
+                    >
+                      {customAiAvatar ? (
+                        <Image source={{ uri: customAiAvatar }} style={styles.aiAvatarImg} />
+                      ) : (
+                        <Ionicons name="sparkles" size={17} color={theme.accentLight} />
+                      )}
+                    </TouchableOpacity>
+
                     <View style={{ flex: 1 }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Kepribadian Teman AI</Text>
-                        {activePersona.isCustom && (
-                          <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
-                            <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Kustom</Text>
+                        <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Teman AI Saya</Text>
+                        {customAiName || customAiAvatar ? (
+                          <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B', borderColor: isLightMode ? '#3B82F6' : '#2563EB' }]}>
+                            <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>Kustom</Text>
                           </View>
-                        )}
+                        ) : activePersona.isCustom ? (
+                          <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
+                            <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Karakter</Text>
+                          </View>
+                        ) : null}
                       </View>
                       <Text style={[styles.activePersonaNameHighlight, { color: theme.accentLight }]}>
-                        {activePersona.name} • "{activePersona.botName || 'Ara'}"
+                        "{customAiName || aiBotName || 'Ara'}" • {activePersona.name.split(' (')[0]}
                       </Text>
                     </View>
                   </View>
 
-                  <TouchableOpacity
-                    style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                    onPress={() => {
-                      refreshMoodsAndSettings();
-                      setPersonaSearchQuery('');
-                      setShowPersonaModal(true);
-                    }}
-                    activeOpacity={0.7}
-                  >
-                    <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Ganti</Text>
-                    <Ionicons name="chevron-forward" size={13} color={theme.accentLight} />
-                  </TouchableOpacity>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    <TouchableOpacity
+                      style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={() => {
+                        setTempAiName(customAiName || aiBotName || 'Ara');
+                        setTempAiAvatar(customAiAvatar);
+                        setShowCustomAiModal(true);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="pencil" size={12} color={theme.accentLight} />
+                      <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Kustom</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={() => {
+                        refreshMoodsAndSettings();
+                        setPersonaSearchQuery('');
+                        setShowPersonaModal(true);
+                      }}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Karakter</Text>
+                      <Ionicons name="chevron-forward" size={13} color={theme.accentLight} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
                 <Text style={[styles.activePersonaDesc, { color: theme.subtext, marginTop: 6 }]} numberOfLines={2}>
@@ -1515,6 +1611,124 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
 
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* MODAL KUSTOMISASI AVATAR & NAMA TEMAN AI */}
+      {/* ========================================================================= */}
+      <Modal
+        visible={showCustomAiModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowCustomAiModal(false)}
+      >
+        <View style={styles.personaModalOverlay}>
+          <TouchableOpacity
+            style={styles.personaModalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowCustomAiModal(false)}
+          />
+
+          <View style={[styles.customAiModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            {/* Modal Header */}
+            <View style={[styles.personaModalHeader, { borderBottomColor: theme.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                <View style={[styles.themeHeaderIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                  <Ionicons name="color-wand" size={17} color={theme.accentLight} />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.personaModalTitle, { color: theme.text }]}>Kustomisasi Teman AI</Text>
+                  <Text style={[styles.personaModalSub, { color: theme.subtext }]}>
+                    Pasang foto avatar & nama panggilan AI kamu
+                  </Text>
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setShowCustomAiModal(false)}
+                style={[styles.closePersonaModalBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+              >
+                <Ionicons name="close" size={18} color={theme.subtext} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ marginTop: 12 }} showsVerticalScrollIndicator={false}>
+              {/* Avatar Live Preview */}
+              <View style={styles.customAiAvatarCenter}>
+                <View style={[styles.customAiLargeAvatarWrap, { borderColor: theme.primary, backgroundColor: theme.cardInner }]}>
+                  {tempAiAvatar ? (
+                    <Image source={{ uri: tempAiAvatar }} style={styles.customAiLargeAvatarImg} />
+                  ) : (
+                    <Ionicons name="sparkles" size={36} color={theme.accentLight} />
+                  )}
+                </View>
+
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 12 }}>
+                  <TouchableOpacity
+                    style={[styles.uploadAiAvatarBtn, { backgroundColor: theme.primary }]}
+                    onPress={handlePickCustomAiAvatar}
+                  >
+                    <Ionicons name="image-outline" size={15} color={primaryBtnTextColor} />
+                    <Text style={[styles.uploadAiAvatarBtnText, { color: primaryBtnTextColor }]}>Pilih dari Galeri</Text>
+                  </TouchableOpacity>
+
+                  {tempAiAvatar && (
+                    <TouchableOpacity
+                      style={[styles.removeAiAvatarBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418', borderColor: isLightMode ? '#FECACA' : '#5A2026' }]}
+                      onPress={() => setTempAiAvatar(null)}
+                    >
+                      <Ionicons name="trash-outline" size={15} color="#EF4444" />
+                      <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>Hapus</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+              </View>
+
+              {/* Input Nama Panggilan AI */}
+              <View style={{ marginTop: 16 }}>
+                <Text style={[styles.customAiFieldLabel, { color: theme.text }]}>Nama Panggilan AI</Text>
+                <TextInput
+                  style={[styles.customAiInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                  placeholder="Misal: Ara, Jarvis, Athena, Luna, Sensei..."
+                  placeholderTextColor={theme.muted}
+                  value={tempAiName}
+                  onChangeText={setTempAiName}
+                  maxLength={30}
+                />
+                <Text style={[styles.customAiFieldHint, { color: theme.subtext }]}>
+                  AI akan memperkenalkan diri dengan nama ini di ruang obrolan.
+                </Text>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.customAiModalActionRow}>
+                {(customAiName || customAiAvatar) && (
+                  <TouchableOpacity
+                    style={[styles.resetAiBtn, { backgroundColor: isLightMode ? '#F1F5F9' : '#1E2430', borderColor: theme.border }]}
+                    onPress={handleResetCustomAi}
+                  >
+                    <Text style={[styles.resetAiBtnText, { color: theme.subtext }]}>Reset Bawaan</Text>
+                  </TouchableOpacity>
+                )}
+
+                <TouchableOpacity
+                  style={[styles.saveCustomAiBtn, { backgroundColor: theme.primary, flex: 1 }]}
+                  onPress={handleSaveCustomAi}
+                  disabled={savingCustomAi}
+                >
+                  {savingCustomAi ? (
+                    <ActivityIndicator size="small" color={primaryBtnTextColor} />
+                  ) : (
+                    <>
+                      <Ionicons name="checkmark-circle" size={16} color={primaryBtnTextColor} />
+                      <Text style={[styles.saveCustomAiBtnText, { color: primaryBtnTextColor }]}>Simpan Kustomisasi</Text>
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
         </View>
       </Modal>
@@ -2906,6 +3120,116 @@ const styles = StyleSheet.create({
   },
   backupActionBtnText: {
     fontSize: 12,
+    fontWeight: '700',
+  },
+  aiAvatarPreviewWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1.5,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  aiAvatarImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 18,
+  },
+  customAiModalCard: {
+    width: '100%',
+    maxWidth: 440,
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 18,
+    shadowColor: '#000',
+    shadowOpacity: 0.4,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  customAiAvatarCenter: {
+    alignItems: 'center',
+    paddingVertical: 10,
+  },
+  customAiLargeAvatarWrap: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    justifyContent: 'center',
+    alignItems: 'center',
+    overflow: 'hidden',
+  },
+  customAiLargeAvatarImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 40,
+  },
+  uploadAiAvatarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+    borderRadius: 10,
+  },
+  uploadAiAvatarBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  removeAiAvatarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  customAiFieldLabel: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    marginBottom: 6,
+  },
+  customAiInput: {
+    fontSize: 13,
+    paddingHorizontal: 12,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  customAiFieldHint: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  customAiModalActionRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginTop: 20,
+    marginBottom: 6,
+  },
+  resetAiBtn: {
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  resetAiBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  saveCustomAiBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 11,
+    borderRadius: 10,
+  },
+  saveCustomAiBtnText: {
+    fontSize: 12.5,
     fontWeight: '700',
   },
 });
