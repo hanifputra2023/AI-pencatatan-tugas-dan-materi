@@ -323,15 +323,16 @@ export async function processOfflineSyncQueue(userId: string): Promise<{ syncedC
 }
 
 /**
- * Export all cached notes, tasks, journals, and chat sessions into a JSON backup payload
+ * Export all cached notes, tasks, journals, subjects, and chat sessions into a JSON backup payload
  */
 export async function exportAllAppDataAsJson(userId: string): Promise<string> {
-  const [cachedNotes, cachedTasks, cachedJournals, cachedSessions, cachedProfile] = await Promise.all([
+  const [cachedNotes, cachedTasks, cachedJournals, cachedSessions, cachedProfile, cachedSubjects] = await Promise.all([
     getCachedNotes(userId),
     getCachedTasks(userId),
     getCachedJournals(userId),
     AsyncStorage.getItem('@chat_sessions_' + userId).then(r => r ? JSON.parse(r) : []),
     AsyncStorage.getItem('@user_profile_cache_' + userId).then(r => r ? JSON.parse(r) : null),
+    AsyncStorage.getItem('@my_student_subjects_' + userId).then(r => r ? JSON.parse(r) : []),
   ]);
 
   const backupObject = {
@@ -340,6 +341,7 @@ export async function exportAllAppDataAsJson(userId: string): Promise<string> {
     exported_at: new Date().toISOString(),
     userId,
     profile: cachedProfile,
+    subjects: cachedSubjects || [],
     notes: cachedNotes || [],
     tasks: cachedTasks || [],
     journals: cachedJournals || [],
@@ -367,16 +369,25 @@ export async function importAllAppDataFromJson(userId: string, jsonString: strin
   const tasks: StudentTask[] = Array.isArray(parsed.tasks) ? parsed.tasks : [];
   const journals: JournalEntry[] = Array.isArray(parsed.journals) ? parsed.journals : [];
   const sessions = Array.isArray(parsed.chat_sessions) ? parsed.chat_sessions : [];
+  const subjects = Array.isArray(parsed.subjects) ? parsed.subjects : [];
 
   // 1. Merge and save to local caches
-  const [existingNotes, existingTasks, existingJournals, existingSessionsRaw] = await Promise.all([
+  const [existingNotes, existingTasks, existingJournals, existingSessionsRaw, existingSubjectsRaw] = await Promise.all([
     getCachedNotes(userId),
     getCachedTasks(userId),
     getCachedJournals(userId),
     AsyncStorage.getItem('@chat_sessions_' + userId),
+    AsyncStorage.getItem('@my_student_subjects_' + userId),
   ]);
 
   const existingSessions = existingSessionsRaw ? JSON.parse(existingSessionsRaw) : [];
+  const existingSubjects = existingSubjectsRaw ? JSON.parse(existingSubjectsRaw) : [];
+
+  // Merge subjects
+  const mergedSubjectsMap = new Map<string, any>();
+  existingSubjects.forEach((s: any) => mergedSubjectsMap.set(s.name.toLowerCase().trim(), s));
+  subjects.forEach((s: any) => mergedSubjectsMap.set(s.name.toLowerCase().trim(), s));
+  const mergedSubjects = Array.from(mergedSubjectsMap.values());
 
   // Merge items by ID
   const mergedNotesMap = new Map<string, StudyNote>();
@@ -404,6 +415,7 @@ export async function importAllAppDataFromJson(userId: string, jsonString: strin
     cacheTasksLocally(userId, mergedTasks),
     cacheJournalsLocally(userId, mergedJournals),
     AsyncStorage.setItem('@chat_sessions_' + userId, JSON.stringify(mergedSessions)),
+    AsyncStorage.setItem('@my_student_subjects_' + userId, JSON.stringify(mergedSubjects)),
   ]);
 
   return {

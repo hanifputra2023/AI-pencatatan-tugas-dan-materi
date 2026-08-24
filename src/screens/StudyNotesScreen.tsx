@@ -756,8 +756,8 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     setVisibleTasksLimit(prev => Math.min(filteredTasks.length, prev + TASKS_PAGE_SIZE));
   };
 
-  // Collect all active subject names for top filters
-  const allFilterSubjects = ['Semua', ...Array.from(new Set([...subjects.map(s => s.name), ...notes.map(n => n.subject?.trim()).filter(Boolean), ...tasks.map(t => t.subject?.trim()).filter(Boolean)]))];
+  // Collect all active subject names from Kelola Mata Kuliah for top category filters
+  const allFilterSubjects = ['Semua', ...Array.from(new Set(subjects.map(s => s.name)))];
 
   return (
     <SafeAreaView style={styles.container}>

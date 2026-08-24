@@ -651,7 +651,7 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   scrollContentMobile: {
-    paddingHorizontal: 16,
+    paddingHorizontal: 12,
     paddingTop: 4,
   },
   scrollContentWide: {
@@ -689,8 +689,8 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
     backgroundColor: '#11141C',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
+    paddingHorizontal: 10,
+    paddingVertical: 6.5,
     borderRadius: 8,
     borderWidth: 1,
     borderColor: '#1E2430',
@@ -716,10 +716,10 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     flex: 1,
-    minWidth: 140,
+    minWidth: 120,
     backgroundColor: '#11141C',
     borderRadius: 12,
-    padding: 14,
+    padding: 12,
     borderWidth: 1,
     borderColor: '#1E2430',
   },
@@ -764,15 +764,17 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: '#11141C',
     borderRadius: 14,
-    padding: 16,
+    padding: 14,
     marginBottom: 14,
     borderWidth: 1,
     borderColor: '#1E2430',
   },
   cardHeaderBetween: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     justifyContent: 'space-between',
     alignItems: 'flex-start',
+    gap: 8,
     marginBottom: 12,
   },
   cardTitle: {
@@ -792,6 +794,7 @@ const styles = StyleSheet.create({
   },
   legendRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 8,
   },
   legendItem: {
@@ -815,11 +818,11 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
   },
   gridCell: {
-    width: 44,
-    minWidth: 38,
+    width: 42,
+    minWidth: 34,
     flexGrow: 1,
     maxWidth: 48,
-    height: 48,
+    height: 46,
     borderRadius: 8,
     justifyContent: 'center',
     alignItems: 'center',

@@ -1,8 +1,8 @@
 import React, { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { showAlert } from '../lib/alert';
+import { getCachedNotes, getCachedTasks } from '../lib/offlineSync';
 
 export interface StudentSubject {
   id: string;
@@ -48,7 +48,6 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
           const parsed = JSON.parse(cached);
           if (Array.isArray(parsed) && parsed.length > 0) {
             currentList = parsed;
-            setSubjects(currentList);
           }
         } catch (e) { }
       }
@@ -61,13 +60,48 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
             const parsed = JSON.parse(legacyCached);
             if (Array.isArray(parsed) && parsed.length > 0) {
               currentList = parsed;
-              setSubjects(currentList);
             }
           } catch (e) { }
         }
       }
 
-      // 2. If list is completely empty for a brand new user, initialize with defaults
+      // 2. Discover and register custom subjects from existing cached notes & tasks
+      if (user?.id) {
+        try {
+          const [cachedNotes, cachedTasks] = await Promise.all([
+            getCachedNotes(user.id),
+            getCachedTasks(user.id),
+          ]);
+          const existingNames = new Set(currentList.map(s => s.name.toLowerCase().trim()));
+          const extraNames: string[] = [];
+
+          cachedNotes.forEach(n => {
+            const sub = n.subject?.trim();
+            if (sub && sub !== 'Semua' && sub !== 'Umum' && !existingNames.has(sub.toLowerCase())) {
+              existingNames.add(sub.toLowerCase());
+              extraNames.push(sub);
+            }
+          });
+
+          cachedTasks.forEach(t => {
+            const sub = t.subject?.trim();
+            if (sub && sub !== 'Semua' && sub !== 'Umum' && !existingNames.has(sub.toLowerCase())) {
+              existingNames.add(sub.toLowerCase());
+              extraNames.push(sub);
+            }
+          });
+
+          if (extraNames.length > 0) {
+            const extras: StudentSubject[] = extraNames.map((name, idx) => ({
+              id: 'subj_auto_' + Date.now() + '_' + idx,
+              name,
+            }));
+            currentList = [...currentList, ...extras];
+          }
+        } catch (e) { }
+      }
+
+      // 3. If list is completely empty for a brand new user, initialize with defaults
       if (currentList.length === 0) {
         currentList = DEFAULT_SUBJECT_NAMES.map((name, i) => ({
           id: 'def_' + i,
