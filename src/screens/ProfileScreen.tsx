@@ -795,76 +795,78 @@ export default function ProfileScreen() {
 
               {/* 3. KUSTOMISASI AVATAR, NAMA & KEPRIBADIAN TEMAN AI */}
               <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border, marginBottom: 10 }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, marginRight: 8 }}>
-                    {/* Live AI Avatar Image or Icon */}
-                    <TouchableOpacity
-                      onPress={() => {
-                        setTempAiName(customAiName || aiBotName || 'Ara');
-                        setTempAiAvatar(customAiAvatar);
-                        setShowCustomAiModal(true);
-                      }}
-                      activeOpacity={0.8}
-                      style={[styles.aiAvatarPreviewWrap, { borderColor: theme.accentLight, backgroundColor: theme.cardInner }]}
-                    >
-                      {customAiAvatar ? (
-                        <Image source={{ uri: customAiAvatar }} style={styles.aiAvatarImg} />
-                      ) : (
-                        <Ionicons name="sparkles" size={17} color={theme.accentLight} />
-                      )}
-                    </TouchableOpacity>
+                {/* Top Info Row: Avatar + Title + Badges */}
+                <View style={styles.aiCardHeaderRow}>
+                  {/* Live AI Avatar Image or Icon */}
+                  <TouchableOpacity
+                    onPress={() => {
+                      setTempAiName(customAiName || aiBotName || 'Ara');
+                      setTempAiAvatar(customAiAvatar);
+                      setShowCustomAiModal(true);
+                    }}
+                    activeOpacity={0.8}
+                    style={[styles.aiAvatarPreviewWrap, { borderColor: theme.accentLight, backgroundColor: theme.cardInner }]}
+                  >
+                    {customAiAvatar ? (
+                      <Image source={{ uri: customAiAvatar }} style={styles.aiAvatarImg} />
+                    ) : (
+                      <Ionicons name="sparkles" size={18} color={theme.accentLight} />
+                    )}
+                  </TouchableOpacity>
 
-                    <View style={{ flex: 1 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                        <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Teman AI Saya</Text>
-                        {customAiName || customAiAvatar ? (
-                          <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B', borderColor: isLightMode ? '#3B82F6' : '#2563EB' }]}>
-                            <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>Kustom</Text>
-                          </View>
-                        ) : activePersona.isCustom ? (
-                          <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
-                            <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Karakter</Text>
-                          </View>
-                        ) : null}
-                      </View>
-                      <Text style={[styles.activePersonaNameHighlight, { color: theme.accentLight }]}>
-                        "{customAiName || aiBotName || 'Ara'}" • {activePersona.name.split(' (')[0]}
-                      </Text>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                      <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Teman AI Saya</Text>
+                      {customAiName || customAiAvatar ? (
+                        <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B', borderColor: isLightMode ? '#3B82F6' : '#2563EB' }]}>
+                          <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>Kustom</Text>
+                        </View>
+                      ) : activePersona.isCustom ? (
+                        <View style={[styles.customPersonaBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]}>
+                          <Text style={[styles.customPersonaBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Karakter</Text>
+                        </View>
+                      ) : null}
                     </View>
-                  </View>
-
-                  <View style={{ flexDirection: 'row', gap: 6 }}>
-                    <TouchableOpacity
-                      style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                      onPress={() => {
-                        setTempAiName(customAiName || aiBotName || 'Ara');
-                        setTempAiAvatar(customAiAvatar);
-                        setShowCustomAiModal(true);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="pencil" size={12} color={theme.accentLight} />
-                      <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Kustom</Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[styles.changePersonaBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                      onPress={() => {
-                        refreshMoodsAndSettings();
-                        setPersonaSearchQuery('');
-                        setShowPersonaModal(true);
-                      }}
-                      activeOpacity={0.7}
-                    >
-                      <Text style={[styles.changePersonaBtnText, { color: theme.accentLight }]}>Karakter</Text>
-                      <Ionicons name="chevron-forward" size={13} color={theme.accentLight} />
-                    </TouchableOpacity>
+                    <Text style={[styles.activePersonaNameHighlight, { color: theme.accentLight }]}>
+                      "{customAiName || aiBotName || 'Ara'}" • {activePersona.name.split(' (')[0]}
+                    </Text>
                   </View>
                 </View>
 
-                <Text style={[styles.activePersonaDesc, { color: theme.subtext, marginTop: 6 }]} numberOfLines={2}>
+                {/* Persona Description */}
+                <Text style={[styles.activePersonaDesc, { color: theme.subtext, marginTop: 8, marginBottom: 12 }]} numberOfLines={2}>
                   {activePersona.desc}
                 </Text>
+
+                {/* Responsive Action Buttons Row */}
+                <View style={styles.aiCardActionRow}>
+                  <TouchableOpacity
+                    style={[styles.aiCardActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => {
+                      setTempAiName(customAiName || aiBotName || 'Ara');
+                      setTempAiAvatar(customAiAvatar);
+                      setShowCustomAiModal(true);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="pencil" size={13} color={theme.accentLight} />
+                    <Text style={[styles.aiCardActionBtnText, { color: theme.accentLight }]}>Kustom</Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.aiCardActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => {
+                      refreshMoodsAndSettings();
+                      setPersonaSearchQuery('');
+                      setShowPersonaModal(true);
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="sparkles" size={13} color={theme.accentLight} />
+                    <Text style={[styles.aiCardActionBtnText, { color: theme.accentLight }]}>Karakter</Text>
+                    <Ionicons name="chevron-forward" size={12} color={theme.accentLight} />
+                  </TouchableOpacity>
+                </View>
               </View>
 
               {/* 4. ADMIN PANEL BUTTON (HANYA MUNCUL JIKA USER ADALAH ADMIN) */}
@@ -3122,10 +3124,15 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
   },
+  aiCardHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   aiAvatarPreviewWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
     borderWidth: 1.5,
     justifyContent: 'center',
     alignItems: 'center',
@@ -3134,7 +3141,26 @@ const styles = StyleSheet.create({
   aiAvatarImg: {
     width: '100%',
     height: '100%',
-    borderRadius: 18,
+    borderRadius: 22,
+  },
+  aiCardActionRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  aiCardActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingVertical: 7.5,
+    paddingHorizontal: 10,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  aiCardActionBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
   },
   customAiModalCard: {
     width: '100%',
