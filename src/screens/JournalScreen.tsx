@@ -149,7 +149,7 @@ export default function JournalScreen() {
       <View style={styles.header}>
         <View>
           <Text style={[styles.title, { color: theme.text }]}>Jurnal Refleksi</Text>
-          <Text style={[styles.subtitle, { color: theme.subtext }]}>Catatan perasaan & refleksi harianmu</Text>
+          <Text style={[styles.subtitle, { color: isLightMode ? theme.text : theme.accentLight }]}>Catatan perasaan & refleksi harianmu</Text>
         </View>
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: theme.primary }]}

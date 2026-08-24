@@ -209,7 +209,7 @@ export default function CalendarScreen() {
         {/* Top Header */}
         <View style={styles.header}>
           <Text style={[styles.title, { color: theme.text }]}>Statistik & Kalender</Text>
-          <Text style={[styles.subtitle, { color: theme.subtext }]}>Rekapitulasi aktivitas belajar, materi kuliah & refleksi 30 hari</Text>
+          <Text style={[styles.subtitle, { color: isLightMode ? theme.text : theme.accentLight }]}>Rekapitulasi aktivitas belajar, materi kuliah & refleksi 30 hari</Text>
         </View>
 
         {/* Top Filter Switcher */}

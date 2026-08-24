@@ -63,6 +63,7 @@ export default function JournalEntryScreen() {
   const [draftStatus, setDraftStatus] = useState<string | null>(null);
   const [pendingDraft, setPendingDraft] = useState<any>(null);
   const draftTimerRef = useRef<any>(null);
+  const isSavedRef = useRef(false);
   const contentInputRef = useRef<TextInput>(null);
   const selectionRef = useRef({ start: 0, end: 0 });
 
@@ -156,6 +157,22 @@ export default function JournalEntryScreen() {
     useCallback(() => {
       const passedMood = route.params?.initialMood || route.params?.mood;
       if (!entryId) {
+        if (isSavedRef.current) {
+          isSavedRef.current = false;
+          setTitle('');
+          setContent('');
+          setMood(passedMood || moods[0]?.type || 'neutral');
+          setTags([]);
+          setImageUri(null);
+          setCreatedAt(new Date().toISOString());
+          setIsEditing(true);
+          setAiInsight(null);
+          setDraftStatus(null);
+          setPendingDraft(null);
+          setFetching(false);
+          return;
+        }
+
         setTitle('');
         setContent('');
         setMood(passedMood || moods[0]?.type || 'neutral');
@@ -176,7 +193,7 @@ export default function JournalEntryScreen() {
   // Auto-Save Draft for New Journal Entries (Only when user types)
   // -------------------------------------------------------------
   const saveDraft = useCallback(async (t: string, c: string, m: string, tg: string[], img: string | null) => {
-    if (entryId) return;
+    if (entryId || isSavedRef.current) return;
     const key = `@journal_draft_${user?.id || 'anonymous'}`;
     try {
       if (!t.trim() && !c.trim()) {
@@ -197,11 +214,12 @@ export default function JournalEntryScreen() {
   }, [entryId, user]);
 
   useEffect(() => {
-    if (entryId) return;
+    if (entryId || isSavedRef.current) return;
     if (pendingDraft) return; // Don't auto-save before user chooses to restore or discard
 
     if (draftTimerRef.current) clearTimeout(draftTimerRef.current);
     draftTimerRef.current = setTimeout(() => {
+      if (isSavedRef.current) return;
       saveDraft(title, content, mood, tags, imageUri);
     }, 1200);
 
@@ -212,8 +230,9 @@ export default function JournalEntryScreen() {
 
   // Flush-save draft when app goes to background
   useEffect(() => {
-    if (entryId || pendingDraft) return;
+    if (entryId || pendingDraft || isSavedRef.current) return;
     const subscription = AppState.addEventListener('change', nextState => {
+      if (isSavedRef.current) return;
       if (nextState.match(/inactive|background/)) {
         if (title.trim() || content.trim()) {
           saveDraft(title, content, mood, tags, imageUri);
@@ -330,6 +349,12 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
     }
     setLoading(true);
 
+    isSavedRef.current = true;
+    if (draftTimerRef.current) {
+      clearTimeout(draftTimerRef.current);
+      draftTimerRef.current = null;
+    }
+
     if (user) {
       const cached = await getCachedJournals(user.id);
       const targetId = entryId || `journal_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -358,7 +383,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 
       // Clear temp draft
       try {
-        const key = `@journal_draft_${user.id}`;
+        const key = `@journal_draft_${user?.id || 'anonymous'}`;
         await AsyncStorage.removeItem(key);
       } catch (e) {}
 
@@ -371,6 +396,10 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
         setIsDraft(asDraft);
         setIsEditing(false);
       } else {
+        setTitle('');
+        setContent('');
+        setTags([]);
+        setImageUri(null);
         navigation.goBack();
       }
     }
@@ -523,7 +552,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
       {/* ========================================================================= */}
       {!isEditing ? (
         <ScrollView
-          style={[styles.scroll, { backgroundColor: theme.bg }]}
+          style={styles.scroll}
           showsVerticalScrollIndicator={false}
           contentContainerStyle={{ paddingBottom: 50 }}
         >
@@ -651,7 +680,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
         /* MODE 2: EDIT / WRITE MODE (FORMULIR INPUT DENGAN TOOLBAR) */
         /* ========================================================================= */
         <ScrollView
-          style={[styles.scroll, { backgroundColor: theme.bg }]}
+          style={styles.scroll}
           showsVerticalScrollIndicator={false}
           keyboardShouldPersistTaps="handled"
           contentContainerStyle={{ paddingBottom: 50 }}

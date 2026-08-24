@@ -699,7 +699,7 @@ export default function ProfileScreen() {
           {/* Header */}
           <View style={styles.header}>
             <Text style={[styles.title, { color: theme.text }]}>Akun Pengguna</Text>
-            <Text style={[styles.subtitle, { color: theme.subtext }]}>Informasi profil dan pengaturan aplikasi</Text>
+            <Text style={[styles.subtitle, { color: isLightMode ? theme.text : theme.accentLight }]}>Informasi profil dan pengaturan aplikasi</Text>
           </View>
 
           <View style={[styles.mainLayout, isWide && styles.mainLayoutWide]}>

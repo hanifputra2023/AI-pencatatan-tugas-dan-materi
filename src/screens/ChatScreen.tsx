@@ -25,6 +25,11 @@ import { useResponsive } from '../hooks/useResponsive';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { compressImage } from '../lib/imageCompressor';
 import { isDeviceOnline } from '../lib/offlineSync';
+import {
+  FloatingBadge,
+  FadeSlideIn,
+  PulseDot,
+} from '../components/DuolingoAnimations';
 
 async function uriToBase64(uri: string): Promise<string> {
   if (uri.startsWith('data:')) {
@@ -865,7 +870,7 @@ export default function ChatScreen() {
                   <Text style={[styles.headerTitle, { color: theme.text }]}>
                     {effectiveBotName}
                   </Text>
-                  <View style={styles.statusDot} />
+                  <PulseDot color="#10B981" size={7} />
                   {activePersona?.name && (
                     <View style={[styles.personaBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
                       <Text style={[styles.personaBadgeText, { color: theme.accentLight }]}>
@@ -914,30 +919,35 @@ export default function ChatScreen() {
           >
             {messages.length === 0 ? (
               <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
-                <View style={[styles.emptyCard, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
-                  <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="sparkles" size={24} color={theme.accentLight} />
-                  </View>
-                  <Text style={[styles.emptyTitle, { color: theme.text }]}>Ruang Cerita Bersama {aiBotName || 'Ara'}</Text>
-                  <Text style={[styles.emptyDesc, { color: theme.subtext }]}>
-                    Tulis apapun yang ada di pikiranmu, diskusikan tugas kuliah, atau curhat santai.
-                  </Text>
+                <FadeSlideIn delay={50}>
+                  <View style={[styles.emptyCard, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                    <FloatingBadge distance={5} duration={2200}>
+                      <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                        <Ionicons name="sparkles" size={24} color={theme.accentLight} />
+                      </View>
+                    </FloatingBadge>
+                    <Text style={[styles.emptyTitle, { color: theme.text }]}>Ruang Cerita Bersama {aiBotName || 'Ara'}</Text>
+                    <Text style={[styles.emptyDesc, { color: theme.subtext }]}>
+                      Tulis apapun yang ada di pikiranmu, diskusikan tugas kuliah, atau curhat santai.
+                    </Text>
 
-                  <View style={styles.promptList}>
-                    {SUGGESTIONS.map((item, idx) => (
-                      <TouchableOpacity
-                        key={idx}
-                        style={[styles.promptChip, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                        onPress={() => handleSend(item)}
-                        disabled={loading}
-                        activeOpacity={0.7}
-                      >
-                        <Text style={[styles.promptText, { color: theme.subtext }]}>{item}</Text>
-                        <Ionicons name="arrow-forward" size={12} color={theme.accentLight} />
-                      </TouchableOpacity>
-                    ))}
+                    <View style={styles.promptList}>
+                      {SUGGESTIONS.map((item, idx) => (
+                        <FadeSlideIn key={idx} delay={120 + idx * 70}>
+                          <TouchableOpacity
+                            style={[styles.promptChip, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                            onPress={() => handleSend(item)}
+                            disabled={loading}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.promptText, { color: theme.subtext }]}>{item}</Text>
+                            <Ionicons name="arrow-forward" size={12} color={theme.accentLight} />
+                          </TouchableOpacity>
+                        </FadeSlideIn>
+                      ))}
+                    </View>
                   </View>
-                </View>
+                </FadeSlideIn>
               </ScrollView>
             ) : (
               <FlatList

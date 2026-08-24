@@ -1,4 +1,4 @@
-import { getGlobalAlert } from '../contexts/AlertContext';
+import { getGlobalAlert, AlertOptions } from '../contexts/AlertContext';
 
 export function confirmAction(
   title: string,
@@ -11,7 +11,7 @@ export function confirmAction(
   globalAlert.confirmAction(title, message, onConfirm, confirmText, cancelText);
 }
 
-export function showAlert(title: string, message: string) {
+export function showAlert(title: string, message: string, options?: AlertOptions) {
   const globalAlert = getGlobalAlert();
-  globalAlert.showAlert(title, message);
+  globalAlert.showAlert(title, message, options);
 }

@@ -48,12 +48,11 @@
     "web": {
       "favicon": "./assets/favicon.png"
     },
-
     "extra": {
       "eas": {
-        "projectId": "99281a68-4a0e-4fdc-9b48-1d7bf2849438"
+        "projectId": "8a9595d1-bfff-4b7c-85b4-dda92ea2ddc2"
       }
     },
-    "owner": "hanif230607s-team"
+    "owner": "hanifputra230607s-team"
   }
 }

@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
-  StyleSheet, SafeAreaView, ActivityIndicator, Animated, Easing, Platform
+  StyleSheet, SafeAreaView, ActivityIndicator, Animated, Easing, Platform, Modal
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -33,6 +33,17 @@ import {
 } from '../lib/offlineSync';
 import { scheduleDailyRoutineReminders } from '../lib/notifications';
 import { DashboardSkeleton } from '../components/DashboardSkeleton';
+import {
+  XpPopup,
+  ConfettiBurst,
+  StreakFlamePulse,
+  QuestBounceWrapper,
+  MilestoneCelebrate,
+  FloatingBadge,
+  FadeSlideIn,
+  AnimatedProgressBar,
+} from '../components/DuolingoAnimations';
+import { calculateUserXp } from '../lib/xpCalculator';
 
 const DEFAULT_DAILY_QUESTS = [
   { id: '1', title: 'Curhat atau refleksi sejenak ke AI', completed: false, icon: 'chatbubble-ellipses-outline' },
@@ -111,6 +122,14 @@ export default function HomeScreen() {
   const [breathSeconds, setBreathSeconds] = useState(4);
   const breathAnim = useRef(new Animated.Value(1)).current;
   const breathInterval = useRef<any>(null);
+
+  // Duolingo-style Animation States
+  const [showXpPopup, setShowXpPopup] = useState(false);
+  const [xpAmount, setXpAmount] = useState(10);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [showMilestone, setShowMilestone] = useState(false);
+  const [showLevelModal, setShowLevelModal] = useState(false);
+  const [streakJustIncreased] = useState(false);
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Selamat Pagi' : hour < 15 ? 'Selamat Siang' : hour < 18 ? 'Selamat Sore' : 'Selamat Malam';
@@ -289,8 +308,28 @@ export default function HomeScreen() {
   );
 
   const toggleQuest = (id: string) => {
+    const target = quests.find(q => q.id === id);
+    const willComplete = target && !target.completed;
+
     const updated = quests.map(q => q.id === id ? { ...q, completed: !q.completed } : q);
     saveDailyQuests(updated);
+
+    if (willComplete) {
+      // XP Pop-up animasi
+      const earned = 10 + Math.floor(Math.random() * 6) * 5; // 10-35 XP
+      setXpAmount(earned);
+      setShowXpPopup(false);
+      setTimeout(() => setShowXpPopup(true), 50);
+
+      // Kalau semua quest selesai → confetti!
+      const nowCompleted = updated.filter(q => q.completed).length;
+      if (nowCompleted === updated.length) {
+        setTimeout(() => {
+          setShowConfetti(true);
+          setTimeout(() => setShowConfetti(false), 3000);
+        }, 400);
+      }
+    }
   };
 
   const toggleTaskDirectly = async (taskId: string) => {
@@ -301,7 +340,11 @@ export default function HomeScreen() {
       const updated = currentTasks.map(t => t.id === taskId ? { ...t, is_completed: true } : t);
       await cacheTasksLocally(user.id, updated);
     }
-    showAlert('Tugas Selesai', 'Satu tugas kuliahmu berhasil diselesaikan.');
+    // XP Pop-up animasi
+    setXpAmount(20);
+    setShowXpPopup(false);
+    setTimeout(() => setShowXpPopup(true), 50);
+    showAlert('Tugas Selesai! 🎉', '+20 XP! Satu tugas kuliahmu berhasil diselesaikan.');
   };
 
   const handleQuickSelectMood = (moodOption: MoodOption) => {
@@ -434,6 +477,7 @@ export default function HomeScreen() {
   const questPercentage = Math.round((completedQuestsCount / quests.length) * 100);
   const currentMoodOption = moods.find(m => m.type === todayMood);
   const isFirstTimeUser = totalNotesCount === 0 && pendingTasksCount === 0 && recentEntries.length === 0;
+  const userLevel = calculateUserXp(totalNotesCount, 0, recentEntries.length, streak);
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -825,35 +869,38 @@ export default function HomeScreen() {
 
         <View style={styles.questList}>
           {quests.map(q => (
-            <TouchableOpacity
+            <QuestBounceWrapper
               key={q.id}
-              style={[
-                styles.questItem,
-                { backgroundColor: theme.cardInner, borderColor: theme.border },
-                q.completed && {
-                  backgroundColor: sem.successBg,
-                  borderColor: sem.successBorder,
-                }
-              ]}
+              completed={q.completed}
               onPress={() => toggleQuest(q.id)}
-              activeOpacity={0.7}
             >
-              <View style={[
-                styles.questCheckCircle,
-                { borderColor: theme.border },
-                q.completed && { backgroundColor: theme.primary, borderColor: theme.primary }
-              ]}>
-                {q.completed && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
+              <View
+                style={[
+                  styles.questItem,
+                  { backgroundColor: theme.cardInner, borderColor: theme.border },
+                  q.completed && {
+                    backgroundColor: sem.successBg,
+                    borderColor: sem.successBorder,
+                  }
+                ]}
+              >
+                <View style={[
+                  styles.questCheckCircle,
+                  { borderColor: theme.border },
+                  q.completed && { backgroundColor: theme.primary, borderColor: theme.primary }
+                ]}>
+                  {q.completed && <Ionicons name="checkmark" size={12} color="#FFFFFF" />}
+                </View>
+                <Ionicons name={q.icon as any} size={15} color={q.completed ? theme.muted : theme.subtext} style={{ marginRight: 6 }} />
+                <Text style={[
+                  styles.questTitle,
+                  { color: theme.text },
+                  q.completed && { color: theme.muted, textDecorationLine: 'line-through' }
+                ]}>
+                  {q.title}
+                </Text>
               </View>
-              <Ionicons name={q.icon as any} size={15} color={q.completed ? theme.muted : theme.subtext} style={{ marginRight: 6 }} />
-              <Text style={[
-                styles.questTitle,
-                { color: theme.text },
-                q.completed && { color: theme.muted, textDecorationLine: 'line-through' }
-              ]}>
-                {q.title}
-              </Text>
-            </TouchableOpacity>
+            </QuestBounceWrapper>
           ))}
         </View>
       </View>
@@ -894,7 +941,7 @@ export default function HomeScreen() {
 
       {/* 5. Catatan Jurnal Terakhir */}
       <View style={styles.sectionHeaderRow}>
-        <Text style={[styles.sectionHeader, { color: theme.subtext }]}>JURNAL TERAKHIR</Text>
+        <Text style={[styles.sectionHeader, { color: isLightMode ? theme.text : theme.subtext }]}>JURNAL TERAKHIR</Text>
         <TouchableOpacity onPress={() => (navigation.getParent() as any)?.navigate('Journal')}>
           <Text style={[styles.seeAllText, { color: theme.accentLight }]}>Buka Jurnal →</Text>
         </TouchableOpacity>
@@ -939,7 +986,25 @@ export default function HomeScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView
+      {/* Container utama dengan position relative agar overlay animasi bekerja */}
+      <View style={{ flex: 1, position: 'relative' }}>
+
+        {/* ── Duolingo Animations Overlay ── */}
+        <ConfettiBurst visible={showConfetti} count={50} onDone={() => setShowConfetti(false)} />
+        <XpPopup
+          xp={xpAmount}
+          visible={showXpPopup}
+          color={theme.accentLight}
+          onDone={() => setShowXpPopup(false)}
+        />
+        <MilestoneCelebrate
+          visible={showMilestone}
+          streak={streak}
+          onClose={() => setShowMilestone(false)}
+          accentColor={theme.accent}
+        />
+
+        <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
         contentContainerStyle={[styles.scrollContent, isWide && styles.scrollContentWide]}
@@ -949,19 +1014,64 @@ export default function HomeScreen() {
           {/* Top Bar Greeting & Streak Indicator */}
           <View style={styles.topBar}>
             <View>
-              <Text style={[styles.greetingText, { color: theme.subtext }]}>{greeting}</Text>
+              <Text style={[styles.greetingText, { color: isLightMode ? theme.text : theme.accentLight }]}>{greeting}</Text>
               <Text style={[styles.usernameText, { color: theme.text }]}>{username || 'Mahasiswa'}</Text>
             </View>
 
             <TouchableOpacity
               style={[styles.streakPill, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={() => showAlert('Streak Keaktifan', `Kamu sudah aktif ${streak} hari berturut-turut belajar dan berefleksi. Pertahankan ritmemu!`)}
+              onPress={() => {
+                // Tampilkan milestone kalau streak cocok
+                if ([7, 14, 30, 60, 100].includes(streak)) {
+                  setShowMilestone(true);
+                } else {
+                  showAlert('Streak Keaktifan', `Kamu sudah aktif ${streak} hari berturut-turut belajar dan berefleksi. Pertahankan ritmemu!`);
+                }
+              }}
               activeOpacity={0.7}
             >
-              <Ionicons name="flame" size={15} color={sem.warning} />
+              <StreakFlamePulse streak={streak} color={sem.warning} size={15} isActive={streakJustIncreased} />
               <Text style={[styles.streakNumber, { color: theme.text }]}>{streak} Hari</Text>
             </TouchableOpacity>
           </View>
+
+          {/* Gamified Level & XP Card */}
+          <FadeSlideIn delay={60}>
+            <TouchableOpacity
+              style={[styles.levelCard, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onPress={() => setShowLevelModal(true)}
+              activeOpacity={0.8}
+            >
+              <View style={styles.levelTopRow}>
+                <View style={styles.levelBadge}>
+                  <FloatingBadge distance={3} duration={1800}>
+                    <Text style={styles.levelEmoji}>{userLevel.levelIcon}</Text>
+                  </FloatingBadge>
+                  <View>
+                    <Text style={[styles.levelNameText, { color: theme.text }]}>
+                      Level {userLevel.level}: {userLevel.levelTitle}
+                    </Text>
+                    <Text style={[styles.levelXpSub, { color: theme.subtext }]}>
+                      {userLevel.totalXp} XP • {userLevel.progressPercent}% menuju Lv.{userLevel.level + 1}
+                    </Text>
+                  </View>
+                </View>
+                <View style={[styles.levelTierBadge, { backgroundColor: theme.accentBg }]}>
+                  <Text style={[styles.levelTierText, { color: theme.accentLight }]}>
+                    +{userLevel.xpToNextLevel} XP
+                  </Text>
+                </View>
+              </View>
+
+              <AnimatedProgressBar
+                percent={userLevel.progressPercent}
+                height={6}
+                trackColor={theme.cardInner}
+                fillColor={theme.primary}
+                borderRadius={3}
+              />
+            </TouchableOpacity>
+          </FadeSlideIn>
 
           {/* Offline Warning Banner */}
           {!isOnline && (
@@ -1130,6 +1240,104 @@ export default function HomeScreen() {
 
         </View>
       </ScrollView>
+      </View>
+
+      {/* ── Gamified Level Detail Modal ── */}
+      <Modal
+        visible={showLevelModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowLevelModal(false)}
+      >
+        <TouchableOpacity
+          style={styles.levelModalBackdrop}
+          activeOpacity={1}
+          onPress={() => setShowLevelModal(false)}
+        >
+          <TouchableOpacity activeOpacity={1} style={[styles.levelModalCard, { backgroundColor: isLightMode ? '#FFFFFF' : '#141822', borderColor: theme.border }]}>
+            {/* Modal Top Hero */}
+            <View style={styles.levelModalTop}>
+              <View style={[styles.levelModalEmojiWrap, { backgroundColor: theme.accentBg }]}>
+                <Text style={styles.levelModalBigEmoji}>{userLevel.levelIcon}</Text>
+              </View>
+              <Text style={[styles.levelModalTitle, { color: theme.text }]}>
+                Level {userLevel.level}: {userLevel.levelTitle}
+              </Text>
+              <Text style={[styles.levelModalSubtitle, { color: theme.subtext }]}>
+                Total XP: <Text style={{ color: theme.accentLight, fontWeight: '800' }}>{userLevel.totalXp} XP</Text> • Butuh <Text style={{ color: theme.accentLight, fontWeight: '800' }}>{userLevel.xpToNextLevel} XP</Text> lagi menuju Lv.{userLevel.level + 1}
+              </Text>
+
+              <View style={{ width: '100%', marginTop: 12 }}>
+                <AnimatedProgressBar
+                  percent={userLevel.progressPercent}
+                  height={8}
+                  trackColor={theme.cardInner}
+                  fillColor={theme.primary}
+                  borderRadius={4}
+                />
+              </View>
+            </View>
+
+            {/* Left-Aligned Clean XP Breakdown Guide */}
+            <View style={[styles.xpGuideBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+              <Text style={[styles.xpGuideHeader, { color: theme.text }]}>💡 Cara Mengumpulkan XP:</Text>
+              
+              <View style={styles.xpGuideItem}>
+                <Text style={styles.xpGuideIcon}>🎯</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Misi Ketenangan Harian</Text>
+                  <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Selesaikan 4 misi relaksasi & refleksi</Text>
+                </View>
+                <Text style={[styles.xpEarnBadge, { color: '#10B981' }]}>+10-35 XP</Text>
+              </View>
+
+              <View style={styles.xpGuideItem}>
+                <Text style={styles.xpGuideIcon}>📚</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Buat Catatan Materi Kuliah</Text>
+                  <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Tulis ringkasan atau scan foto buku</Text>
+                </View>
+                <Text style={[styles.xpEarnBadge, { color: '#10B981' }]}>+25 XP</Text>
+              </View>
+
+              <View style={styles.xpGuideItem}>
+                <Text style={styles.xpGuideIcon}>✅</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Selesaikan Tugas Kuliah</Text>
+                  <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Centang tugas atau subtask pengerjaan</Text>
+                </View>
+                <Text style={[styles.xpEarnBadge, { color: '#10B981' }]}>+20 XP</Text>
+              </View>
+
+              <View style={styles.xpGuideItem}>
+                <Text style={styles.xpGuideIcon}>💭</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Tulis Jurnal Refleksi</Text>
+                  <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Refleksikan perasaan & mood harian</Text>
+                </View>
+                <Text style={[styles.xpEarnBadge, { color: '#10B981' }]}>+15 XP</Text>
+              </View>
+
+              <View style={[styles.xpGuideItem, { borderBottomWidth: 0 }]}>
+                <Text style={styles.xpGuideIcon}>🔥</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Jaga Streak Keaktifan</Text>
+                  <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Aktif belajar berturut-turut setiap hari</Text>
+                </View>
+                <Text style={[styles.xpEarnBadge, { color: '#F59E0B' }]}>+30 XP/hari</Text>
+              </View>
+            </View>
+
+            <TouchableOpacity
+              style={[styles.levelModalCloseBtn, { backgroundColor: theme.primary }]}
+              onPress={() => setShowLevelModal(false)}
+              activeOpacity={0.85}
+            >
+              <Text style={styles.levelModalCloseBtnText}>Mengerti, Siap Belajar! 🚀</Text>
+            </TouchableOpacity>
+          </TouchableOpacity>
+        </TouchableOpacity>
+      </Modal>
     </SafeAreaView>
   );
 }
@@ -1209,6 +1417,143 @@ const styles = StyleSheet.create({
   streakNumber: {
     fontSize: 12,
     fontWeight: '700',
+  },
+  levelCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    marginVertical: 4,
+  },
+  levelTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  levelBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+  },
+  levelEmoji: {
+    fontSize: 22,
+  },
+  levelNameText: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  levelXpSub: {
+    fontSize: 10.5,
+    fontWeight: '500',
+    marginTop: 1,
+  },
+  levelTierBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  levelTierText: {
+    fontSize: 10,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.4,
+  },
+  levelModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(5, 8, 15, 0.78)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+  },
+  levelModalCard: {
+    width: '100%',
+    maxWidth: 420,
+    borderRadius: 22,
+    borderWidth: 1,
+    padding: 24,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 18 },
+    shadowOpacity: 0.5,
+    shadowRadius: 30,
+    elevation: 20,
+  },
+  levelModalTop: {
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  levelModalEmojiWrap: {
+    width: 68,
+    height: 68,
+    borderRadius: 34,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  levelModalBigEmoji: {
+    fontSize: 34,
+  },
+  levelModalTitle: {
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.3,
+    textAlign: 'center',
+    marginBottom: 4,
+  },
+  levelModalSubtitle: {
+    fontSize: 12.5,
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  xpGuideBox: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 14,
+    marginBottom: 18,
+    gap: 10,
+  },
+  xpGuideHeader: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    marginBottom: 2,
+  },
+  xpGuideItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 6,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
+  },
+  xpGuideIcon: {
+    fontSize: 17,
+  },
+  xpGuideTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  xpGuideSub: {
+    fontSize: 10.5,
+    marginTop: 1,
+  },
+  xpEarnBadge: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.2,
+  },
+  levelModalCloseBtn: {
+    borderRadius: 12,
+    paddingVertical: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+  },
+  levelModalCloseBtnText: {
+    color: '#FFFFFF',
+    fontSize: 13.5,
+    fontWeight: '800',
   },
   offlineBanner: {
     flexDirection: 'row',

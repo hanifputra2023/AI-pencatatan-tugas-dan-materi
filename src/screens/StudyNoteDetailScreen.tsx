@@ -5,13 +5,13 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
-import { useRoute, useNavigation, RouteProp } from '@react-navigation/native';
+import { useRoute, useNavigation, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
 import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
-import { StudyNote, QuizQuestion } from '../types';
+import { StudyNote, QuizQuestion, FlashcardItem } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
@@ -19,7 +19,16 @@ import { copyToClipboard } from '../lib/clipboard';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import ScanNoteModal from '../components/ScanNoteModal';
+import Flashcard3DModal from '../components/Flashcard3DModal';
+import AudioLecturePlayer from '../components/AudioLecturePlayer';
 import { exportStudyNoteToPdf } from '../lib/pdfExporter';
+import {
+  XpPopup,
+  ConfettiBurst,
+  ShakeView,
+  FloatingBadge,
+  FadeSlideIn,
+} from '../components/DuolingoAnimations';
 import {
   isDeviceOnline,
   queueOfflineAction,
@@ -53,6 +62,7 @@ export default function StudyNoteDetailScreen() {
   const [content, setContent] = useState('');
   const [summary, setSummary] = useState<string | null>(null);
   const [quizData, setQuizData] = useState<QuizQuestion[]>([]);
+  const [flashcards, setFlashcards] = useState<FlashcardItem[]>([]);
   const [createdAt, setCreatedAt] = useState<string>('');
 
   // Subject Manager Modal
@@ -61,9 +71,18 @@ export default function StudyNoteDetailScreen() {
   // AI Scan & Rewrite Modal
   const [showScanModal, setShowScanModal] = useState(!!route.params?.autoOpenScan);
 
+  // 3D Flashcard Modal & Audio Player
+  const [showFlashcardModal, setShowFlashcardModal] = useState(false);
+  const [generatingFlashcards, setGeneratingFlashcards] = useState(false);
+  const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+
   // Interactive Quiz options & test answers state
   const [quizCount, setQuizCount] = useState<number>(5);
   const [selectedAnswers, setSelectedAnswers] = useState<Record<number, number>>({});
+  const [showXpPopup, setShowXpPopup] = useState(false);
+  const [xpAmount, setXpAmount] = useState(10);
+  const [showConfetti, setShowConfetti] = useState(false);
+  const [shakeQuestionIndex, setShakeQuestionIndex] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(false);
   const [fetching, setFetching] = useState(!!noteId);
@@ -308,60 +327,77 @@ export default function StudyNoteDetailScreen() {
   const [draftSavedTime, setDraftSavedTime] = useState<string | null>(null);
   const [hasRestoredDraft, setHasRestoredDraft] = useState(false);
   const draftSaveTimeoutRef = useRef<any>(null);
+  const isSavedRef = useRef(false);
 
   const getDraftKey = useCallback(() => {
     return `@study_note_draft_${user?.id || 'anonymous'}`;
   }, [user]);
 
-  // Load Note from DB or Restore Local Draft on Mount
-  useEffect(() => {
-    if (noteId) {
-      fetchNote();
-      setViewMode('reader');
-    } else {
-      setViewMode('edit');
-      const loadDraft = async () => {
-        try {
-          const draftKey = getDraftKey();
-          const rawDraft = await AsyncStorage.getItem(draftKey);
-          if (rawDraft) {
-            const draft = JSON.parse(rawDraft);
-            if (draft && (draft.title || draft.content)) {
-              setTitle(draft.title || '');
-              setSubject(draft.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
-              setContent(draft.content || '');
-              setSummary(draft.summary || null);
-              setQuizData(draft.quizData || []);
-              if (draft.savedAt) {
-                setDraftSavedTime(new Date(draft.savedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
-              }
-              setHasRestoredDraft(true);
-              setFetching(false);
-              return;
-            }
-          }
-        } catch (e) {
-          console.log('Error loading note draft:', e);
+  // Load Note from DB or Restore Local Draft on Focus / Mount
+  useFocusEffect(
+    useCallback(() => {
+      if (noteId) {
+        fetchNote();
+        setViewMode('reader');
+      } else {
+        setViewMode('edit');
+        if (isSavedRef.current) {
+          isSavedRef.current = false;
+          setTitle('');
+          setSubject(subjects.length > 0 ? subjects[0].name : 'Umum');
+          setContent('');
+          setSummary(null);
+          setQuizData([]);
+          setSelectedAnswers({});
+          setDraftSavedTime(null);
+          setHasRestoredDraft(false);
+          setFetching(false);
+          return;
         }
 
-        setTitle('');
-        setSubject(subjects.length > 0 ? subjects[0].name : 'Umum');
-        setContent('');
-        setSummary(null);
-        setQuizData([]);
-        setSelectedAnswers({});
-        setCreatedAt('');
-        setFetching(false);
-      };
+        const loadDraft = async () => {
+          try {
+            const draftKey = getDraftKey();
+            const rawDraft = await AsyncStorage.getItem(draftKey);
+            if (rawDraft) {
+              const draft = JSON.parse(rawDraft);
+              if (draft && (draft.title || draft.content)) {
+                setTitle(draft.title || '');
+                setSubject(draft.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
+                setContent(draft.content || '');
+                setSummary(draft.summary || null);
+                setQuizData(draft.quizData || []);
+                if (draft.savedAt) {
+                  setDraftSavedTime(new Date(draft.savedAt).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' }));
+                }
+                setHasRestoredDraft(true);
+                setFetching(false);
+                return;
+              }
+            }
+          } catch (e) {
+            console.log('Error loading note draft:', e);
+          }
 
-      loadDraft();
-    }
-  }, [noteId, getDraftKey]);
+          setTitle('');
+          setSubject(subjects.length > 0 ? subjects[0].name : 'Umum');
+          setContent('');
+          setSummary(null);
+          setQuizData([]);
+          setSelectedAnswers({});
+          setCreatedAt('');
+          setFetching(false);
+        };
+
+        loadDraft();
+      }
+    }, [noteId, getDraftKey, subjects])
+  );
 
   // Auto-Save Draft to Local Storage (Debounced 700ms)
   useEffect(() => {
     // Only auto-save for new notes
-    if (noteId) return;
+    if (noteId || isSavedRef.current) return;
 
     // Only save if there's actual text
     if (!title.trim() && !content.trim()) {
@@ -373,6 +409,7 @@ export default function StudyNoteDetailScreen() {
     }
 
     draftSaveTimeoutRef.current = setTimeout(async () => {
+      if (isSavedRef.current) return;
       try {
         const draftKey = getDraftKey();
         const draftPayload = {
@@ -398,9 +435,10 @@ export default function StudyNoteDetailScreen() {
 
   // AppState Listener to flush-save draft on background / screen off
   useEffect(() => {
-    if (noteId) return;
+    if (noteId || isSavedRef.current) return;
 
     const subscription = AppState.addEventListener('change', async (nextAppState) => {
+      if (isSavedRef.current) return;
       if (nextAppState === 'background' || nextAppState === 'inactive') {
         if (title.trim() || content.trim()) {
           try {
@@ -461,6 +499,7 @@ export default function StudyNoteDetailScreen() {
         setContent(found.content);
         setSummary(found.summary || null);
         setQuizData(found.quiz_data || []);
+        setFlashcards(found.flashcards || []);
         setCreatedAt(found.created_at);
       }
     } catch (e) {
@@ -524,6 +563,98 @@ ${content}`;
       await cacheNotesLocally(user.id, updated);
     }
     showAlert('Berhasil Disisipkan', 'Rangkuman telah digabungkan ke dalam catatan kuliah dan tersimpan.');
+  };
+
+  // AI Feature 1.5: Interactive 3D Flashcards Generator & SRS Manager
+  const handleSaveFlashcardsState = async (updatedCards: FlashcardItem[]) => {
+    setFlashcards(updatedCards);
+    if (noteId && user) {
+      const currentNotes = await getCachedNotes(user.id);
+      const updated = currentNotes.map(n => n.id === noteId ? { ...n, flashcards: updatedCards, updated_at: new Date().toISOString() } : n);
+      await cacheNotesLocally(user.id, updated);
+    }
+  };
+
+  const handleGenerateFlashcards = async () => {
+    if (!content.trim()) {
+      showAlert('Perhatian', 'Isi catatan masih kosong. Tulis materi terlebih dahulu untuk dibuatkan flashcard.');
+      return;
+    }
+
+    const online = await isDeviceOnline();
+    if (!online) {
+      showAlert('Mode Offline', 'Fitur Flashcard AI memerlukan koneksi internet.');
+      return;
+    }
+
+    setGeneratingFlashcards(true);
+    try {
+      const prompt = `Anda adalah asisten dosen akademik. Buatlah 6-10 kartu flashcard tanya-jawab / konsep inti penting dari materi kuliah berikut.
+Judul Materi: "${title || 'Materi Kuliah'}"
+Mata Kuliah: "${subject || 'Kuliah Umum'}"
+Isi Catatan:
+"""
+${content.slice(0, 4000)}
+"""
+
+Kembalikan HANYA JSON array murni tanpa markdown pembungkus dengan format:
+[
+  {
+    "id": "1",
+    "front": "Pertanyaan atau istilah konsep yang harus ditebak/diingat mahasiswa",
+    "back": "Jawaban, rumus, definisi, atau penjelasan padat dan jelas",
+    "hint": "Petunjuk singkat untuk membantu mengingat (opsional)"
+  }
+]`;
+
+      const response = await sendMessageToGemini([], prompt, null, undefined, { isJsonMode: true });
+      const parsed: any = extractJsonFromText(response);
+      let rawArray: any[] = [];
+      if (Array.isArray(parsed)) {
+        rawArray = parsed;
+      } else if (parsed && Array.isArray(parsed.flashcards)) {
+        rawArray = parsed.flashcards;
+      } else if (parsed && typeof parsed === 'object') {
+        const found = Object.values(parsed).find(v => Array.isArray(v));
+        if (found) rawArray = found as any[];
+      }
+
+      if (Array.isArray(rawArray) && rawArray.length > 0) {
+        const formatted: FlashcardItem[] = rawArray.map((item, idx) => ({
+          id: item.id || String(idx + 1),
+          front: item.front || item.question || item.term || '',
+          back: item.back || item.answer || item.definition || '',
+          hint: item.hint || undefined,
+          mastered: false,
+          difficulty: undefined,
+        }));
+
+        setFlashcards(formatted);
+
+        if (noteId && user) {
+          const currentNotes = await getCachedNotes(user.id);
+          const updated = currentNotes.map(n => n.id === noteId ? { ...n, flashcards: formatted, updated_at: new Date().toISOString() } : n);
+          await cacheNotesLocally(user.id, updated);
+        }
+
+        showAlert(
+          'Flashcard Siap',
+          `${formatted.length} kartu flashcard berhasil dibuat. Buka sekarang untuk mulai belajar?`,
+          {
+            confirmText: 'Buka Flashcard',
+            onClose: () => {
+              setShowFlashcardModal(true);
+            },
+          }
+        );
+      } else {
+        showAlert('Perhatian', 'AI belum dapat menghasilkan flashcard dari teks ini. Pastikan catatan memiliki materi penjelasan.');
+      }
+    } catch (e: any) {
+      showAlert('Gagal', e.message || 'Terjadi kesalahan saat membuat flashcard AI.');
+    } finally {
+      setGeneratingFlashcards(false);
+    }
   };
 
   // AI Feature 2: Generate Comprehensive Interactive Quiz (3, 5, or 10 Questions)
@@ -592,7 +723,6 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         }
 
         return {
-          id: `q_${Date.now()}_${idx}`,
           question: q.question || `Pertanyaan ${idx + 1}`,
           options,
           correctIndex: Math.min(Math.max(0, correctIdx), options.length - 1),
@@ -609,16 +739,16 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         await cacheNotesLocally(user.id, updated);
       }
 
-      showAlert('Kuis Siap 🧠', `${cleanQuestions.length} soal kuis telah dibuat dan otomatis tersimpan ke catatan!`);
+      showAlert('Kuis Siap', `${cleanQuestions.length} soal kuis telah dibuat dan tersimpan ke catatan.`);
     } catch (e: any) {
-      showAlert('Gagal Membuat Kuis', e.message || 'Gagal men-generate kuis latihan.');
+      showAlert('Gagal', e.message || 'Terjadi kesalahan saat menyusun kuis AI.');
     } finally {
       setGeneratingQuiz(false);
     }
   };
 
-  // Feature 2.1: Clear / Delete Quiz
-  const handleClearQuiz = () => {
+  // Feature 2.1: Delete Quiz from Note
+  const handleDeleteQuiz = () => {
     confirmAction(
       'Hapus Kuis Latihan?',
       'Semua daftar soal kuis ini akan dihapus dari catatan.',
@@ -640,6 +770,41 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     setSelectedAnswers({});
   };
 
+  // Feature 2.3: Handle Interactive Quiz Answer Selection
+  const handleSelectQuizOption = (qIndex: number, optIndex: number) => {
+    if (selectedAnswers[qIndex] !== undefined) return;
+    const isCorrect = optIndex === quizData[qIndex]?.correctIndex;
+
+    setSelectedAnswers(prev => {
+      const updated = { ...prev, [qIndex]: optIndex };
+
+      if (isCorrect) {
+        setXpAmount(10);
+        setShowXpPopup(false);
+        setTimeout(() => setShowXpPopup(true), 50);
+      } else {
+        setShakeQuestionIndex(qIndex);
+        setTimeout(() => setShakeQuestionIndex(null), 500);
+      }
+
+      // Check if all questions are answered
+      const answeredTotal = Object.keys(updated).length;
+      if (answeredTotal === quizData.length) {
+        const correctTotal = Object.entries(updated).filter(
+          ([idx, ans]) => ans === quizData[Number(idx)]?.correctIndex
+        ).length;
+        if (correctTotal >= Math.ceil(quizData.length * 0.6)) {
+          setTimeout(() => {
+            setShowConfetti(true);
+            setTimeout(() => setShowConfetti(false), 3500);
+          }, 350);
+        }
+      }
+
+      return updated;
+    });
+  };
+
   // Save or Update Note
   const handleSave = async () => {
     if (!title.trim() || !content.trim()) {
@@ -652,6 +817,12 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     }
     setLoading(true);
 
+    isSavedRef.current = true;
+    if (draftSaveTimeoutRef.current) {
+      clearTimeout(draftSaveTimeoutRef.current);
+      draftSaveTimeoutRef.current = null;
+    }
+
     if (user) {
       const currentNotes = await getCachedNotes(user.id);
       const targetId = noteId || `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
@@ -663,6 +834,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         content: content.trim(),
         summary,
         quiz_data: quizData,
+        flashcards: flashcards.length > 0 ? flashcards : undefined,
         created_at: createdAt || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -688,6 +860,12 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     if (noteId) {
       setViewMode('reader');
     } else {
+      setTitle('');
+      setContent('');
+      setSummary(null);
+      setQuizData([]);
+      setFlashcards([]);
+      setSelectedAnswers({});
       navigation.goBack();
     }
   };
@@ -751,10 +929,6 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     }
   };
 
-  const handleSelectQuizOption = (qIndex: number, optIndex: number) => {
-    setSelectedAnswers(prev => ({ ...prev, [qIndex]: optIndex }));
-  };
-
   // Reading Stats
   const wordCount = content.trim() ? content.trim().split(/\s+/).length : 0;
   const charCount = content.length;
@@ -781,6 +955,14 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* ── Duolingo Animations Overlay ── */}
+      <ConfettiBurst visible={showConfetti} count={50} onDone={() => setShowConfetti(false)} />
+      <XpPopup
+        xp={xpAmount}
+        visible={showXpPopup}
+        color="#FBBF24"
+        onDone={() => setShowXpPopup(false)}
+      />
 
       {/* Top Header with Back Button */}
       <View style={[styles.topHeader, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
@@ -867,7 +1049,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
       </View>
 
       <ScrollView
-        style={[styles.scroll, { backgroundColor: theme.bg }]}
+        style={styles.scroll}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         contentContainerStyle={{ paddingBottom: 60 }}
@@ -878,401 +1060,1123 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
           {/* MODE 1: CLEAN & BEAUTIFUL READER VIEW (DETAIL MATERI) */}
           {/* ========================================================================= */}
           {viewMode === 'reader' ? (
-            <View style={styles.readerContainer}>
+            isWide ? (
+              /* ── DESKTOP 2-COLUMN LAYOUT ── */
+              <View style={styles.desktopTwoColRow}>
+                {/* Left Main Column: Document Paper & Quiz */}
+                <View style={styles.desktopLeftMainCol}>
+                  <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                    
+                    {/* Meta Top Info Bar */}
+                    <View style={styles.documentMetaRow}>
+                      <View style={[styles.readerSubjectBadge, { backgroundColor: theme.accentBg }]}>
+                        <Ionicons name="school" size={13} color={theme.accentLight} />
+                        <Text style={[styles.readerSubjectText, { color: theme.accentLight }]}>{subject || 'Kuliah Umum'}</Text>
+                      </View>
 
-              {/* Subject Tag & Meta Stats Bar */}
-              <View style={styles.readerMetaRow}>
-                <View style={[styles.readerSubjectBadge, { backgroundColor: theme.accentBg }]}>
-                  <Ionicons name="school" size={12} color={theme.accentLight} />
-                  <Text style={[styles.readerSubjectText, { color: theme.accentLight }]}>{subject || 'Kuliah Umum'}</Text>
-                </View>
+                      <View style={styles.readerStatsPills}>
+                        <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                          <Ionicons name="calendar-outline" size={11} color={theme.muted} />
+                          <Text style={[styles.statPillText, { color: theme.subtext }]}>
+                            {createdAt ? new Date(createdAt).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : 'Catatan Baru'}
+                          </Text>
+                        </View>
+                        <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                          <Ionicons name="time-outline" size={11} color={theme.muted} />
+                          <Text style={[styles.statPillText, { color: theme.subtext }]}>{readingTimeMin} mnt baca</Text>
+                        </View>
+                        <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                          <Ionicons name="document-text-outline" size={11} color={theme.muted} />
+                          <Text style={[styles.statPillText, { color: theme.subtext }]}>{wordCount} kata</Text>
+                        </View>
+                      </View>
+                    </View>
 
-                <View style={styles.readerStatsPills}>
-                  <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                    <Ionicons name="time-outline" size={11} color={theme.muted} />
-                    <Text style={[styles.statPillText, { color: theme.subtext }]}>{readingTimeMin} mnt baca</Text>
-                  </View>
-                  <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                    <Ionicons name="document-text-outline" size={11} color={theme.muted} />
-                    <Text style={[styles.statPillText, { color: theme.subtext }]}>{wordCount} kata</Text>
-                  </View>
-                </View>
-              </View>
+                    {/* Big Document Title */}
+                    <Text style={[styles.documentTitle, { color: theme.text }]} selectable>
+                      {title || 'Materi Catatan Tanpa Judul'}
+                    </Text>
 
-              {/* Title */}
-              <Text style={[styles.readerTitle, { color: theme.text }]}>{title || 'Materi Catatan Tanpa Judul'}</Text>
-
-              {/* Timestamp & Author Bar */}
-              <View style={styles.readerDateRow}>
-                <Ionicons name="calendar-outline" size={13} color={theme.muted} />
-                <Text style={[styles.readerDateText, { color: theme.muted }]}>
-                  {createdAt ? new Date(createdAt).toLocaleDateString('id-ID', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }) : 'Catatan Baru'}
-                </Text>
-              </View>
-
-              {/* Quick Action Horizontal Scrollable Bar */}
-              <View style={[styles.readerActionBarWrap, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <ScrollView
-                  horizontal
-                  showsHorizontalScrollIndicator={false}
-                  contentContainerStyle={styles.readerActionBarScroll}
-                >
-                  
-
-                  <TouchableOpacity
-                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
-                    onPress={handleExportPdf}
-                    disabled={exportingPdf}
-                  >
-                    {exportingPdf ? (
-                      <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
-                    ) : (
-                      <>
-                        <Ionicons name="print-outline" size={13} color={theme.accentLight} />
-                        <Text style={[styles.readerActionBtnText, { color: theme.accentLight }]}>Cetak PDF</Text>
-                      </>
+                    {/* Audio Lecture Player for Desktop */}
+                    {showAudioPlayer && (
+                      <AudioLecturePlayer
+                        title={title || 'Materi Catatan'}
+                        summaryText={summary}
+                        fullContentText={content}
+                        onClose={() => setShowAudioPlayer(false)}
+                      />
                     )}
-                  </TouchableOpacity>
 
-                  <TouchableOpacity
-                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                    onPress={() => setShowScanModal(true)}
-                  >
-                    <Ionicons name="camera-outline" size={13} color="#818CF8" />
-                    <Text style={[styles.readerActionBtnText, { color: '#818CF8' }]}>Scan Foto AI</Text>
-                  </TouchableOpacity>
+                    <View style={[styles.documentDivider, { backgroundColor: theme.border }]} />
 
-                  <TouchableOpacity
-                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingSummary && { opacity: 0.6 }]}
-                    onPress={handleGenerateSummary}
-                    disabled={generatingSummary}
-                  >
-                    {generatingSummary ? (
-                      <ActivityIndicator size="small" color="#FBBF24" style={{ transform: [{ scale: 0.7 }] }} />
-                    ) : (
-                      <>
-                        <Ionicons name="sparkles" size={13} color="#FBBF24" />
-                        <Text style={[styles.readerActionBtnText, { color: '#FBBF24' }]}>
-                          {summary ? 'Ulang Rangkuman' : 'Rangkum AI'}
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.readerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, generatingQuiz && { opacity: 0.6 }]}
-                    onPress={handleGenerateQuiz}
-                    disabled={generatingQuiz}
-                  >
-                    {generatingQuiz ? (
-                      <ActivityIndicator size="small" color="#34D399" style={{ transform: [{ scale: 0.7 }] }} />
-                    ) : (
-                      <>
-                        <Ionicons name="school-outline" size={13} color="#34D399" />
-                        <Text style={[styles.readerActionBtnText, { color: '#34D399' }]}>
-                          {quizData.length > 0 ? `Kuis (${quizData.length})` : 'Buat Kuis'}
-                        </Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {noteId ? (
-                    <TouchableOpacity
-                      style={[styles.readerActionDeleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418', borderColor: isLightMode ? '#FECACA' : '#5C1D24' }]}
-                      onPress={handleDeleteCurrentNote}
-                    >
-                      <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                      <Text style={[styles.readerActionBtnText, { color: '#EF4444' }]}>Hapus</Text>
-                    </TouchableOpacity>
-                  ) : null}
-                </ScrollView>
-              </View>
-
-              {/* Main Content Article Body */}
-              <View style={[styles.readerArticleCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <MarkdownRenderer content={content || 'Belum ada isi materi catatan.'} fontSize={15} textColor={theme.text} />
-              </View>
-
-              {/* Summary Section (If Generated) */}
-              {summary ? (
-                <View style={[
-                  styles.readerSummaryCard,
-                  {
-                    backgroundColor: isLightMode ? '#EFF6FF' : '#111A2E',
-                    borderColor: isLightMode ? '#BFDBFE' : '#1D3256',
-                  }
-                ]}>
-                  <View style={styles.summaryTopRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="sparkles" size={16} color={isLightMode ? '#1D4ED8' : theme.accentLight} />
-                      <Text style={[styles.summaryTitle, { color: isLightMode ? '#1D4ED8' : theme.text }]}>📌 Intisari & Rangkuman AI</Text>
-                    </View>
-                    <TouchableOpacity
-                      onPress={handleAppendSummaryToContent}
-                      style={[styles.appendBtn, { backgroundColor: isLightMode ? '#DBEAFE' : theme.accentBg }]}
-                    >
-                      <Text style={[styles.appendBtnText, { color: isLightMode ? '#1D4ED8' : theme.accentLight }]}>+ Sisipkan</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <MarkdownRenderer content={summary} fontSize={14} textColor={isLightMode ? '#1E3A8A' : theme.text} />
-                </View>
-              ) : null}
-
-              {/* Interactive Quiz Section (If Generated) */}
-              {quizData.length > 0 ? (
-                <View style={[
-                  styles.quizCard,
-                  {
-                    backgroundColor: theme.card,
-                    borderColor: isLightMode ? '#A7F3D0' : '#192C23',
-                  }
-                ]}>
-                  <View style={styles.quizTopRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <Ionicons name="school" size={18} color={isLightMode ? '#059669' : '#34D399'} />
-                      <Text style={[styles.quizHeaderTitle, { color: isLightMode ? '#059669' : '#34D399' }]}>
-                        🧠 Kuis Pemahaman ({quizData.length} Soal)
-                      </Text>
-                    </View>
-                    <View style={styles.quizHeaderActions}>
-                      <TouchableOpacity onPress={handleResetQuizAnswers} style={[styles.miniBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                        <Text style={[styles.miniBtnText, { color: theme.subtext }]}>Reset</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity onPress={handleClearQuiz} style={[styles.miniBtnDanger, { backgroundColor: isLightMode ? '#FEE2E2' : '#331215', borderColor: isLightMode ? '#FECACA' : '#591D24' }]}>
-                        <Text style={[styles.miniBtnDangerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus</Text>
-                      </TouchableOpacity>
+                    {/* Main Content Article Body */}
+                    <View style={styles.documentBody}>
+                      <MarkdownRenderer content={content || 'Belum ada isi materi catatan.'} fontSize={16} textColor={theme.text} />
                     </View>
                   </View>
 
-                  {/* Score Progress Bar */}
-                  <View style={[
-                    styles.scoreBarCard,
-                    {
-                      backgroundColor: isLightMode ? '#ECFDF5' : '#131D19',
-                      borderColor: isLightMode ? '#A7F3D0' : '#1D3B2D',
-                    }
-                  ]}>
-                    <View style={styles.scoreTopInfo}>
-                      <Text style={[styles.scoreLabel, { color: isLightMode ? '#065F46' : theme.subtext }]}>
-                        Progres: {answeredCount} dari {quizData.length} Soal Dijawab
-                      </Text>
-                      <Text style={[styles.scoreValueText, { color: isLightMode ? '#059669' : theme.accentLight }]}>
-                        Skor: {correctCount}/{quizData.length} ({scorePercent}%)
-                      </Text>
-                    </View>
-                    <View style={[styles.progressTrack, { backgroundColor: isLightMode ? '#D1FAE5' : theme.border }]}>
-                      <View style={[styles.progressFill, { backgroundColor: isLightMode ? '#10B981' : theme.primary, width: `${(answeredCount / quizData.length) * 100}%` }]} />
-                    </View>
-                  </View>
+                  {/* Interactive Quiz Section on Desktop */}
+                  {quizData.length > 0 ? (
+                    <View style={[styles.quizCard, { backgroundColor: theme.card, borderColor: isLightMode ? '#A7F3D0' : '#192C23' }]}>
+                      <View style={styles.quizTopRow}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="school" size={18} color={isLightMode ? '#059669' : '#34D399'} />
+                          <Text style={[styles.quizHeaderTitle, { color: isLightMode ? '#059669' : '#34D399' }]}>
+                            Kuis Pemahaman ({quizData.length} Soal)
+                          </Text>
+                        </View>
+                        <View style={styles.quizHeaderActions}>
+                          <TouchableOpacity onPress={handleResetQuizAnswers} style={[styles.miniBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                            <Text style={[styles.miniBtnText, { color: theme.subtext }]}>Reset</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity onPress={handleDeleteQuiz} style={[styles.miniBtnDanger, { backgroundColor: isLightMode ? '#FEE2E2' : '#331215', borderColor: isLightMode ? '#FECACA' : '#591D24' }]}>
+                            <Text style={[styles.miniBtnDangerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
 
-                  {/* Questions List */}
-                  {quizData.map((q, qIndex) => {
-                    const isAnswered = selectedAnswers[qIndex] !== undefined;
-                    const chosenIndex = selectedAnswers[qIndex];
-                    const isCorrect = chosenIndex === q.correctIndex;
+                      {/* Score Progress Bar */}
+                      <View style={[styles.scoreBarCard, { backgroundColor: isLightMode ? '#ECFDF5' : '#131D19', borderColor: isLightMode ? '#A7F3D0' : '#1D3B2D' }]}>
+                        <View style={styles.scoreTopInfo}>
+                          <Text style={[styles.scoreLabel, { color: isLightMode ? '#065F46' : theme.subtext }]}>
+                            Progres: {answeredCount} dari {quizData.length} Soal Dijawab
+                          </Text>
+                          <Text style={[styles.scoreValueText, { color: isLightMode ? '#059669' : theme.accentLight }]}>
+                            Skor: {correctCount}/{quizData.length} ({scorePercent}%)
+                          </Text>
+                        </View>
+                        <View style={[styles.progressTrack, { backgroundColor: isLightMode ? '#D1FAE5' : theme.border }]}>
+                          <View style={[styles.progressFill, { backgroundColor: isLightMode ? '#10B981' : theme.primary, width: `${(answeredCount / quizData.length) * 100}%` }]} />
+                        </View>
+                      </View>
 
-                    return (
-                      <View key={qIndex} style={[styles.questionBlock, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                        <Text style={[styles.questionNum, { color: isLightMode ? '#2563EB' : theme.accentLight }]}>Soal {qIndex + 1}:</Text>
-                        <Text style={[styles.questionText, { color: theme.text }]}>{q.question}</Text>
+                      {/* Questions List */}
+                      {quizData.map((q, qIndex) => {
+                        const isAnswered = selectedAnswers[qIndex] !== undefined;
+                        const chosenIndex = selectedAnswers[qIndex];
+                        const isCorrect = chosenIndex === q.correctIndex;
 
-                        <View style={styles.optionsList}>
-                          {q.options.map((opt, optIndex) => {
-                            const isChosen = chosenIndex === optIndex;
-                            const isTheRightAnswer = optIndex === q.correctIndex;
+                        return (
+                          <ShakeView key={qIndex} trigger={shakeQuestionIndex === qIndex}>
+                            <View style={[styles.questionBlock, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                              <Text style={[styles.questionNum, { color: isLightMode ? '#2563EB' : theme.accentLight }]}>Soal {qIndex + 1}:</Text>
+                              <Text style={[styles.questionText, { color: theme.text }]}>{q.question}</Text>
 
-                            return (
-                              <TouchableOpacity
-                                key={optIndex}
-                                style={[
-                                  styles.optionBtn,
-                                  { backgroundColor: theme.card, borderColor: theme.border },
-                                  isChosen && [styles.optionBtnSelected, { backgroundColor: theme.accentBg, borderColor: theme.accent }],
-                                  isAnswered && isTheRightAnswer && [
-                                    styles.optionBtnCorrect,
-                                    { backgroundColor: isLightMode ? '#DCFCE7' : '#0D281E', borderColor: isLightMode ? '#22C55E' : '#10B981' }
-                                  ],
-                                  isAnswered && isChosen && !isTheRightAnswer && [
-                                    styles.optionBtnWrong,
-                                    { backgroundColor: isLightMode ? '#FEE2E2' : '#261214', borderColor: isLightMode ? '#EF4444' : '#EF4444' }
-                                  ],
-                                ]}
-                                onPress={() => handleSelectQuizOption(qIndex, optIndex)}
-                                activeOpacity={0.7}
-                              >
-                                <View style={[styles.optionIndexBadge, { backgroundColor: isLightMode ? '#E2E8F0' : theme.cardInner, borderColor: theme.border }]}>
-                                  <Text style={[styles.optionIndexText, { color: theme.text }]}>
-                                    {String.fromCharCode(65 + optIndex)}
+                              <View style={styles.optionsList}>
+                                {q.options.map((opt, optIndex) => {
+                                  const isChosen = chosenIndex === optIndex;
+                                  const isTheRightAnswer = optIndex === q.correctIndex;
+
+                                  return (
+                                    <TouchableOpacity
+                                      key={optIndex}
+                                      style={[
+                                        styles.optionBtn,
+                                        { backgroundColor: theme.card, borderColor: theme.border },
+                                        isChosen && [styles.optionBtnSelected, { backgroundColor: theme.accentBg, borderColor: theme.accent }],
+                                        isAnswered && isTheRightAnswer && [
+                                          styles.optionBtnCorrect,
+                                          { backgroundColor: isLightMode ? '#DCFCE7' : '#0D281E', borderColor: isLightMode ? '#22C55E' : '#10B981' }
+                                        ],
+                                        isAnswered && isChosen && !isTheRightAnswer && [
+                                          styles.optionBtnWrong,
+                                          { backgroundColor: isLightMode ? '#FEE2E2' : '#261214', borderColor: isLightMode ? '#EF4444' : '#EF4444' }
+                                        ],
+                                      ]}
+                                      onPress={() => handleSelectQuizOption(qIndex, optIndex)}
+                                      activeOpacity={0.7}
+                                    >
+                                      <View style={[styles.optionIndexBadge, { backgroundColor: isLightMode ? '#E2E8F0' : theme.cardInner, borderColor: theme.border }]}>
+                                        <Text style={[styles.optionIndexText, { color: theme.text }]}>
+                                          {String.fromCharCode(65 + optIndex)}
+                                        </Text>
+                                      </View>
+                                      <Text
+                                        style={[
+                                          styles.optionText,
+                                          { color: theme.text },
+                                          isAnswered && isTheRightAnswer && [styles.optionTextCorrect, { color: isLightMode ? '#15803D' : '#34D399' }],
+                                          isAnswered && isChosen && !isTheRightAnswer && [styles.optionTextWrong, { color: isLightMode ? '#DC2626' : '#F87171' }],
+                                        ]}
+                                      >
+                                        {opt}
+                                      </Text>
+                                      {isAnswered && isTheRightAnswer && (
+                                        <Ionicons name="checkmark-circle" size={16} color={isLightMode ? '#16A34A' : '#34D399'} style={{ marginLeft: 'auto' }} />
+                                      )}
+                                      {isAnswered && isChosen && !isTheRightAnswer && (
+                                        <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 'auto' }} />
+                                      )}
+                                    </TouchableOpacity>
+                                  );
+                                })}
+                              </View>
+
+                              {isAnswered && (
+                                <View style={[
+                                  styles.explanationCard,
+                                  isCorrect
+                                    ? [styles.explanationCardCorrect, { backgroundColor: isLightMode ? '#DCFCE7' : '#0A2118', borderColor: isLightMode ? '#86EFAC' : '#144634' }]
+                                    : [styles.explanationCardWrong, { backgroundColor: isLightMode ? '#FEF3C7' : '#241D10', borderColor: isLightMode ? '#FCD34D' : '#4D3B16' }]
+                                ]}>
+                                  <Ionicons
+                                    name={isCorrect ? 'sparkles' : 'information-circle'}
+                                    size={15}
+                                    color={isCorrect ? (isLightMode ? '#16A34A' : '#34D399') : (isLightMode ? '#D97706' : '#FBBF24')}
+                                  />
+                                  <Text style={[styles.explanationText, { color: theme.text }]}>
+                                    {q.explanation}
                                   </Text>
                                 </View>
-                                <Text
-                                  style={[
-                                    styles.optionText,
-                                    { color: theme.text },
-                                    isAnswered && isTheRightAnswer && [styles.optionTextCorrect, { color: isLightMode ? '#15803D' : '#34D399' }],
-                                    isAnswered && isChosen && !isTheRightAnswer && [styles.optionTextWrong, { color: isLightMode ? '#DC2626' : '#F87171' }],
-                                  ]}
-                                >
-                                  {opt}
+                              )}
+                            </View>
+                          </ShakeView>
+                        );
+                      })}
+                    </View>
+                  ) : null}
+                </View>
+
+                {/* Right Sidebar Column: AI Studio & Summary & Meta */}
+                <View style={styles.desktopRightSideCol}>
+                  {/* AI Study Assistant Studio Card */}
+                  <View style={[styles.sideStudioCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={styles.sideStudioHeader}>
+                      <Ionicons name="sparkles" size={17} color={theme.accentLight} />
+                      <Text style={[styles.sideStudioTitle, { color: theme.text }]}>Asisten Belajar AI</Text>
+                    </View>
+                    <Text style={[styles.sideStudioDesc, { color: theme.subtext }]}>
+                      Tingkatkan retensi materi dengan ringkasan pintar dan kuis interaktif.
+                    </Text>
+
+                    <View style={styles.sideStudioBtnList}>
+                      {/* Audio Lecture Player Button */}
+                      <TouchableOpacity
+                        style={[
+                          styles.sideStudioBtn,
+                          { backgroundColor: isLightMode ? '#F0FDF4' : '#14251D', borderColor: isLightMode ? '#BBF7D0' : '#234C38' },
+                          showAudioPlayer && { borderWidth: 2, borderColor: '#10B981' }
+                        ]}
+                        onPress={() => setShowAudioPlayer(prev => !prev)}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons name="volume-high-outline" size={15} color="#10B981" />
+                        <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                          {showAudioPlayer ? 'Tutup Pemutar Suara' : 'Dengarkan Audio Kuliah'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Flashcard AI (3D Flip & Spaced Repetition) */}
+                      <TouchableOpacity
+                        style={[
+                          styles.sideStudioBtn,
+                          { backgroundColor: isLightMode ? '#F5F3FF' : '#211838', borderColor: isLightMode ? '#DDD6FE' : '#4C3077' },
+                          generatingFlashcards && { opacity: 0.6 }
+                        ]}
+                        onPress={() => {
+                          if (flashcards.length > 0) {
+                            setShowFlashcardModal(true);
+                          } else {
+                            handleGenerateFlashcards();
+                          }
+                        }}
+                        disabled={generatingFlashcards}
+                        activeOpacity={0.75}
+                      >
+                        {generatingFlashcards ? (
+                          <ActivityIndicator size="small" color="#A855F7" />
+                        ) : (
+                          <Ionicons name="card-outline" size={15} color="#A855F7" />
+                        )}
+                        <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#7E22CE' : '#C084FC' }]}>
+                          {flashcards.length > 0 ? `Buka Flashcard (${flashcards.length} Kartu)` : 'Buat Flashcard AI'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Rangkum AI */}
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#FEF3C7' : '#281E0B', borderColor: isLightMode ? '#FDE68A' : '#533C14' }, generatingSummary && { opacity: 0.6 }]}
+                        onPress={handleGenerateSummary}
+                        disabled={generatingSummary}
+                        activeOpacity={0.75}
+                      >
+                        {generatingSummary ? (
+                          <ActivityIndicator size="small" color="#F59E0B" />
+                        ) : (
+                          <Ionicons name="sparkles" size={15} color="#F59E0B" />
+                        )}
+                        <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#B45309' : '#FBBF24' }]}>
+                          {summary ? 'Ulang Rangkuman AI' : 'Rangkum Materi (AI)'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Buat Kuis Interaktif */}
+                      <View style={[styles.sideQuizSelectorBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <Text style={[styles.sideQuizLabel, { color: theme.subtext }]}>Jumlah Soal Kuis:</Text>
+                          <View style={{ flexDirection: 'row', gap: 4 }}>
+                            {QUIZ_COUNT_OPTIONS.map(cnt => (
+                              <TouchableOpacity
+                                key={cnt}
+                                style={[
+                                  styles.sideQuizChip,
+                                  { backgroundColor: theme.card },
+                                  quizCount === cnt && { backgroundColor: theme.accent, borderColor: theme.accent }
+                                ]}
+                                onPress={() => setQuizCount(cnt)}
+                              >
+                                <Text style={[styles.sideQuizChipText, { color: theme.subtext }, quizCount === cnt && { color: '#FFFFFF', fontWeight: '800' }]}>
+                                  {cnt}
                                 </Text>
-                                {isAnswered && isTheRightAnswer && (
-                                  <Ionicons name="checkmark-circle" size={16} color={isLightMode ? '#16A34A' : '#34D399'} style={{ marginLeft: 'auto' }} />
-                                )}
-                                {isAnswered && isChosen && !isTheRightAnswer && (
-                                  <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 'auto' }} />
-                                )}
                               </TouchableOpacity>
-                            );
-                          })}
+                            ))}
+                          </View>
                         </View>
 
-                        {isAnswered && (
-                          <View style={[
-                            styles.explanationCard,
-                            isCorrect
-                              ? [styles.explanationCardCorrect, { backgroundColor: isLightMode ? '#DCFCE7' : '#0A2118', borderColor: isLightMode ? '#86EFAC' : '#144634' }]
-                              : [styles.explanationCardWrong, { backgroundColor: isLightMode ? '#FEF3C7' : '#241D10', borderColor: isLightMode ? '#FCD34D' : '#4D3B16' }]
-                          ]}>
-                            <Ionicons
-                              name={isCorrect ? 'sparkles' : 'information-circle'}
-                              size={15}
-                              color={isCorrect ? (isLightMode ? '#16A34A' : '#34D399') : (isLightMode ? '#D97706' : '#FBBF24')}
-                            />
-                            <Text style={[styles.explanationText, { color: theme.text }]}>
-                              {q.explanation}
-                            </Text>
-                          </View>
-                        )}
+                        <TouchableOpacity
+                          style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#DCFCE7' : '#0E241B', borderColor: isLightMode ? '#86EFAC' : '#1C4A36' }, generatingQuiz && { opacity: 0.6 }]}
+                          onPress={handleGenerateQuiz}
+                          disabled={generatingQuiz}
+                          activeOpacity={0.75}
+                        >
+                          {generatingQuiz ? (
+                            <ActivityIndicator size="small" color="#10B981" />
+                          ) : (
+                            <Ionicons name="school" size={15} color="#10B981" />
+                          )}
+                          <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                            {quizData.length > 0 ? `Buat Ulang Kuis (${quizCount} Soal)` : `Buat Kuis AI (${quizCount} Soal)`}
+                          </Text>
+                        </TouchableOpacity>
                       </View>
-                    );
-                  })}
-                </View>
-              ) : null}
 
-            </View>
+                      {/* Scan Foto AI */}
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#EEF2FF' : '#191A3E', borderColor: isLightMode ? '#C7D2FE' : '#313470' }]}
+                        onPress={() => setShowScanModal(true)}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons name="camera" size={15} color="#818CF8" />
+                        <Text style={[styles.sideStudioBtnText, { color: '#818CF8' }]}>Scan & Rewrite Foto</Text>
+                      </TouchableOpacity>
+
+                      {/* Cetak PDF */}
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
+                        onPress={handleExportPdf}
+                        disabled={exportingPdf}
+                        activeOpacity={0.75}
+                      >
+                        {exportingPdf ? (
+                          <ActivityIndicator size="small" color={theme.accentLight} />
+                        ) : (
+                          <Ionicons name="print-outline" size={15} color={theme.accentLight} />
+                        )}
+                        <Text style={[styles.sideStudioBtnText, { color: theme.accentLight }]}>Cetak / Ekspor PDF</Text>
+                      </TouchableOpacity>
+
+                      {/* Salin Teks */}
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        onPress={handleCopyNote}
+                        activeOpacity={0.75}
+                      >
+                        <Ionicons name="copy-outline" size={15} color={theme.subtext} />
+                        <Text style={[styles.sideStudioBtnText, { color: theme.subtext }]}>Salin Seluruh Catatan</Text>
+                      </TouchableOpacity>
+
+                      {/* Hapus Catatan */}
+                      {noteId ? (
+                        <TouchableOpacity
+                          style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418', borderColor: isLightMode ? '#FECACA' : '#5C1D24' }]}
+                          onPress={handleDeleteCurrentNote}
+                          activeOpacity={0.75}
+                        >
+                          <Ionicons name="trash-outline" size={15} color="#EF4444" />
+                          <Text style={[styles.sideStudioBtnText, { color: '#EF4444' }]}>Hapus Catatan Ini</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </View>
+                  </View>
+
+                  {/* Summary Card in Sidebar (If Generated) */}
+                  {summary ? (
+                    <View style={[styles.readerSummaryCard, { backgroundColor: isLightMode ? '#EFF6FF' : '#111A2E', borderColor: isLightMode ? '#BFDBFE' : '#1D3256' }]}>
+                      <View style={styles.summaryTopRow}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Ionicons name="sparkles" size={16} color={isLightMode ? '#1D4ED8' : theme.accentLight} />
+                          <Text style={[styles.summaryTitle, { color: isLightMode ? '#1D4ED8' : theme.text }]}>Intisari & Rangkuman</Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={handleAppendSummaryToContent}
+                          style={[styles.appendBtn, { backgroundColor: isLightMode ? '#DBEAFE' : theme.accentBg }]}
+                        >
+                          <Text style={[styles.appendBtnText, { color: isLightMode ? '#1D4ED8' : theme.accentLight }]}>+ Sisipkan</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <MarkdownRenderer content={summary} fontSize={13.5} textColor={isLightMode ? '#1E3A8A' : theme.text} />
+                    </View>
+                  ) : null}
+
+                  {/* Metadata Specs Card */}
+                  <View style={[styles.sideMetaCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Text style={[styles.sideMetaCardTitle, { color: theme.text }]}>📌 Rincian Dokumen</Text>
+                    <View style={styles.sideMetaList}>
+                      <View style={styles.sideMetaRow}>
+                        <Text style={[styles.sideMetaKey, { color: theme.subtext }]}>Mata Kuliah</Text>
+                        <Text style={[styles.sideMetaVal, { color: theme.text }]}>{subject || 'Kuliah Umum'}</Text>
+                      </View>
+                      <View style={styles.sideMetaRow}>
+                        <Text style={[styles.sideMetaKey, { color: theme.subtext }]}>Waktu Baca</Text>
+                        <Text style={[styles.sideMetaVal, { color: theme.text }]}>~{readingTimeMin} menit</Text>
+                      </View>
+                      <View style={styles.sideMetaRow}>
+                        <Text style={[styles.sideMetaKey, { color: theme.subtext }]}>Total Kata</Text>
+                        <Text style={[styles.sideMetaVal, { color: theme.text }]}>{wordCount} kata</Text>
+                      </View>
+                      <View style={styles.sideMetaRow}>
+                        <Text style={[styles.sideMetaKey, { color: theme.subtext }]}>Total Karakter</Text>
+                        <Text style={[styles.sideMetaVal, { color: theme.text }]}>{charCount} karakter</Text>
+                      </View>
+                    </View>
+                  </View>
+                </View>
+              </View>
+            ) : (
+              /* ── MOBILE SINGLE-COLUMN LAYOUT ── */
+              <View style={styles.readerContainer}>
+                {/* Mobile Document Paper Canvas */}
+                <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                  {/* Meta Top Info Bar */}
+                  <View style={styles.documentMetaRow}>
+                    <View style={[styles.readerSubjectBadge, { backgroundColor: theme.accentBg }]}>
+                      <Ionicons name="school" size={12} color={theme.accentLight} />
+                      <Text style={[styles.readerSubjectText, { color: theme.accentLight }]}>{subject || 'Kuliah Umum'}</Text>
+                    </View>
+
+                    <View style={styles.readerStatsPills}>
+                      <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <Ionicons name="calendar-outline" size={11} color={theme.muted} />
+                        <Text style={[styles.statPillText, { color: theme.subtext }]}>
+                          {createdAt ? new Date(createdAt).toLocaleDateString('id-ID', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : 'Catatan Baru'}
+                        </Text>
+                      </View>
+                      <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <Ionicons name="time-outline" size={11} color={theme.muted} />
+                        <Text style={[styles.statPillText, { color: theme.subtext }]}>{readingTimeMin} mnt baca</Text>
+                      </View>
+                      <View style={[styles.statPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <Ionicons name="document-text-outline" size={11} color={theme.muted} />
+                        <Text style={[styles.statPillText, { color: theme.subtext }]}>{wordCount} kata</Text>
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Big Document Title */}
+                  <Text style={[styles.documentTitle, { color: theme.text }]} selectable>
+                    {title || 'Materi Catatan Tanpa Judul'}
+                  </Text>
+
+                  {/* Sleek Action Toolbar Bar */}
+                  <View style={[styles.documentActionBar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.documentActionScroll}>
+                      {/* Audio Lecture Player Pill */}
+                      <TouchableOpacity
+                        style={[
+                          styles.docActionPill,
+                          { backgroundColor: isLightMode ? '#F0FDF4' : '#14251D', borderColor: isLightMode ? '#BBF7D0' : '#234C38' },
+                          showAudioPlayer && { borderWidth: 1.5, borderColor: '#10B981' }
+                        ]}
+                        onPress={() => setShowAudioPlayer(prev => !prev)}
+                      >
+                        <Ionicons name="volume-high-outline" size={13} color="#10B981" />
+                        <Text style={[styles.docActionPillText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                          {showAudioPlayer ? 'Tutup Audio' : 'Audio Kuliah'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Flashcard AI Pill */}
+                      <TouchableOpacity
+                        style={[
+                          styles.docActionPill,
+                          { backgroundColor: isLightMode ? '#F5F3FF' : '#211838', borderColor: isLightMode ? '#DDD6FE' : '#4C3077' },
+                          generatingFlashcards && { opacity: 0.6 }
+                        ]}
+                        onPress={() => {
+                          if (flashcards.length > 0) {
+                            setShowFlashcardModal(true);
+                          } else {
+                            handleGenerateFlashcards();
+                          }
+                        }}
+                        disabled={generatingFlashcards}
+                      >
+                        {generatingFlashcards ? (
+                          <ActivityIndicator size="small" color="#A855F7" style={{ transform: [{ scale: 0.7 }] }} />
+                        ) : (
+                          <Ionicons name="card-outline" size={13} color="#A855F7" />
+                        )}
+                        <Text style={[styles.docActionPillText, { color: isLightMode ? '#7E22CE' : '#C084FC' }]}>
+                          {flashcards.length > 0 ? `Flashcard (${flashcards.length})` : 'Flashcard AI'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Rangkum AI */}
+                      <TouchableOpacity
+                        style={[styles.docActionPill, { backgroundColor: theme.card, borderColor: theme.border }, generatingSummary && { opacity: 0.6 }]}
+                        onPress={handleGenerateSummary}
+                        disabled={generatingSummary}
+                      >
+                        {generatingSummary ? (
+                          <ActivityIndicator size="small" color="#FBBF24" style={{ transform: [{ scale: 0.7 }] }} />
+                        ) : (
+                          <Ionicons name="sparkles" size={13} color="#FBBF24" />
+                        )}
+                        <Text style={[styles.docActionPillText, { color: '#FBBF24' }]}>
+                          {summary ? 'Ulang Rangkuman' : 'Rangkum AI'}
+                        </Text>
+                      </TouchableOpacity>
+
+                      {/* Kuis AI with integrated question count selector on mobile */}
+                      <View style={[styles.docActionPillCombo, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                        <TouchableOpacity
+                          style={[styles.docActionPillComboBtn, generatingQuiz && { opacity: 0.6 }]}
+                          onPress={handleGenerateQuiz}
+                          disabled={generatingQuiz}
+                        >
+                          {generatingQuiz ? (
+                            <ActivityIndicator size="small" color="#34D399" style={{ transform: [{ scale: 0.7 }] }} />
+                          ) : (
+                            <Ionicons name="school-outline" size={13} color="#34D399" />
+                          )}
+                          <Text style={[styles.docActionPillText, { color: '#34D399' }]}>
+                            {quizData.length > 0 ? `Kuis (${quizData.length})` : 'Kuis AI'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <View style={[styles.comboDivider, { backgroundColor: theme.border }]} />
+
+                        <View style={styles.comboChipsWrap}>
+                          {QUIZ_COUNT_OPTIONS.map(cnt => (
+                            <TouchableOpacity
+                              key={cnt}
+                              style={[
+                                styles.miniComboChip,
+                                { backgroundColor: theme.cardInner },
+                                quizCount === cnt && { backgroundColor: '#10B981' }
+                              ]}
+                              onPress={() => setQuizCount(cnt)}
+                            >
+                              <Text style={[styles.miniComboChipText, { color: theme.subtext }, quizCount === cnt && { color: '#FFFFFF', fontWeight: '800' }]}>
+                                {cnt}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+
+                      <TouchableOpacity
+                        style={[styles.docActionPill, { backgroundColor: theme.card, borderColor: theme.border }]}
+                        onPress={() => setShowScanModal(true)}
+                      >
+                        <Ionicons name="camera-outline" size={13} color="#818CF8" />
+                        <Text style={[styles.docActionPillText, { color: '#818CF8' }]}>Scan Foto AI</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.docActionPill, { backgroundColor: theme.card, borderColor: theme.border }, exportingPdf && { opacity: 0.6 }]}
+                        onPress={handleExportPdf}
+                        disabled={exportingPdf}
+                      >
+                        {exportingPdf ? (
+                          <ActivityIndicator size="small" color={theme.accentLight} style={{ transform: [{ scale: 0.7 }] }} />
+                        ) : (
+                          <Ionicons name="print-outline" size={13} color={theme.accentLight} />
+                        )}
+                        <Text style={[styles.docActionPillText, { color: theme.accentLight }]}>Cetak PDF</Text>
+                      </TouchableOpacity>
+
+                      {noteId ? (
+                        <TouchableOpacity
+                          style={[styles.docActionPill, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418', borderColor: isLightMode ? '#FECACA' : '#5C1D24' }]}
+                          onPress={handleDeleteCurrentNote}
+                        >
+                          <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                          <Text style={[styles.docActionPillText, { color: '#EF4444' }]}>Hapus</Text>
+                        </TouchableOpacity>
+                      ) : null}
+                    </ScrollView>
+                  </View>
+
+                  {/* Audio Lecture Player for Mobile */}
+                  {showAudioPlayer && (
+                    <AudioLecturePlayer
+                      title={title || 'Materi Catatan'}
+                      summaryText={summary}
+                      fullContentText={content}
+                      onClose={() => setShowAudioPlayer(false)}
+                    />
+                  )}
+
+                  <View style={[styles.documentDivider, { backgroundColor: theme.border }]} />
+
+                  {/* Main Content Article Body */}
+                  <View style={styles.documentBody}>
+                    <MarkdownRenderer content={content || 'Belum ada isi materi catatan.'} fontSize={15.5} textColor={theme.text} />
+                  </View>
+                </View>
+
+                {/* Summary Section (If Generated) */}
+                {summary ? (
+                  <View style={[styles.readerSummaryCard, { backgroundColor: isLightMode ? '#EFF6FF' : '#111A2E', borderColor: isLightMode ? '#BFDBFE' : '#1D3256' }]}>
+                    <View style={styles.summaryTopRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="sparkles" size={16} color={isLightMode ? '#1D4ED8' : theme.accentLight} />
+                        <Text style={[styles.summaryTitle, { color: isLightMode ? '#1D4ED8' : theme.text }]}>Intisari & Rangkuman AI</Text>
+                      </View>
+                      <TouchableOpacity
+                        onPress={handleAppendSummaryToContent}
+                        style={[styles.appendBtn, { backgroundColor: isLightMode ? '#DBEAFE' : theme.accentBg }]}
+                      >
+                        <Text style={[styles.appendBtnText, { color: isLightMode ? '#1D4ED8' : theme.accentLight }]}>+ Sisipkan</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <MarkdownRenderer content={summary} fontSize={14} textColor={isLightMode ? '#1E3A8A' : theme.text} />
+                  </View>
+                ) : null}
+
+                {/* Quiz Section (If Generated) */}
+                {quizData.length > 0 ? (
+                  <View style={[styles.quizCard, { backgroundColor: theme.card, borderColor: isLightMode ? '#A7F3D0' : '#192C23' }]}>
+                    <View style={styles.quizTopRow}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Ionicons name="school" size={18} color={isLightMode ? '#059669' : '#34D399'} />
+                        <Text style={[styles.quizHeaderTitle, { color: isLightMode ? '#059669' : '#34D399' }]}>
+                          Kuis Pemahaman ({quizData.length} Soal)
+                        </Text>
+                      </View>
+                      <View style={styles.quizHeaderActions}>
+                        <TouchableOpacity onPress={handleResetQuizAnswers} style={[styles.miniBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                          <Text style={[styles.miniBtnText, { color: theme.subtext }]}>Reset</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity onPress={handleDeleteQuiz} style={[styles.miniBtnDanger, { backgroundColor: isLightMode ? '#FEE2E2' : '#331215', borderColor: isLightMode ? '#FECACA' : '#591D24' }]}>
+                          <Text style={[styles.miniBtnDangerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+
+                    {/* Score Progress Bar */}
+                    <View style={[styles.scoreBarCard, { backgroundColor: isLightMode ? '#ECFDF5' : '#131D19', borderColor: isLightMode ? '#A7F3D0' : '#1D3B2D' }]}>
+                      <View style={styles.scoreTopInfo}>
+                        <Text style={[styles.scoreLabel, { color: isLightMode ? '#065F46' : theme.subtext }]}>
+                          Progres: {answeredCount} dari {quizData.length} Soal Dijawab
+                        </Text>
+                        <Text style={[styles.scoreValueText, { color: isLightMode ? '#059669' : theme.accentLight }]}>
+                          Skor: {correctCount}/{quizData.length} ({scorePercent}%)
+                        </Text>
+                      </View>
+                      <View style={[styles.progressTrack, { backgroundColor: isLightMode ? '#D1FAE5' : theme.border }]}>
+                        <View style={[styles.progressFill, { backgroundColor: isLightMode ? '#10B981' : theme.primary, width: `${(answeredCount / quizData.length) * 100}%` }]} />
+                      </View>
+                    </View>
+
+                    {/* Questions List */}
+                    {quizData.map((q, qIndex) => {
+                      const isAnswered = selectedAnswers[qIndex] !== undefined;
+                      const chosenIndex = selectedAnswers[qIndex];
+                      const isCorrect = chosenIndex === q.correctIndex;
+
+                      return (
+                        <ShakeView key={qIndex} trigger={shakeQuestionIndex === qIndex}>
+                          <View style={[styles.questionBlock, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                            <Text style={[styles.questionNum, { color: isLightMode ? '#2563EB' : theme.accentLight }]}>Soal {qIndex + 1}:</Text>
+                            <Text style={[styles.questionText, { color: theme.text }]}>{q.question}</Text>
+
+                            <View style={styles.optionsList}>
+                              {q.options.map((opt, optIndex) => {
+                                const isChosen = chosenIndex === optIndex;
+                                const isTheRightAnswer = optIndex === q.correctIndex;
+
+                                return (
+                                  <TouchableOpacity
+                                    key={optIndex}
+                                    style={[
+                                      styles.optionBtn,
+                                      { backgroundColor: theme.card, borderColor: theme.border },
+                                      isChosen && [styles.optionBtnSelected, { backgroundColor: theme.accentBg, borderColor: theme.accent }],
+                                      isAnswered && isTheRightAnswer && [
+                                        styles.optionBtnCorrect,
+                                        { backgroundColor: isLightMode ? '#DCFCE7' : '#0D281E', borderColor: isLightMode ? '#22C55E' : '#10B981' }
+                                      ],
+                                      isAnswered && isChosen && !isTheRightAnswer && [
+                                        styles.optionBtnWrong,
+                                        { backgroundColor: isLightMode ? '#FEE2E2' : '#261214', borderColor: isLightMode ? '#EF4444' : '#EF4444' }
+                                      ],
+                                    ]}
+                                    onPress={() => handleSelectQuizOption(qIndex, optIndex)}
+                                    activeOpacity={0.7}
+                                  >
+                                    <View style={[styles.optionIndexBadge, { backgroundColor: isLightMode ? '#E2E8F0' : theme.cardInner, borderColor: theme.border }]}>
+                                      <Text style={[styles.optionIndexText, { color: theme.text }]}>
+                                        {String.fromCharCode(65 + optIndex)}
+                                      </Text>
+                                    </View>
+                                    <Text
+                                      style={[
+                                        styles.optionText,
+                                        { color: theme.text },
+                                        isAnswered && isTheRightAnswer && [styles.optionTextCorrect, { color: isLightMode ? '#15803D' : '#34D399' }],
+                                        isAnswered && isChosen && !isTheRightAnswer && [styles.optionTextWrong, { color: isLightMode ? '#DC2626' : '#F87171' }],
+                                      ]}
+                                    >
+                                      {opt}
+                                    </Text>
+                                    {isAnswered && isTheRightAnswer && (
+                                      <Ionicons name="checkmark-circle" size={16} color={isLightMode ? '#16A34A' : '#34D399'} style={{ marginLeft: 'auto' }} />
+                                    )}
+                                    {isAnswered && isChosen && !isTheRightAnswer && (
+                                      <Ionicons name="close-circle" size={16} color="#EF4444" style={{ marginLeft: 'auto' }} />
+                                    )}
+                                  </TouchableOpacity>
+                                );
+                              })}
+                            </View>
+
+                            {isAnswered && (
+                              <View style={[
+                                styles.explanationCard,
+                                isCorrect
+                                  ? [styles.explanationCardCorrect, { backgroundColor: isLightMode ? '#DCFCE7' : '#0A2118', borderColor: isLightMode ? '#86EFAC' : '#144634' }]
+                                  : [styles.explanationCardWrong, { backgroundColor: isLightMode ? '#FEF3C7' : '#241D10', borderColor: isLightMode ? '#FCD34D' : '#4D3B16' }]
+                              ]}>
+                                <Ionicons
+                                  name={isCorrect ? 'sparkles' : 'information-circle'}
+                                  size={15}
+                                  color={isCorrect ? (isLightMode ? '#16A34A' : '#34D399') : (isLightMode ? '#D97706' : '#FBBF24')}
+                                />
+                                <Text style={[styles.explanationText, { color: theme.text }]}>
+                                  {q.explanation}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+                        </ShakeView>
+                      );
+                    })}
+                  </View>
+                ) : null}
+              </View>
+            )
           ) : (
 
             /* ========================================================================= */
             /* MODE 2: FULL EDIT / INPUT FORM */
             /* ========================================================================= */
-            <View style={styles.editContainer}>
+            isWide ? (
+              /* ── DESKTOP EDIT 2-COLUMN LAYOUT ── */
+              <View style={styles.desktopTwoColRow}>
+                {/* Left Main Column: Form Inputs */}
+                <View style={styles.desktopLeftMainCol}>
+                  <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
 
-              {/* Draft Status Banner (Auto-Save Indicator & Discard Option) */}
-              {!noteId && (draftSavedTime || hasRestoredDraft) ? (
-                <View style={[styles.draftBannerRow, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F1E19', borderColor: isLightMode ? '#86EFAC' : '#1D4537' }]}>
-                  <View style={[styles.draftStatusPill, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
-                    <Ionicons name="cloud-done" size={13} color="#10B981" />
-                    <Text style={[styles.draftStatusText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
-                      {draftSavedTime ? `Draf tersimpan otomatis (${draftSavedTime})` : 'Draf dipulihkan'}
-                    </Text>
+                    {/* Draft Status Banner */}
+                    {!noteId && (draftSavedTime || hasRestoredDraft) ? (
+                      <View style={[styles.draftBannerRow, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F1E19', borderColor: isLightMode ? '#86EFAC' : '#1D4537' }]}>
+                        <View style={[styles.draftStatusPill, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
+                          <Ionicons name="cloud-done" size={13} color="#10B981" />
+                          <Text style={[styles.draftStatusText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                            {draftSavedTime ? `Draf tersimpan otomatis (${draftSavedTime})` : 'Draf dipulihkan'}
+                          </Text>
+                        </View>
+                        <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2B1215', borderColor: isLightMode ? '#FECACA' : '#571F26' }]}>
+                          <Ionicons name="trash-outline" size={12} color="#EF4444" />
+                          <Text style={[styles.discardDraftText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus Draf</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+
+                    {/* Title Input */}
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Judul Materi Kuliah:</Text>
+                    <TextInput
+                      style={[styles.titleInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                      placeholder="Misal: Struktur Data & Algoritma Tree..."
+                      placeholderTextColor={theme.muted}
+                      value={title}
+                      onChangeText={setTitle}
+                    />
+
+                    {/* Course / Subject Picker */}
+                    <View style={styles.subjectHeaderRow}>
+                      <Text style={[styles.inputLabel, { color: theme.text }]}>Pilih Mata Kuliah:</Text>
+                      <TouchableOpacity
+                        style={[styles.manageSubjBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        onPress={() => setShowSubjectModal(true)}
+                      >
+                        <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.manageSubjBtnText, { color: theme.accentLight }]}>Kelola Matkul</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
+                      {subjects.map(s => {
+                        const isSel = subject.toLowerCase() === s.name.toLowerCase();
+                        return (
+                          <TouchableOpacity
+                            key={s.id}
+                            style={[
+                              styles.subjectChip,
+                              { backgroundColor: theme.cardInner, borderColor: theme.border },
+                              isSel && [styles.subjectChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                            ]}
+                            onPress={() => setSubject(s.name)}
+                          >
+                            <Text style={[styles.subjectChipText, { color: theme.subtext }, isSel && [styles.subjectChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                              {s.name}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </ScrollView>
+
+                    {/* Main Content Input Header */}
+                    <View style={styles.contentHeaderRow}>
+                      <Text style={[styles.inputLabel, { color: theme.text }]}>Isi Catatan Materi:</Text>
+                      
+                      <View style={styles.contentHeaderRightGroup}>
+                        <TouchableOpacity
+                          style={[
+                            styles.scanHeaderQuickBtn,
+                            {
+                              backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
+                              borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
+                            }
+                          ]}
+                          onPress={() => setShowScanModal(true)}
+                        >
+                          <Ionicons name="camera" size={13} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+                          <Text style={[styles.scanHeaderQuickText, { color: isLightMode ? '#4F46E5' : '#A5B4FC' }]}>
+                            Scan Foto AI
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* Write vs Live Preview Toggle */}
+                        <View style={[styles.editModeToggleWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                          <TouchableOpacity
+                            style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
+                            onPress={() => setEditTab('write')}
+                          >
+                            <Ionicons name="create-outline" size={13} color={editTab === 'write' ? theme.accentLight : theme.subtext} />
+                            <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'write' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                              Tulis
+                            </Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
+                            onPress={() => setEditTab('preview')}
+                          >
+                            <Ionicons name="eye-outline" size={13} color={editTab === 'preview' ? theme.accentLight : theme.subtext} />
+                            <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'preview' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                              Pratinjau
+                            </Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    </View>
+
+                    {editTab === 'write' ? (
+                      <>
+                        {/* Formatting Toolbar */}
+                        <View
+                          style={[styles.toolbarWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                          {...(Platform.OS === 'web' ? { onMouseDown: (e: any) => e.preventDefault() } : {})}
+                        >
+                          <View style={styles.toolbarRow}>
+                            <TouchableOpacity
+                              style={[
+                                styles.toolBtn,
+                                {
+                                  backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
+                                  borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
+                                }
+                              ]}
+                              onPress={() => setShowScanModal(true)}
+                            >
+                              <Ionicons name="camera" size={14} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+                            </TouchableOpacity>
+                            <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
+                              <Text style={[styles.toolBtnBold, { color: theme.text }]}>B</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('*', '*', 'teks miring')}>
+                              <Text style={[styles.toolBtnItalic, { color: theme.text }]}>I</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('__', '__', 'teks garis bawah')}>
+                              <Text style={[styles.toolBtnUnderline, { color: theme.text }]}>U</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('~~', '~~', 'teks coret')}>
+                              <Text style={[styles.toolBtnItalic, { textDecorationLine: 'line-through', color: theme.text }]}>S</Text>
+                            </TouchableOpacity>
+                            <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('## ', 'Judul Bagian')}>
+                              <Text style={[styles.toolBtnH3, { color: theme.text }]}>H2</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('### ', 'Judul Sub Bagian')}>
+                              <Text style={[styles.toolBtnH3, { color: theme.text }]}>H3</Text>
+                            </TouchableOpacity>
+                            <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('- ', 'Item list')}>
+                              <Ionicons name="list" size={15} color={theme.text} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('1. ', 'Item numerik')}>
+                              <Text style={[styles.toolBtnH3, { color: theme.text }]}>1.</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('> ', 'Kutipan')}>
+                              <Ionicons name="chatbubble-outline" size={14} color={theme.text} />
+                            </TouchableOpacity>
+                            <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('`', '`', 'kode')}>
+                              <Ionicons name="code-slash" size={15} color={theme.text} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('```\n', '\n```', 'blok kode')}>
+                              <Ionicons name="terminal-outline" size={15} color={theme.text} />
+                            </TouchableOpacity>
+                            <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('---\n', '')}>
+                              <Ionicons name="remove-outline" size={15} color={theme.text} />
+                            </TouchableOpacity>
+                          </View>
+
+                          {/* Font Size Selector */}
+                          <View style={[styles.fontSizeRow, { borderTopColor: theme.border }]}>
+                            <Ionicons name="text-outline" size={13} color={theme.muted} />
+                            <Text style={[styles.fontSizeChipText, { color: theme.muted }]}>Ukuran Teks:</Text>
+                            {FONT_SIZES.map(size => (
+                              <TouchableOpacity
+                                key={size}
+                                style={[
+                                  styles.fontSizeChip,
+                                  { backgroundColor: isLightMode ? '#F1F5F9' : '#1A1F2E' },
+                                  editorFontSize === size && [styles.fontSizeChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                                ]}
+                                onPress={() => setEditorFontSize(size)}
+                              >
+                                <Text style={[styles.fontSizeChipText, { color: theme.subtext }, editorFontSize === size && [styles.fontSizeChipTextActive, { color: theme.accentLight }]]}>
+                                  {size}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+
+                        <TextInput
+                          ref={contentInputRef}
+                          style={[styles.contentInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: editorFontSize + 8, minHeight: contentHeight }]}
+                          placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
+                          placeholderTextColor={theme.muted}
+                          value={content}
+                          onChangeText={setContent}
+                          multiline
+                          textAlignVertical="top"
+                          selection={selection}
+                          onSelectionChange={(e) => {
+                            const sel = e.nativeEvent.selection;
+                            if (sel) {
+                              lastSelectionRef.current = sel;
+                              setSelection(sel);
+                            }
+                          }}
+                          onContentSizeChange={(e) => {
+                            const h = e.nativeEvent.contentSize.height;
+                            if (h > 260) setContentHeight(Math.min(h + 20, 600));
+                            else setContentHeight(260);
+                          }}
+                        />
+                      </>
+                    ) : (
+                      <View style={[styles.livePreviewCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <View style={styles.livePreviewHeader}>
+                          <Ionicons name="sparkles" size={14} color={theme.accentLight} />
+                          <Text style={[styles.livePreviewTitle, { color: theme.text }]}>Pratinjau Hasil Format:</Text>
+                        </View>
+                        {content.trim() ? (
+                          <MarkdownRenderer content={content} fontSize={editorFontSize} textColor={theme.text} />
+                        ) : (
+                          <Text style={[styles.livePreviewEmpty, { color: theme.subtext }]}>
+                            Belum ada teks materi. Ketik catatan di tab "Tulis" untuk melihat hasil formatnya di sini.
+                          </Text>
+                        )}
+                      </View>
+                    )}
+
                   </View>
-                  <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2B1215', borderColor: isLightMode ? '#FECACA' : '#571F26' }]}>
-                    <Ionicons name="trash-outline" size={12} color="#EF4444" />
-                    <Text style={[styles.discardDraftText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus Draf</Text>
-                  </TouchableOpacity>
                 </View>
-              ) : null}
 
-              {/* Title Input */}
-              <Text style={[styles.inputLabel, { color: theme.text }]}>Judul Materi Kuliah:</Text>
-              <TextInput
-                style={[styles.titleInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-                placeholder="Misal: Struktur Data & Algoritma Tree..."
-                placeholderTextColor={theme.muted}
-                value={title}
-                onChangeText={setTitle}
-              />
-
-              {/* Course / Subject Picker */}
-              <View style={styles.subjectHeaderRow}>
-                <Text style={[styles.inputLabel, { color: theme.text }]}>Pilih Mata Kuliah:</Text>
-                <TouchableOpacity
-                  style={[styles.manageSubjBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                  onPress={() => setShowSubjectModal(true)}
-                >
-                  <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
-                  <Text style={[styles.manageSubjBtnText, { color: theme.accentLight }]}>Kelola Matkul</Text>
-                </TouchableOpacity>
-              </View>
-
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
-                {subjects.map(s => {
-                  const isSel = subject.toLowerCase() === s.name.toLowerCase();
-                  return (
+                {/* Right Sidebar Column on Desktop Edit Mode */}
+                <View style={styles.desktopRightSideCol}>
+                  {/* Save Card */}
+                  <View style={[styles.sideStudioCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={styles.sideStudioHeader}>
+                      <Ionicons name="save-outline" size={17} color={theme.accentLight} />
+                      <Text style={[styles.sideStudioTitle, { color: theme.text }]}>Aksi Catatan</Text>
+                    </View>
                     <TouchableOpacity
-                      key={s.id}
-                      style={[
-                        styles.subjectChip,
-                        { backgroundColor: theme.card, borderColor: theme.border },
-                        isSel && [styles.subjectChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                      ]}
-                      onPress={() => setSubject(s.name)}
+                      style={[styles.saveBtnFull, { backgroundColor: theme.primary, marginTop: 4 }, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
+                      onPress={handleSave}
+                      disabled={loading || !title.trim() || !content.trim()}
                     >
-                      <Text style={[styles.subjectChipText, { color: theme.subtext }, isSel && [styles.subjectChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-                        {s.name}
-                      </Text>
+                      {loading ? (
+                        <ActivityIndicator color="#FFFFFF" size="small" />
+                      ) : (
+                        <>
+                          <Ionicons name="save" size={17} color="#FFFFFF" />
+                          <Text style={styles.saveBtnFullText}>Simpan Catatan</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
+                  </View>
 
-              {/* Main Content Input Header with Live Preview Switch & AI Scan */}
-              <View style={styles.contentHeaderRow}>
-                <Text style={[styles.inputLabel, { color: theme.text }]}>Isi Catatan Materi:</Text>
-                
-                <View style={styles.contentHeaderRightGroup}>
-                  <TouchableOpacity
-                    style={[
-                      styles.scanHeaderQuickBtn,
-                      {
-                        backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
-                        borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
-                      }
-                    ]}
-                    onPress={() => setShowScanModal(true)}
-                  >
-                    <Ionicons name="camera" size={13} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
-                    <Text style={[styles.scanHeaderQuickText, { color: isLightMode ? '#4F46E5' : '#A5B4FC' }]}>
-                      Scan Foto AI
+                  {/* AI Study Tools in Edit Mode */}
+                  <View style={[styles.sideStudioCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={styles.sideStudioHeader}>
+                      <Ionicons name="sparkles" size={17} color={theme.accentLight} />
+                      <Text style={[styles.sideStudioTitle, { color: theme.text }]}>Studio AI Pintar</Text>
+                    </View>
+                    <Text style={[styles.sideStudioDesc, { color: theme.subtext }]}>
+                      Fitur AI untuk otomatisasi perangkuman & kuis dari teks catatanmu.
                     </Text>
-                  </TouchableOpacity>
 
-                  {/* Write vs Live Preview Toggle */}
-                  <View style={[styles.editModeToggleWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                    <TouchableOpacity
-                      style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
-                      onPress={() => setEditTab('write')}
-                    >
-                      <Ionicons name="create-outline" size={13} color={editTab === 'write' ? theme.accentLight : theme.subtext} />
-                      <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'write' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-                        Tulis
-                      </Text>
-                    </TouchableOpacity>
+                    <View style={styles.sideStudioBtnList}>
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#EEF2FF' : '#191A3E', borderColor: isLightMode ? '#C7D2FE' : '#313470' }]}
+                        onPress={() => setShowScanModal(true)}
+                      >
+                        <Ionicons name="camera" size={14} color="#818CF8" />
+                        <Text style={[styles.sideStudioBtnText, { color: '#818CF8' }]}>Scan & Rewrite Foto</Text>
+                      </TouchableOpacity>
 
-                    <TouchableOpacity
-                      style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
-                      onPress={() => setEditTab('preview')}
-                    >
-                      <Ionicons name="eye-outline" size={13} color={editTab === 'preview' ? theme.accentLight : theme.subtext} />
-                      <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'preview' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-                        Pratinjau
-                      </Text>
-                    </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#FEF3C7' : '#281E0B', borderColor: isLightMode ? '#FDE68A' : '#533C14' }, generatingSummary && { opacity: 0.7 }]}
+                        onPress={handleGenerateSummary}
+                        disabled={generatingSummary}
+                      >
+                        {generatingSummary ? (
+                          <ActivityIndicator size="small" color="#F59E0B" />
+                        ) : (
+                          <>
+                            <Ionicons name="sparkles" size={14} color="#F59E0B" />
+                            <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#B45309' : '#FBBF24' }]}>Rangkum AI</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#DCFCE7' : '#0E241B', borderColor: isLightMode ? '#86EFAC' : '#1C4A36' }, generatingQuiz && { opacity: 0.7 }]}
+                        onPress={handleGenerateQuiz}
+                        disabled={generatingQuiz}
+                      >
+                        {generatingQuiz ? (
+                          <ActivityIndicator size="small" color="#10B981" />
+                        ) : (
+                          <>
+                            <Ionicons name="school" size={14} color="#10B981" />
+                            <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#15803D' : '#34D399' }]}>Buat Kuis AI</Text>
+                          </>
+                        )}
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+
+                  {/* Stats Card */}
+                  <View style={[styles.sideMetaCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <Text style={[styles.sideMetaCardTitle, { color: theme.text }]}>📊 Statistik Teks</Text>
+                    <View style={styles.sideMetaList}>
+                      <View style={styles.sideMetaRow}>
+                        <Text style={[styles.sideMetaKey, { color: theme.subtext }]}>Total Kata</Text>
+                        <Text style={[styles.sideMetaVal, { color: theme.text }]}>{wordCount} kata</Text>
+                      </View>
+                      <View style={styles.sideMetaRow}>
+                        <Text style={[styles.sideMetaKey, { color: theme.subtext }]}>Total Karakter</Text>
+                        <Text style={[styles.sideMetaVal, { color: theme.text }]}>{charCount} karakter</Text>
+                      </View>
+                      <View style={styles.sideMetaRow}>
+                        <Text style={[styles.sideMetaKey, { color: theme.subtext }]}>Estimasi Baca</Text>
+                        <Text style={[styles.sideMetaVal, { color: theme.text }]}>~{Math.max(1, Math.ceil(wordCount / 160))} mnt</Text>
+                      </View>
+                    </View>
                   </View>
                 </View>
               </View>
+            ) : (
+              /* ── MOBILE SINGLE-COLUMN EDIT LAYOUT ── */
+              <View style={styles.editContainer}>
+                <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                  {/* Draft Status Banner */}
+                  {!noteId && (draftSavedTime || hasRestoredDraft) ? (
+                    <View style={[styles.draftBannerRow, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F1E19', borderColor: isLightMode ? '#86EFAC' : '#1D4537' }]}>
+                      <View style={[styles.draftStatusPill, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
+                        <Ionicons name="cloud-done" size={13} color="#10B981" />
+                        <Text style={[styles.draftStatusText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                          {draftSavedTime ? `Draf tersimpan otomatis (${draftSavedTime})` : 'Draf dipulihkan'}
+                        </Text>
+                      </View>
+                      <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2B1215', borderColor: isLightMode ? '#FECACA' : '#571F26' }]}>
+                        <Ionicons name="trash-outline" size={12} color="#EF4444" />
+                        <Text style={[styles.discardDraftText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus Draf</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : null}
 
-              {editTab === 'write' ? (
-                <>
-                  {/* Formatting Toolbar */}
-                  <View
-                    style={[styles.toolbarWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                    {...(Platform.OS === 'web' ? { onMouseDown: (e: any) => e.preventDefault() } : {})}
-                  >
-                    <View style={styles.toolbarRow}>
+                  {/* Title Input */}
+                  <Text style={[styles.inputLabel, { color: theme.text }]}>Judul Materi Kuliah:</Text>
+                  <TextInput
+                    style={[styles.titleInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                    placeholder="Misal: Struktur Data & Algoritma Tree..."
+                    placeholderTextColor={theme.muted}
+                    value={title}
+                    onChangeText={setTitle}
+                  />
+
+                  {/* Course / Subject Picker */}
+                  <View style={styles.subjectHeaderRow}>
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Pilih Mata Kuliah:</Text>
+                    <TouchableOpacity
+                      style={[styles.manageSubjBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={() => setShowSubjectModal(true)}
+                    >
+                      <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
+                      <Text style={[styles.manageSubjBtnText, { color: theme.accentLight }]}>Kelola Matkul</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.subjectRow}>
+                    {subjects.map(s => {
+                      const isSel = subject.toLowerCase() === s.name.toLowerCase();
+                      return (
+                        <TouchableOpacity
+                          key={s.id}
+                          style={[
+                            styles.subjectChip,
+                            { backgroundColor: theme.cardInner, borderColor: theme.border },
+                            isSel && [styles.subjectChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                          ]}
+                          onPress={() => setSubject(s.name)}
+                        >
+                          <Text style={[styles.subjectChipText, { color: theme.subtext }, isSel && [styles.subjectChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                            {s.name}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </ScrollView>
+
+                  {/* Main Content Input Header */}
+                  <View style={styles.contentHeaderRow}>
+                    <Text style={[styles.inputLabel, { color: theme.text }]}>Isi Catatan Materi:</Text>
+                    
+                    <View style={styles.contentHeaderRightGroup}>
                       <TouchableOpacity
                         style={[
-                          styles.toolBtn,
+                          styles.scanHeaderQuickBtn,
                           {
                             backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
                             borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
@@ -1280,217 +2184,271 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         ]}
                         onPress={() => setShowScanModal(true)}
                       >
-                        <Ionicons name="camera" size={14} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+                        <Ionicons name="camera" size={13} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+                        <Text style={[styles.scanHeaderQuickText, { color: isLightMode ? '#4F46E5' : '#A5B4FC' }]}>
+                          Scan Foto AI
+                        </Text>
                       </TouchableOpacity>
-                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
-                        <Text style={[styles.toolBtnBold, { color: theme.text }]}>B</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('*', '*', 'teks miring')}>
-                        <Text style={[styles.toolBtnItalic, { color: theme.text }]}>I</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('__', '__', 'teks garis bawah')}>
-                        <Text style={[styles.toolBtnUnderline, { color: theme.text }]}>U</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('~~', '~~', 'teks coret')}>
-                        <Text style={[styles.toolBtnItalic, { textDecorationLine: 'line-through', color: theme.text }]}>S</Text>
-                      </TouchableOpacity>
-                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('## ', 'Judul Bagian')}>
-                        <Text style={[styles.toolBtnH3, { color: theme.text }]}>H2</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('### ', 'Judul Sub Bagian')}>
-                        <Text style={[styles.toolBtnH3, { color: theme.text }]}>H3</Text>
-                      </TouchableOpacity>
-                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('- ', 'Item list')}>
-                        <Ionicons name="list" size={15} color={theme.text} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('1. ', 'Item numerik')}>
-                        <Text style={[styles.toolBtnH3, { color: theme.text }]}>1.</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('> ', 'Kutipan')}>
-                        <Ionicons name="chatbubble-outline" size={14} color={theme.text} />
-                      </TouchableOpacity>
-                      <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('`', '`', 'kode')}>
-                        <Ionicons name="code-slash" size={15} color={theme.text} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('```\n', '\n```', 'blok kode')}>
-                        <Ionicons name="terminal-outline" size={15} color={theme.text} />
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('---\n', '')}>
-                        <Ionicons name="remove-outline" size={15} color={theme.text} />
-                      </TouchableOpacity>
-                    </View>
 
-                    {/* Font Size Selector */}
-                    <View style={[styles.fontSizeRow, { borderTopColor: theme.border }]}>
-                      <Ionicons name="text-outline" size={13} color={theme.muted} />
-                      <Text style={[styles.fontSizeChipText, { color: theme.muted }]}>Ukuran Teks:</Text>
-                      {FONT_SIZES.map(size => (
+                      {/* Write vs Live Preview Toggle */}
+                      <View style={[styles.editModeToggleWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                         <TouchableOpacity
-                          key={size}
-                          style={[
-                            styles.fontSizeChip,
-                            { backgroundColor: isLightMode ? '#F1F5F9' : '#1A1F2E' },
-                            editorFontSize === size && [styles.fontSizeChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                          ]}
-                          onPress={() => setEditorFontSize(size)}
+                          style={[styles.editToggleBtn, editTab === 'write' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
+                          onPress={() => setEditTab('write')}
                         >
-                          <Text style={[styles.fontSizeChipText, { color: theme.subtext }, editorFontSize === size && [styles.fontSizeChipTextActive, { color: theme.accentLight }]]}>
-                            {size}
+                          <Ionicons name="create-outline" size={13} color={editTab === 'write' ? theme.accentLight : theme.subtext} />
+                          <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'write' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                            Tulis
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[styles.editToggleBtn, editTab === 'preview' && [styles.editToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]]}
+                          onPress={() => setEditTab('preview')}
+                        >
+                          <Ionicons name="eye-outline" size={13} color={editTab === 'preview' ? theme.accentLight : theme.subtext} />
+                          <Text style={[styles.editToggleText, { color: theme.subtext }, editTab === 'preview' && [styles.editToggleTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                            Pratinjau
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  </View>
+
+                  {editTab === 'write' ? (
+                    <>
+                      {/* Formatting Toolbar */}
+                      <View
+                        style={[styles.toolbarWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        {...(Platform.OS === 'web' ? { onMouseDown: (e: any) => e.preventDefault() } : {})}
+                      >
+                        <View style={styles.toolbarRow}>
+                          <TouchableOpacity
+                            style={[
+                              styles.toolBtn,
+                              {
+                                backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B',
+                                borderColor: isLightMode ? '#C7D2FE' : '#3730A3',
+                              }
+                            ]}
+                            onPress={() => setShowScanModal(true)}
+                          >
+                            <Ionicons name="camera" size={14} color={isLightMode ? '#4F46E5' : '#A5B4FC'} />
+                          </TouchableOpacity>
+                          <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('**', '**', 'teks tebal')}>
+                            <Text style={[styles.toolBtnBold, { color: theme.text }]}>B</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('*', '*', 'teks miring')}>
+                            <Text style={[styles.toolBtnItalic, { color: theme.text }]}>I</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('__', '__', 'teks garis bawah')}>
+                            <Text style={[styles.toolBtnUnderline, { color: theme.text }]}>U</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('~~', '~~', 'teks coret')}>
+                            <Text style={[styles.toolBtnItalic, { textDecorationLine: 'line-through', color: theme.text }]}>S</Text>
+                          </TouchableOpacity>
+                          <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('## ', 'Judul Bagian')}>
+                            <Text style={[styles.toolBtnH3, { color: theme.text }]}>H2</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('### ', 'Judul Sub Bagian')}>
+                            <Text style={[styles.toolBtnH3, { color: theme.text }]}>H3</Text>
+                          </TouchableOpacity>
+                          <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('- ', 'Item list')}>
+                            <Ionicons name="list" size={15} color={theme.text} />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('1. ', 'Item numerik')}>
+                            <Text style={[styles.toolBtnH3, { color: theme.text }]}>1.</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('> ', 'Kutipan')}>
+                            <Ionicons name="chatbubble-outline" size={14} color={theme.text} />
+                          </TouchableOpacity>
+                          <View style={[styles.toolDivider, { backgroundColor: theme.border }]} />
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('`', '`', 'kode')}>
+                            <Ionicons name="code-slash" size={15} color={theme.text} />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => wrapSelection('```\n', '\n```', 'blok kode')}>
+                            <Ionicons name="terminal-outline" size={15} color={theme.text} />
+                          </TouchableOpacity>
+                          <TouchableOpacity style={[styles.toolBtn, { backgroundColor: isLightMode ? '#E2E8F0' : '#1A1F2E' }]} onPress={() => prefixLine('---\n', '')}>
+                            <Ionicons name="remove-outline" size={15} color={theme.text} />
+                          </TouchableOpacity>
+                        </View>
+
+                        {/* Font Size Selector */}
+                        <View style={[styles.fontSizeRow, { borderTopColor: theme.border }]}>
+                          <Ionicons name="text-outline" size={13} color={theme.muted} />
+                          <Text style={[styles.fontSizeChipText, { color: theme.muted }]}>Ukuran Teks:</Text>
+                          {FONT_SIZES.map(size => (
+                            <TouchableOpacity
+                              key={size}
+                              style={[
+                                styles.fontSizeChip,
+                                { backgroundColor: isLightMode ? '#F1F5F9' : '#1A1F2E' },
+                                editorFontSize === size && [styles.fontSizeChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                              ]}
+                              onPress={() => setEditorFontSize(size)}
+                            >
+                              <Text style={[styles.fontSizeChipText, { color: theme.subtext }, editorFontSize === size && [styles.fontSizeChipTextActive, { color: theme.accentLight }]]}>
+                                {size}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      </View>
+
+                      <TextInput
+                        ref={contentInputRef}
+                        style={[styles.contentInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: editorFontSize + 8, minHeight: contentHeight }]}
+                        placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
+                        placeholderTextColor={theme.muted}
+                        value={content}
+                        onChangeText={setContent}
+                        multiline
+                        textAlignVertical="top"
+                        selection={selection}
+                        onSelectionChange={(e) => {
+                          const sel = e.nativeEvent.selection;
+                          if (sel) {
+                            lastSelectionRef.current = sel;
+                            setSelection(sel);
+                          }
+                        }}
+                        onContentSizeChange={(e) => {
+                          const h = e.nativeEvent.contentSize.height;
+                          if (h > 260) setContentHeight(Math.min(h + 20, 600));
+                          else setContentHeight(260);
+                        }}
+                      />
+                    </>
+                  ) : (
+                    <View style={[styles.livePreviewCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                      <View style={styles.livePreviewHeader}>
+                        <Ionicons name="sparkles" size={14} color={theme.accentLight} />
+                        <Text style={[styles.livePreviewTitle, { color: theme.text }]}>Pratinjau Hasil Format:</Text>
+                      </View>
+                      {content.trim() ? (
+                        <MarkdownRenderer content={content} fontSize={editorFontSize} textColor={theme.text} />
+                      ) : (
+                        <Text style={[styles.livePreviewEmpty, { color: theme.subtext }]}>
+                          Belum ada teks materi. Ketik catatan di tab "Tulis" untuk melihat hasil formatnya di sini.
+                        </Text>
+                      )}
+                    </View>
+                  )}
+
+                </View>
+
+                {/* Word & Char Count */}
+                <View style={styles.statsRow}>
+                  <View style={styles.statItem}>
+                    <Ionicons name="document-text-outline" size={12} color={theme.muted} />
+                    <Text style={[styles.statText, { color: theme.muted }]}>{wordCount} kata</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <Ionicons name="text-outline" size={12} color={theme.muted} />
+                    <Text style={[styles.statText, { color: theme.muted }]}>{charCount} karakter</Text>
+                  </View>
+                  <View style={styles.statItem}>
+                    <Ionicons name="time-outline" size={12} color={theme.muted} />
+                    <Text style={[styles.statText, { color: theme.muted }]}>~{Math.max(1, Math.ceil(wordCount / 160))} mnt baca</Text>
+                  </View>
+                </View>
+
+                {/* AI Study Tools in Mobile Edit Mode */}
+                <View style={[styles.aiStudioCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
+                    <Ionicons name="sparkles" size={16} color={theme.accentLight} />
+                    <Text style={[styles.aiStudioTitle, { color: theme.text }]}>Studio Fitur AI Pintar</Text>
+                  </View>
+                  <Text style={[styles.aiStudioSub, { color: theme.subtext }]}>
+                    Otomatisasi perangkuman intisari ujian & kuis latihan interaktif dengan AI Gemini.
+                  </Text>
+
+                  {/* Mobile Quiz Question Count Selector */}
+                  <View style={[styles.mobileQuizSelectorRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <Text style={[styles.mobileQuizSelectorLabel, { color: theme.subtext }]}>Jumlah Soal Kuis:</Text>
+                    <View style={{ flexDirection: 'row', gap: 6 }}>
+                      {QUIZ_COUNT_OPTIONS.map(cnt => (
+                        <TouchableOpacity
+                          key={cnt}
+                          style={[
+                            styles.mobileQuizChip,
+                            { backgroundColor: theme.card, borderColor: theme.border },
+                            quizCount === cnt && { backgroundColor: '#10B981', borderColor: '#10B981' }
+                          ]}
+                          onPress={() => setQuizCount(cnt)}
+                        >
+                          <Text style={[styles.mobileQuizChipText, { color: theme.subtext }, quizCount === cnt && { color: '#FFFFFF', fontWeight: '800' }]}>
+                            {cnt} Soal
                           </Text>
                         </TouchableOpacity>
                       ))}
                     </View>
                   </View>
 
-                  <TextInput
-                    ref={contentInputRef}
-                    style={[styles.contentInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: editorFontSize + 8, minHeight: contentHeight }]}
-                    placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
-                    placeholderTextColor={theme.muted}
-                    value={content}
-                    onChangeText={setContent}
-                    multiline
-                    textAlignVertical="top"
-                    selection={selection}
-                    onSelectionChange={(e) => {
-                      const sel = e.nativeEvent.selection;
-                      if (sel) {
-                        lastSelectionRef.current = sel;
-                        setSelection(sel);
-                      }
-                    }}
-                    onContentSizeChange={(e) => {
-                      const h = e.nativeEvent.contentSize.height;
-                      if (h > 260) setContentHeight(Math.min(h + 20, 600));
-                      else setContentHeight(260);
-                    }}
-                  />
-                </>
-              ) : (
-                <View style={[styles.livePreviewCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={styles.livePreviewHeader}>
-                    <Ionicons name="sparkles" size={14} color={theme.accentLight} />
-                    <Text style={[styles.livePreviewTitle, { color: theme.text }]}>Pratinjau Hasil Format:</Text>
+                  <View style={styles.aiBtnRow}>
+                    <TouchableOpacity
+                      style={[styles.aiToolBtnScan, { backgroundColor: isLightMode ? '#4F46E5' : '#4338CA' }]}
+                      onPress={() => setShowScanModal(true)}
+                    >
+                      <Ionicons name="camera" size={14} color="#FFFFFF" />
+                      <Text style={styles.aiToolBtnText}>Scan & Rewrite Foto</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.aiToolBtn, { backgroundColor: theme.primary }, generatingSummary && { opacity: 0.7 }]}
+                      onPress={handleGenerateSummary}
+                      disabled={generatingSummary}
+                    >
+                      {generatingSummary ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                          <Text style={styles.aiToolBtnText}>Rangkum AI</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.aiToolBtnQuiz, { backgroundColor: isLightMode ? '#059669' : '#065F46' }, generatingQuiz && { opacity: 0.7 }]}
+                      onPress={handleGenerateQuiz}
+                      disabled={generatingQuiz}
+                    >
+                      {generatingQuiz ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <Ionicons name="school" size={14} color="#FFFFFF" />
+                          <Text style={styles.aiToolBtnText}>Kuis ({quizCount} Soal)</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
                   </View>
-                  {content.trim() ? (
-                    <MarkdownRenderer content={content} fontSize={editorFontSize} textColor={theme.text} />
+                </View>
+
+                {/* Bottom Save Action Button on Mobile */}
+                <TouchableOpacity
+                  style={[styles.saveBtnFull, { backgroundColor: theme.primary }, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
+                  onPress={handleSave}
+                  disabled={loading || !title.trim() || !content.trim()}
+                >
+                  {loading ? (
+                    <ActivityIndicator color="#FFFFFF" size="small" />
                   ) : (
-                    <Text style={[styles.livePreviewEmpty, { color: theme.subtext }]}>
-                      Belum ada teks materi. Ketik catatan di tab "Tulis" untuk melihat hasil formatnya di sini.
-                    </Text>
+                    <>
+                      <Ionicons name="save" size={17} color="#FFFFFF" />
+                      <Text style={styles.saveBtnFullText}>Simpan Catatan Kuliah</Text>
+                    </>
                   )}
-                </View>
-              )}
+                </TouchableOpacity>
 
-              {/* Word & Char Count */}
-              <View style={styles.statsRow}>
-                <View style={styles.statItem}>
-                  <Ionicons name="document-text-outline" size={12} color={theme.muted} />
-                  <Text style={[styles.statText, { color: theme.muted }]}>{wordCount} kata</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Ionicons name="text-outline" size={12} color={theme.muted} />
-                  <Text style={[styles.statText, { color: theme.muted }]}>{charCount} karakter</Text>
-                </View>
-                <View style={styles.statItem}>
-                  <Ionicons name="time-outline" size={12} color={theme.muted} />
-                  <Text style={[styles.statText, { color: theme.muted }]}>~{Math.max(1, Math.ceil(wordCount / 160))} mnt baca</Text>
-                </View>
               </View>
-
-              {/* AI Study Tools in Edit Mode */}
-              <View style={[styles.aiStudioCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 }}>
-                  <Ionicons name="sparkles" size={16} color={theme.accentLight} />
-                  <Text style={[styles.aiStudioTitle, { color: theme.text }]}>Studio Fitur AI Pintar</Text>
-                </View>
-                <Text style={[styles.aiStudioSub, { color: theme.subtext }]}>
-                  Otomatisasi perangkuman intisari ujian & kuis latihan interaktif dengan AI Gemini.
-                </Text>
-
-                <View style={styles.aiBtnRow}>
-                  <TouchableOpacity
-                    style={[styles.aiToolBtnScan, { backgroundColor: isLightMode ? '#4F46E5' : '#4338CA' }]}
-                    onPress={() => setShowScanModal(true)}
-                  >
-                    <Ionicons name="camera" size={14} color="#FFFFFF" />
-                    <Text style={styles.aiToolBtnText}>Scan & Rewrite Foto</Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[styles.aiToolBtn, { backgroundColor: theme.primary }, generatingSummary && { opacity: 0.7 }]}
-                    onPress={handleGenerateSummary}
-                    disabled={generatingSummary}
-                  >
-                    {generatingSummary ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                        <Text style={styles.aiToolBtnText}>Rangkum AI</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-
-                  {/* Quiz Count Selector */}
-                  <View style={[styles.quizCountSelector, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                    {QUIZ_COUNT_OPTIONS.map(cnt => (
-                      <TouchableOpacity
-                        key={cnt}
-                        style={[
-                          styles.cntChip,
-                          { backgroundColor: theme.cardInner },
-                          quizCount === cnt && [styles.cntChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                        ]}
-                        onPress={() => setQuizCount(cnt)}
-                      >
-                        <Text style={[styles.cntChipText, { color: theme.subtext }, quizCount === cnt && [styles.cntChipTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-                          {cnt}
-                        </Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-
-                  <TouchableOpacity
-                    style={[styles.aiToolBtnQuiz, { backgroundColor: isLightMode ? '#059669' : '#065F46' }, generatingQuiz && { opacity: 0.7 }]}
-                    onPress={handleGenerateQuiz}
-                    disabled={generatingQuiz}
-                  >
-                    {generatingQuiz ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <>
-                        <Ionicons name="school" size={14} color="#FFFFFF" />
-                        <Text style={styles.aiToolBtnText}>Kuis</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
-                </View>
-              </View>
-
-              {/* Bottom Save Action Button */}
-              <TouchableOpacity
-                style={[styles.saveBtnFull, { backgroundColor: theme.primary }, (!title.trim() || !content.trim()) && { opacity: 0.5 }]}
-                onPress={handleSave}
-                disabled={loading || !title.trim() || !content.trim()}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <>
-                    <Ionicons name="save" size={17} color="#FFFFFF" />
-                    <Text style={styles.saveBtnFullText}>Simpan Catatan Kuliah</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-
-            </View>
+            )
           )}
-
         </View>
       </ScrollView>
 
@@ -1508,6 +2466,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         onApply={handleApplyScanResult}
         hasExistingContent={!!content.trim()}
         availableSubjects={subjects}
+      />
+
+      {/* 3D Interactive Flashcards Modal */}
+      <Flashcard3DModal
+        visible={showFlashcardModal}
+        onClose={() => setShowFlashcardModal(false)}
+        title={title || 'Materi Catatan'}
+        flashcards={flashcards}
+        onSaveFlashcards={handleSaveFlashcardsState}
       />
     </SafeAreaView>
   );
@@ -1612,15 +2579,80 @@ const styles = StyleSheet.create({
     padding: 16,
   },
   innerContentWide: {
-    maxWidth: 860,
+    maxWidth: 1380,
     width: '100%',
     alignSelf: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 20,
+  },
+  /* ========================================================================= */
+  /* DOCUMENT CANVAS / PAPER STYLES */
+  /* ========================================================================= */
+  documentPaper: {
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 24,
+    gap: 16,
+    minHeight: 460,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.2,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  documentMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  documentTitle: {
+    fontSize: 26,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+    lineHeight: 34,
+  },
+  documentActionBar: {
+    borderRadius: 12,
+    borderWidth: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 6,
+  },
+  documentActionScroll: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  docActionPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    flexShrink: 0,
+  },
+  docActionPillText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  documentDivider: {
+    height: 1,
+    width: '100%',
+    marginVertical: 2,
+    opacity: 0.6,
+  },
+  documentBody: {
+    minHeight: 280,
+    paddingVertical: 4,
   },
   /* ========================================================================= */
   /* READER VIEW STYLES */
   /* ========================================================================= */
   readerContainer: {
-    gap: 14,
+    gap: 16,
   },
   readerMetaRow: {
     flexDirection: 'row',
@@ -1633,15 +2665,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#16233B',
     paddingHorizontal: 10,
     paddingVertical: 4,
     borderRadius: 7,
-    borderWidth: 1,
-    borderColor: '#253856',
   },
   readerSubjectText: {
-    color: '#60A5FA',
     fontSize: 12,
     fontWeight: '700',
   },
@@ -1654,75 +2682,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: '#141822',
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: 6,
+    borderWidth: 1,
   },
   statPillText: {
-    color: '#9CA3AF',
     fontSize: 11,
     fontWeight: '500',
-  },
-  readerTitle: {
-    fontSize: 22,
-    fontWeight: '800',
-    color: '#F9FAFB',
-    lineHeight: 30,
-    letterSpacing: -0.3,
-  },
-  readerDateRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-  readerDateText: {
-    color: '#6B7280',
-    fontSize: 12,
-  },
-  readerActionBarWrap: {
-    borderRadius: 12,
-    borderWidth: 1,
-    paddingVertical: 6,
-    paddingHorizontal: 6,
-    marginBottom: 6,
-  },
-  readerActionBarScroll: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 2,
-  },
-  readerActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    flexShrink: 0,
-  },
-  readerActionBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  readerActionDeleteBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 11,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-    flexShrink: 0,
-  },
-  readerArticleCard: {
-    backgroundColor: '#0E1117',
-    borderRadius: 14,
-    padding: 18,
-    borderWidth: 1,
-    borderColor: '#1C2330',
   },
   readerArticleContent: {
     color: '#E2E8F0',
@@ -2351,5 +3318,166 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
     flex: 1,
+  },
+  /* ========================================================================= */
+  /* DESKTOP 2-COLUMN LAYOUT STYLES */
+  /* ========================================================================= */
+  desktopTwoColRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 24,
+    width: '100%',
+  },
+  desktopLeftMainCol: {
+    flex: 1,
+    gap: 18,
+    minWidth: 0,
+  },
+  desktopRightSideCol: {
+    width: 360,
+    gap: 16,
+    flexShrink: 0,
+  },
+  sideStudioCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 18,
+    gap: 12,
+  },
+  sideStudioHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  sideStudioTitle: {
+    fontSize: 15,
+    fontWeight: '800',
+  },
+  sideStudioDesc: {
+    fontSize: 12,
+    lineHeight: 18,
+  },
+  sideStudioBtnList: {
+    gap: 8,
+  },
+  sideStudioBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  sideStudioBtnText: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  sideQuizSelectorBox: {
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 10,
+    gap: 8,
+  },
+  sideQuizLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sideQuizChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  sideQuizChipText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  sideMetaCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 16,
+    gap: 12,
+  },
+  sideMetaCardTitle: {
+    fontSize: 13.5,
+    fontWeight: '800',
+  },
+  sideMetaList: {
+    gap: 8,
+  },
+  sideMetaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  sideMetaKey: {
+    fontSize: 12,
+  },
+  sideMetaVal: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  /* ========================================================================= */
+  /* MOBILE QUIZ SELECTOR STYLES */
+  /* ========================================================================= */
+  docActionPillCombo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingLeft: 10,
+    paddingRight: 4,
+    paddingVertical: 4,
+    gap: 6,
+  },
+  docActionPillComboBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  comboDivider: {
+    width: 1,
+    height: 16,
+    opacity: 0.5,
+  },
+  comboChipsWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  miniComboChip: {
+    paddingHorizontal: 6,
+    paddingVertical: 3,
+    borderRadius: 5,
+  },
+  miniComboChipText: {
+    fontSize: 10.5,
+    fontWeight: '700',
+  },
+  mobileQuizSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 10,
+  },
+  mobileQuizSelectorLabel: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  mobileQuizChip: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  mobileQuizChipText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
 });

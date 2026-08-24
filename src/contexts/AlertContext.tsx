@@ -1,17 +1,19 @@
 import React, { createContext, useContext, useState, useCallback, ReactNode } from 'react';
 import {
   Modal, View, Text, TouchableOpacity, StyleSheet,
-  TouchableWithoutFeedback, Animated, Platform
+  TouchableWithoutFeedback, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme, isColorLight } from './ThemeContext';
 
 export type AlertType = 'info' | 'success' | 'warning' | 'danger' | 'streak';
 
-interface AlertOptions {
+export interface AlertOptions {
   type?: AlertType;
   confirmText?: string;
   cancelText?: string;
   isDestructive?: boolean;
+  onClose?: () => void;
 }
 
 interface AlertContextType {
@@ -42,6 +44,7 @@ export function getGlobalAlert() {
 }
 
 export function AlertProvider({ children }: { children: ReactNode }) {
+  const { theme, isLightMode } = useTheme();
   const [visible, setVisible] = useState(false);
   const [title, setTitle] = useState('');
   const [message, setMessage] = useState('');
@@ -50,14 +53,27 @@ export function AlertProvider({ children }: { children: ReactNode }) {
   const [confirmText, setConfirmText] = useState('OK');
   const [cancelText, setCancelText] = useState('Batal');
   const [onConfirmCallback, setOnConfirmCallback] = useState<(() => void | Promise<void>) | null>(null);
+  const [onCloseCallback, setOnCloseCallback] = useState<(() => void) | null>(null);
+
+  const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
   const showAlert = useCallback((t: string, m: string, options?: AlertOptions) => {
     setTitle(t);
     setMessage(m);
-    setType(options?.type || (t.includes('🔥') ? 'streak' : t.toLowerCase().includes('gagal') || t.toLowerCase().includes('error') ? 'danger' : t.toLowerCase().includes('sukses') ? 'success' : 'info'));
+    
+    const lowerTitle = t.toLowerCase();
+    const isStreak = t.includes('🔥') || lowerTitle.includes('streak');
+    const isDanger = lowerTitle.includes('gagal') || lowerTitle.includes('error') || lowerTitle.includes('hapus') || lowerTitle.includes('batal');
+    const isSuccess = lowerTitle.includes('sukses') || lowerTitle.includes('berhasil') || lowerTitle.includes('selesai') || lowerTitle.includes('siap') || lowerTitle.includes('disimpan');
+    const isWarning = lowerTitle.includes('peringatan') || lowerTitle.includes('perhatian') || lowerTitle.includes('warning') || lowerTitle.includes('belum');
+
+    const detectedType: AlertType = isStreak ? 'streak' : isDanger ? 'danger' : isSuccess ? 'success' : isWarning ? 'warning' : 'info';
+
+    setType(options?.type || detectedType);
     setIsConfirm(false);
     setConfirmText(options?.confirmText || 'Tutup');
     setOnConfirmCallback(null);
+    setOnCloseCallback(() => options?.onClose || null);
     setVisible(true);
   }, []);
 
@@ -76,6 +92,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     setConfirmText(cText);
     setCancelText(canText);
     setOnConfirmCallback(() => onConfirm);
+    setOnCloseCallback(null);
     setVisible(true);
   }, []);
 
@@ -84,6 +101,10 @@ export function AlertProvider({ children }: { children: ReactNode }) {
 
   const handleClose = () => {
     setVisible(false);
+    if (onCloseCallback) {
+      onCloseCallback();
+      setOnCloseCallback(null);
+    }
   };
 
   const handleConfirm = async () => {
@@ -91,20 +112,49 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     if (onConfirmCallback) {
       await onConfirmCallback();
     }
+    if (onCloseCallback) {
+      onCloseCallback();
+      setOnCloseCallback(null);
+    }
   };
 
   const getIcon = () => {
     switch (type) {
       case 'streak':
-        return { name: 'flame' as const, color: '#F59E0B', bg: '#2B1E12' };
+        return {
+          name: 'flame' as const,
+          color: isLightMode ? '#EA580C' : '#FB923C',
+          bg: isLightMode ? '#FFF7ED' : '#2D1B0E',
+          border: isLightMode ? '#FED7AA' : '#542E14'
+        };
       case 'success':
-        return { name: 'checkmark-circle' as const, color: '#10B981', bg: '#0F261E' };
+        return {
+          name: 'checkmark-circle' as const,
+          color: isLightMode ? '#059669' : '#34D399',
+          bg: isLightMode ? '#ECFDF5' : '#0F261E',
+          border: isLightMode ? '#A7F3D0' : '#1C4A3A'
+        };
       case 'warning':
-        return { name: 'warning' as const, color: '#F59E0B', bg: '#2B2012' };
+        return {
+          name: 'warning' as const,
+          color: isLightMode ? '#D97706' : '#FBBF24',
+          bg: isLightMode ? '#FFFBEB' : '#2B2012',
+          border: isLightMode ? '#FDE68A' : '#4C3B18'
+        };
       case 'danger':
-        return { name: 'alert-circle' as const, color: '#EF4444', bg: '#2D1619' };
+        return {
+          name: 'alert-circle' as const,
+          color: isLightMode ? '#DC2626' : '#EF4444',
+          bg: isLightMode ? '#FEF2F2' : '#2D1619',
+          border: isLightMode ? '#FECACA' : '#571F26'
+        };
       default:
-        return { name: 'information-circle' as const, color: '#3B82F6', bg: '#131F33' };
+        return {
+          name: 'information-circle' as const,
+          color: theme.accentLight,
+          bg: theme.accentBg,
+          border: theme.border
+        };
     }
   };
 
@@ -114,7 +164,7 @@ export function AlertProvider({ children }: { children: ReactNode }) {
     <AlertContext.Provider value={{ showAlert, confirmAction }}>
       {children}
 
-      {/* Custom Sleek Modal Dialog */}
+      {/* Custom Sleek Themed Modal Dialog */}
       <Modal
         visible={visible}
         transparent
@@ -122,36 +172,55 @@ export function AlertProvider({ children }: { children: ReactNode }) {
         onRequestClose={handleClose}
       >
         <TouchableWithoutFeedback onPress={handleClose}>
-          <View style={styles.overlay}>
+          <View style={[styles.overlay, { backgroundColor: isLightMode ? 'rgba(15, 23, 42, 0.45)' : 'rgba(3, 7, 18, 0.75)' }]}>
             <TouchableWithoutFeedback>
-              <View style={styles.card}>
+              <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 
                 {/* Icon Circle */}
-                <View style={[styles.iconWrap, { backgroundColor: iconInfo.bg }]}>
+                <View style={[styles.iconWrap, { backgroundColor: iconInfo.bg, borderColor: iconInfo.border }]}>
                   <Ionicons name={iconInfo.name} size={28} color={iconInfo.color} />
                 </View>
 
                 {/* Title & Message */}
-                <Text style={styles.titleText}>{title}</Text>
-                <Text style={styles.messageText}>{message}</Text>
+                <Text style={[styles.titleText, { color: theme.text }]}>{title}</Text>
+                <Text
+                  style={[
+                    styles.messageText,
+                    { color: theme.subtext },
+                    (message.includes('\n') || message.includes('•')) && [styles.messageTextLeft, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }],
+                  ]}
+                >
+                  {message}
+                </Text>
 
                 {/* Action Buttons */}
                 <View style={styles.btnRow}>
                   {isConfirm && (
-                    <TouchableOpacity style={styles.cancelBtn} onPress={handleClose}>
-                      <Text style={styles.cancelBtnText}>{cancelText}</Text>
+                    <TouchableOpacity
+                      style={[styles.cancelBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={handleClose}
+                    >
+                      <Text style={[styles.cancelBtnText, { color: theme.subtext }]}>{cancelText}</Text>
                     </TouchableOpacity>
                   )}
                   
                   <TouchableOpacity
                     style={[
                       styles.confirmBtn,
-                      type === 'danger' && styles.confirmBtnDanger,
+                      { backgroundColor: theme.primary, borderColor: theme.accent },
+                      type === 'danger' && { backgroundColor: isLightMode ? '#DC2626' : '#991B1B', borderColor: isLightMode ? '#EF4444' : '#DC2626' },
                       !isConfirm && styles.confirmBtnFull,
                     ]}
                     onPress={isConfirm ? handleConfirm : handleClose}
                   >
-                    <Text style={styles.confirmBtnText}>{confirmText}</Text>
+                    <Text
+                      style={[
+                        styles.confirmBtnText,
+                        { color: type === 'danger' ? '#FFFFFF' : primaryBtnTextColor }
+                      ]}
+                    >
+                      {confirmText}
+                    </Text>
                   </TouchableOpacity>
                 </View>
 
@@ -175,7 +244,6 @@ export function useAlert() {
 const styles = StyleSheet.create({
   overlay: {
     flex: 1,
-    backgroundColor: 'rgba(5, 7, 10, 0.75)',
     justifyContent: 'center',
     alignItems: 'center',
     paddingHorizontal: 24,
@@ -183,15 +251,13 @@ const styles = StyleSheet.create({
   card: {
     width: '100%',
     maxWidth: 380,
-    backgroundColor: '#141822',
     borderRadius: 20,
     padding: 24,
     borderWidth: 1,
-    borderColor: '#202634',
     alignItems: 'center',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 16 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.35,
     shadowRadius: 30,
     elevation: 20,
   },
@@ -203,22 +269,27 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 16,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
   },
   titleText: {
-    color: '#F3F4F6',
     fontSize: 17,
-    fontWeight: '700',
+    fontWeight: '800',
     textAlign: 'center',
     marginBottom: 8,
   },
   messageText: {
-    color: '#9CA3AF',
     fontSize: 13,
     lineHeight: 20,
     textAlign: 'center',
     marginBottom: 22,
     paddingHorizontal: 6,
+  },
+  messageTextLeft: {
+    textAlign: 'left',
+    alignSelf: 'stretch',
+    lineHeight: 21,
+    padding: 14,
+    borderRadius: 12,
+    borderWidth: 1,
   },
   btnRow: {
     flexDirection: 'row',
@@ -227,37 +298,27 @@ const styles = StyleSheet.create({
   },
   cancelBtn: {
     flex: 1,
-    backgroundColor: '#1A1F2B',
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#262E3E',
   },
   cancelBtnText: {
-    color: '#9CA3AF',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   confirmBtn: {
     flex: 1,
-    backgroundColor: '#2563EB',
     borderRadius: 12,
     paddingVertical: 12,
     alignItems: 'center',
-  },
-  confirmBtnDanger: {
-    backgroundColor: '#DC2626',
+    borderWidth: 1,
   },
   confirmBtnFull: {
     flex: 1,
-    backgroundColor: '#1E293B',
-    borderWidth: 1,
-    borderColor: '#3B82F6',
   },
   confirmBtnText: {
-    color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

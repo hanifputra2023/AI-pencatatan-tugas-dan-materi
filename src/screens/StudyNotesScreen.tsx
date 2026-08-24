@@ -19,6 +19,13 @@ import SubjectManagerModal from '../components/SubjectManagerModal';
 import DateTimePickerModal from '../components/DateTimePickerModal';
 import TaskWorkpadModal from '../components/TaskWorkpadModal';
 import { exportTaskToPdf, exportAllTasksSummaryToPdf, exportMultipleNotesToPdf } from '../lib/pdfExporter';
+import {
+  XpPopup,
+  ConfettiBurst,
+  FloatingBadge,
+  FadeSlideIn,
+  StreakFlamePulse,
+} from '../components/DuolingoAnimations';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseDeadline, getDeadlinePresets } from '../lib/dateUtils';
 import {
@@ -210,6 +217,11 @@ export default function StudyNotesScreen() {
   const pomoTimerRef = useRef<any>(null);
   const pomoEndTimestampRef = useRef<number | null>(null);
 
+  // Duolingo-style Animation States
+  const [showXpPopup, setShowXpPopup] = useState(false);
+  const [xpAmount, setXpAmount] = useState(20);
+  const [showConfetti, setShowConfetti] = useState(false);
+
   useEffect(() => {
     if (subjects.length > 0 && !newTaskSubject) {
       setNewTaskSubject(subjects[0].name);
@@ -339,8 +351,12 @@ export default function StudyNotesScreen() {
 
       pomoTimerRef.current = setInterval(() => {
         if (!pomoEndTimestampRef.current) return;
-        const remaining = Math.max(0, Math.round((pomoEndTimestampRef.current - Date.now()) / 1000));
-        setPomoTimeLeft(remaining);
+        const remaining = Math.max(0, Math.ceil((pomoEndTimestampRef.current - Date.now()) / 1000));
+        
+        setPomoTimeLeft(prev => {
+          if (prev !== remaining) return remaining;
+          return prev;
+        });
 
         if (Platform.OS === 'web' && typeof document !== 'undefined') {
           const mins = Math.floor(remaining / 60);
@@ -357,7 +373,15 @@ export default function StudyNotesScreen() {
             document.title = '🔔 Sesi Selesai! - Belajar & Kuliah';
           }
           notifyPomodoroFinished(activePomodoroTask?.title, pomoTotalTime < 10 * 60);
-          showAlert('🎉 Sesi Selesai!', 'Kerja bagus! Waktunya istirahat sejenak untuk menyegarkan pikiran.');
+
+          // XP Popup + Confetti Animasi
+          setXpAmount(30);
+          setShowXpPopup(false);
+          setTimeout(() => setShowXpPopup(true), 50);
+          setShowConfetti(true);
+          setTimeout(() => setShowConfetti(false), 3500);
+
+          showAlert('🎉 Sesi Selesai! (+30 XP)', 'Kerja bagus! Sesi fokus selesai dan kamu mendapatkan +30 XP.');
         }
       }, 500);
     } else {
@@ -446,6 +470,10 @@ export default function StudyNotesScreen() {
     const newStatus = !task.is_completed;
     if (newStatus) {
       cancelTaskNotification(task.id);
+      // XP Pop-up animasi
+      setXpAmount(20);
+      setShowXpPopup(false);
+      setTimeout(() => setShowXpPopup(true), 50);
     } else {
       scheduleTaskDeadlineNotification({ ...task, is_completed: false });
     }
@@ -546,10 +574,19 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     const updated = tasks.map(t => {
       if (t.id === taskId) {
         const currentList = t.subtasks || [];
+        const targetSub = currentList.find(st => st.id === subtaskId);
+        const willComplete = targetSub && !targetSub.is_completed;
+
         const updatedSubtasks = currentList.map(st =>
           st.id === subtaskId ? { ...st, is_completed: !st.is_completed } : st
         );
         persistTaskSubtasks(taskId, updatedSubtasks);
+
+        if (willComplete) {
+          setXpAmount(10);
+          setShowXpPopup(false);
+          setTimeout(() => setShowXpPopup(true), 50);
+        }
 
         const allDone = updatedSubtasks.length > 0 && updatedSubtasks.every(st => st.is_completed);
         if (allDone && !t.is_completed) {
@@ -775,13 +812,22 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 
   return (
     <SafeAreaView style={styles.container}>
+      {/* ── Duolingo Animations Overlay ── */}
+      <ConfettiBurst visible={showConfetti} count={50} onDone={() => setShowConfetti(false)} />
+      <XpPopup
+        xp={xpAmount}
+        visible={showXpPopup}
+        color="#FBBF24"
+        onDone={() => setShowXpPopup(false)}
+      />
+
       <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
       {/* Top Header */}
       <View style={styles.header}>
         <View>
           <Text style={[styles.title, { color: theme.text }]}>Belajar & Kuliah</Text>
-          <Text style={[styles.subtitle, { color: theme.subtext }]}>Catatan pintar AI, manajemen tugas & fokus nugas</Text>
+          <Text style={[styles.subtitle, { color: isLightMode ? theme.text : theme.accentLight }]}>Catatan pintar AI, manajemen tugas & fokus nugas</Text>
         </View>
 
         <View style={styles.topActionBtnGroup}>

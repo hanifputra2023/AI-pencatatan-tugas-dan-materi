@@ -57,6 +57,15 @@ export interface QuizQuestion {
   explanation?: string;
 }
 
+export interface FlashcardItem {
+  id: string;
+  front: string;
+  back: string;
+  hint?: string;
+  mastered?: boolean;
+  difficulty?: 'easy' | 'medium' | 'hard';
+}
+
 export interface StudyNote {
   id: string;
   user_id: string;
@@ -65,6 +74,7 @@ export interface StudyNote {
   content: string;
   summary?: string | null;
   quiz_data?: QuizQuestion[] | null;
+  flashcards?: FlashcardItem[] | null;
   color?: string;
   created_at: string;
   updated_at?: string;
