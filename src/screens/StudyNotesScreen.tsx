@@ -18,7 +18,7 @@ import { confirmAction, showAlert } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import DateTimePickerModal from '../components/DateTimePickerModal';
 import TaskWorkpadModal from '../components/TaskWorkpadModal';
-import { exportTaskToPdf, exportAllTasksSummaryToPdf } from '../lib/pdfExporter';
+import { exportTaskToPdf, exportAllTasksSummaryToPdf, exportMultipleNotesToPdf } from '../lib/pdfExporter';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseDeadline, getDeadlinePresets } from '../lib/dateUtils';
 import {
@@ -700,6 +700,20 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     }
   };
 
+  // Export Multiple / All Filtered Notes to PDF Booklet
+  const handleExportAllNotesPdf = async () => {
+    if (filteredNotes.length === 0) {
+      showAlert('Perhatian', 'Tidak ada catatan materi untuk diekspor ke PDF.');
+      return;
+    }
+    try {
+      const authorName = user?.user_metadata?.name || user?.email?.split('@')[0] || 'Mahasiswa';
+      await exportMultipleNotesToPdf(filteredNotes, selectedSubject, authorName);
+    } catch (e: any) {
+      showAlert('Gagal Cetak PDF', e?.message || 'Terjadi kesalahan saat memproses dokumen PDF.');
+    }
+  };
+
   // Toggle & Request Notification Permission
   const handleToggleNotifications = async () => {
     const granted = await requestNotificationPermissions();
@@ -936,6 +950,18 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                 <Ionicons name="settings-outline" size={13} color={theme.accentLight} />
                 <Text style={[styles.manageSubjFilterText, { color: theme.accentLight }]}>Kelola Matkul</Text>
               </TouchableOpacity>
+
+              {filteredNotes.length > 0 && (
+                <TouchableOpacity
+                  style={[styles.manageSubjFilterBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                  onPress={handleExportAllNotesPdf}
+                >
+                  <Ionicons name="print-outline" size={13} color={theme.accentLight} />
+                  <Text style={[styles.manageSubjFilterText, { color: theme.accentLight, fontWeight: '700' }]}>
+                    Rekap PDF ({filteredNotes.length})
+                  </Text>
+                </TouchableOpacity>
+              )}
             </ScrollView>
           </View>
 
@@ -1320,7 +1346,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                   style={[styles.taskFilterChip, { backgroundColor: theme.card, borderColor: theme.border }]}
                   onPress={handleExportAllTasksPdf}
                 >
-                  <Ionicons name="print-outline" size={13} color={theme.accentLight} style={{ marginRight: 4 }} />
+                  
                   <Text style={[styles.taskFilterText, { color: theme.accentLight, fontWeight: '700' }]}>
                     Rekap PDF
                   </Text>

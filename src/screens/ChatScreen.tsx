@@ -371,21 +371,24 @@ export default function ChatScreen() {
       });
       if (!res.canceled && res.assets && res.assets[0]) {
         const file = res.assets[0];
-        const mime = file.mimeType || '';
-        let attachType: ChatAttachment['type'] = 'document';
-        if (mime.startsWith('image/')) attachType = 'image';
-        else if (mime.startsWith('audio/')) attachType = 'audio';
-        else if (mime === 'application/pdf') attachType = 'document';
+        const rawMime = file.mimeType || '';
+        const isPdfFile = (file.name || '').toLowerCase().endsWith('.pdf') || rawMime === 'application/pdf';
+        const finalMime = isPdfFile ? 'application/pdf' : rawMime;
 
-        const needsBase64 = attachType === 'image' || attachType === 'audio' || mime === 'application/pdf';
+        let attachType: ChatAttachment['type'] = 'document';
+        if (rawMime.startsWith('image/')) attachType = 'image';
+        else if (rawMime.startsWith('audio/')) attachType = 'audio';
+        else if (isPdfFile) attachType = 'document';
+
+        const needsBase64 = attachType === 'image' || attachType === 'audio' || isPdfFile;
         const base64Data = needsBase64 ? await uriToBase64(file.uri) : undefined;
 
         setAttachment({
           type: attachType,
           uri: file.uri,
-          name: file.name || 'Dokumen',
+          name: file.name || 'Dokumen.pdf',
           size: file.size,
-          mimeType: mime,
+          mimeType: finalMime,
           base64: base64Data,
         });
       }

@@ -221,17 +221,22 @@ export async function sendMessageToGemini(
   const userParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
   const MULTIMODAL_TYPES = ['image', 'audio', 'document'];
+  const isPdf = attachment && ((attachment.mimeType === 'application/pdf') || (attachment.name?.toLowerCase().endsWith('.pdf')));
+
   if (attachment && attachment.base64 && MULTIMODAL_TYPES.includes(attachment.type)) {
+    const finalMime = isPdf ? 'application/pdf' : (attachment.mimeType || 'application/octet-stream');
     userParts.push({
       inlineData: {
-        mimeType: attachment.mimeType || 'application/octet-stream',
+        mimeType: finalMime,
         data: attachment.base64,
       },
     });
   }
 
   let fullPrompt = newMessage;
-  if (attachment && !attachment.base64) {
+  if (attachment && isPdf) {
+    fullPrompt = `[Lampiran Dokumen PDF: "${attachment.name || 'Dokumen'}" (${((attachment.size || 0) / 1024).toFixed(1)} KB)]\nTolong baca dan analisis isi seluruh halaman dokumen ini secara lengkap dan akurat.\n\n${newMessage || 'Tolong jelaskan dan rangkum isi dokumen ini secara terstruktur.'}`;
+  } else if (attachment && !attachment.base64) {
     fullPrompt = `[Pengguna melampirkan file ${attachment.type}: ${attachment.name || 'Dokumen'}]\n${newMessage || 'Tolong perhatikan lampiran ini ya'}`;
   }
 
