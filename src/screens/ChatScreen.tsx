@@ -920,13 +920,17 @@ export default function ChatScreen() {
             {messages.length === 0 ? (
               <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
                 <FadeSlideIn delay={50}>
-                  <View style={[styles.emptyCard, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                  <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <FloatingBadge distance={5} duration={2200}>
-                      <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                        <Ionicons name="sparkles" size={24} color={theme.accentLight} />
+                      <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border, overflow: 'hidden' }]}>
+                        {customAiAvatar ? (
+                          <Image source={{ uri: customAiAvatar }} style={styles.emptyAvatarImg} resizeMode="cover" />
+                        ) : (
+                          <Ionicons name="sparkles" size={24} color={theme.accentLight} />
+                        )}
                       </View>
                     </FloatingBadge>
-                    <Text style={[styles.emptyTitle, { color: theme.text }]}>Ruang Cerita Bersama {aiBotName || 'Ara'}</Text>
+                    <Text style={[styles.emptyTitle, { color: theme.text }]}>Ruang Cerita Bersama {effectiveBotName || 'Ara'}</Text>
                     <Text style={[styles.emptyDesc, { color: theme.subtext }]}>
                       Tulis apapun yang ada di pikiranmu, diskusikan tugas kuliah, atau curhat santai.
                     </Text>
@@ -1413,6 +1417,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 12,
     borderWidth: 1,
+  },
+  emptyAvatarImg: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 13,
   },
   emptyTitle: {
     fontSize: 16,

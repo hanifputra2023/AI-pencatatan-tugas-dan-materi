@@ -30,6 +30,22 @@ import {
   getCachedNotes,
   getCachedTasks,
 } from '../lib/offlineSync';
+import { getBossTrophies, BossTrophy } from '../lib/rpgStorage';
+import BossAvatarIllustration from '../components/BossAvatarIllustration';
+import {
+  ALL_ACHIEVEMENTS,
+  getUnlockedAchievements,
+  checkAndUnlockAchievements,
+  UnlockedAchievement,
+} from '../lib/dailyRewardStorage';
+import {
+  ALL_RPG_TITLES,
+  getUnlockedTitles,
+  getActiveTitle,
+  setActiveTitle,
+  RpgTitle,
+  RARITY_COLORS,
+} from '../lib/lootChestStorage';
 
 const BG_COLOR_PRESETS = [
   { label: 'Obsidian Dark', hex: '#0E1117' },
@@ -257,6 +273,16 @@ export default function ProfileScreen() {
   const [claiming, setClaiming] = useState(false);
   const [secretTapCount, setSecretTapCount] = useState(0);
 
+  // RPG Boss Trophies State
+  const [bossTrophies, setBossTrophies] = useState<BossTrophy[]>([]);
+
+  // Achievements State
+  const [unlockedAchievements, setUnlockedAchievements] = useState<UnlockedAchievement[]>([]);
+
+  // RPG Titles State
+  const [unlockedTitleIds, setUnlockedTitleIds] = useState<string[]>([]);
+  const [activeRpgTitle, setActiveRpgTitle] = useState<RpgTitle | null>(null);
+
   // AI Persona Selection Modal State
   const [showPersonaModal, setShowPersonaModal] = useState(false);
   const [personaSearchQuery, setPersonaSearchQuery] = useState('');
@@ -462,9 +488,61 @@ export default function ProfileScreen() {
     }
   }, [user]);
 
+  const loadBossTrophies = useCallback(async () => {
+    const list = await getBossTrophies();
+    setBossTrophies(list);
+  }, []);
+
+  const loadAchievements = useCallback(async () => {
+    try {
+      if (user) {
+        const cachedNotes = await getCachedNotes(user.id);
+        const streak = stats.streak;
+        const trophies = await getBossTrophies();
+        await checkAndUnlockAchievements({
+          noteCount: cachedNotes.length,
+          streak: streak,
+          bossCount: trophies.length,
+        });
+      }
+      const unlocked = await getUnlockedAchievements();
+      setUnlockedAchievements(unlocked);
+    } catch (e) {
+      console.log('Error loading achievements:', e);
+    }
+  }, [user, stats.streak]);
+
+  const loadTitles = useCallback(async () => {
+    try {
+      const [unlocked, active] = await Promise.all([
+        getUnlockedTitles(),
+        getActiveTitle(),
+      ]);
+      setUnlockedTitleIds(unlocked);
+      setActiveRpgTitle(active);
+    } catch (e) {
+      console.log('Error loading titles:', e);
+    }
+  }, []);
+
+  const handleToggleEquipTitle = async (title: RpgTitle) => {
+    if (activeRpgTitle?.id === title.id) {
+      await setActiveTitle(null);
+      setActiveRpgTitle(null);
+      showAlert('Gelar Dilepas', `Gelar "${title.label}" berhasil dilepas.`);
+    } else {
+      await setActiveTitle(title.id);
+      setActiveRpgTitle(title);
+      showAlert('Gelar Dipasang!', `Gelar "${title.label}" kini aktif dan tampil di bawah namamu.`);
+    }
+  };
+
   useEffect(() => {
     fetchProfile();
     fetchStats();
+    loadBossTrophies();
+    loadAchievements();
+    loadTitles();
 
     if (!user) return;
 
@@ -479,7 +557,7 @@ export default function ProfileScreen() {
     return () => {
       supabase.removeChannel(channel);
     };
-  }, [user, fetchProfile, fetchStats, refreshProfileRole]);
+  }, [user, fetchProfile, fetchStats, loadBossTrophies, loadAchievements, loadTitles, refreshProfileRole]);
 
   useFocusEffect(
     useCallback(() => {
@@ -487,7 +565,10 @@ export default function ProfileScreen() {
       fetchStats();
       refreshProfileRole();
       refreshMoodsAndSettings();
-    }, [fetchProfile, fetchStats, refreshProfileRole, refreshMoodsAndSettings])
+      loadBossTrophies();
+      loadAchievements();
+      loadTitles();
+    }, [fetchProfile, fetchStats, refreshProfileRole, refreshMoodsAndSettings, loadBossTrophies, loadAchievements, loadTitles])
   );
 
   const pickAvatar = async () => {
@@ -867,6 +948,238 @@ export default function ProfileScreen() {
                     <Ionicons name="chevron-forward" size={12} color={theme.accentLight} />
                   </TouchableOpacity>
                 </View>
+              </View>
+
+              {/* 3.5 LEMARI LENCANA PERTARUNGAN BOS (RPG BOSS TROPHY SHOWCASE) */}
+              <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.themeHeaderRow}>
+                  <View style={[styles.themeHeaderIconWrap, { backgroundColor: '#F59E0B' + '22', borderColor: theme.border }]}>
+                    <Ionicons name="trophy" size={17} color="#F59E0B" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Lemari Lencana Bos RPG</Text>
+                      <View style={{ backgroundColor: '#F59E0B' + '22', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 4 }}>
+                        <Text style={{ color: '#F59E0B', fontSize: 10, fontWeight: '800' }}>{bossTrophies.length} Dimenangkan</Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.themeHeaderSub, { color: theme.subtext }]}>
+                      Koleksi monster materi kuliah yang berhasil kamu taklukkan
+                    </Text>
+                  </View>
+                </View>
+
+                {bossTrophies.length === 0 ? (
+                  <View style={[styles.emptyTrophyCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <Ionicons name="shield-outline" size={26} color={theme.muted} />
+                    <Text style={[styles.emptyTrophyTitle, { color: theme.text }]}>Belum ada Lencana Pertarungan</Text>
+                    <Text style={[styles.emptyTrophyDesc, { color: theme.subtext }]}>
+                      Buka Catatan Kuliah → Mainkan Mode Boss Battle RPG untuk menaklukkan Monster Bos materi pertamamu dan klaim +75 XP!
+                    </Text>
+                  </View>
+                ) : (
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trophyScrollList}>
+                    {bossTrophies.map((t, idx) => (
+                      <View key={idx} style={[styles.trophyItemCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <BossAvatarIllustration bossId={t.bossId as any} size={64} />
+                        <Text style={[styles.trophyBossName, { color: theme.text }]} numberOfLines={1}>
+                          {t.bossName}
+                        </Text>
+                        <Text style={[styles.trophySubjectText, { color: theme.accentLight }]} numberOfLines={1}>
+                          {t.subject}
+                        </Text>
+                        <View style={[styles.trophyXpBadge, { backgroundColor: '#F59E0B' + '22' }]}>
+                          <Ionicons name="star" size={10} color="#F59E0B" />
+                          <Text style={styles.trophyXpText}>+{t.earnedXp} XP</Text>
+                        </View>
+                        <Text style={[styles.trophyDateText, { color: theme.muted }]}>
+                          {new Date(t.defeatedAt).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
+                        </Text>
+                      </View>
+                    ))}
+                  </ScrollView>
+                )}
+              </View>
+
+              {/* 3.6 KOLEKSI PENCAPAIAN & LENCANA PRESTASI (ACHIEVEMENT BADGES) */}
+              <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.themeHeaderRow}>
+                  <View style={[styles.themeHeaderIconWrap, { backgroundColor: '#6366F122', borderColor: theme.border }]}>
+                    <Ionicons name="ribbon" size={17} color="#818CF8" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Lencana & Pencapaian</Text>
+                      <View style={{ backgroundColor: '#6366F122', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 4 }}>
+                        <Text style={{ color: '#818CF8', fontSize: 10, fontWeight: '800' }}>
+                          {unlockedAchievements.length}/{ALL_ACHIEVEMENTS.length} Terbuka
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.themeHeaderSub, { color: theme.subtext }]}>
+                      Selesaikan berbagai tantangan belajar untuk membuka lencana khusus!
+                    </Text>
+                  </View>
+                </View>
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trophyScrollList}>
+                  {ALL_ACHIEVEMENTS.map((ach) => {
+                    const isUnlocked = unlockedAchievements.some(u => u.id === ach.id);
+                    return (
+                      <View
+                        key={ach.id}
+                        style={[
+                          styles.achievementBadgeCard,
+                          {
+                            backgroundColor: isUnlocked ? theme.cardInner : (isLightMode ? '#F1F5F9' : '#0B0F17'),
+                            borderColor: isUnlocked ? ach.iconColor + '66' : theme.border,
+                            opacity: isUnlocked ? 1 : 0.65,
+                          },
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.achievementIconWrap,
+                            {
+                              backgroundColor: isUnlocked ? ach.iconColor + '20' : theme.border,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name={ach.icon as any}
+                            size={20}
+                            color={isUnlocked ? ach.iconColor : theme.muted}
+                          />
+                        </View>
+                        <Text
+                          style={[
+                            styles.achievementTitle,
+                            { color: isUnlocked ? theme.text : theme.muted },
+                          ]}
+                          numberOfLines={1}
+                        >
+                          {ach.title}
+                        </Text>
+                        <Text
+                          style={[styles.achievementDesc, { color: theme.subtext }]}
+                          numberOfLines={2}
+                        >
+                          {ach.description}
+                        </Text>
+                        <View
+                          style={[
+                            styles.achievementRewardPill,
+                            {
+                              backgroundColor: isUnlocked ? '#10B98120' : theme.border,
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name={isUnlocked ? 'checkmark' : 'lock-closed'}
+                            size={10}
+                            color={isUnlocked ? '#10B981' : theme.muted}
+                          />
+                          <Text
+                            style={[
+                              styles.achievementRewardText,
+                              { color: isUnlocked ? '#10B981' : theme.muted },
+                            ]}
+                          >
+                            +{ach.xpReward} XP
+                          </Text>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              {/* 3.7 LEMARI GELAR & TITLE RPG (RPG TITLES SHOWCASE & SELECTOR) */}
+              <View style={[styles.themeSectionCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.themeHeaderRow}>
+                  <View style={[styles.themeHeaderIconWrap, { backgroundColor: '#F59E0B22', borderColor: theme.border }]}>
+                    <Ionicons name="ribbon" size={17} color="#F59E0B" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Koleksi Gelar RPG</Text>
+                      <View style={{ backgroundColor: '#F59E0B22', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 4 }}>
+                        <Text style={{ color: '#F59E0B', fontSize: 10, fontWeight: '800' }}>
+                          {unlockedTitleIds.length}/{ALL_RPG_TITLES.length} Terbuka
+                        </Text>
+                      </View>
+                    </View>
+                    <Text style={[styles.themeHeaderSub, { color: theme.subtext }]}>
+                      Pasang gelar kehormatan di bawah namamu. Ketuk gelar yang terbuka untuk memasang!
+                    </Text>
+                  </View>
+                </View>
+
+                {activeRpgTitle && (
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: activeRpgTitle.color + '15', borderWidth: 1, borderColor: activeRpgTitle.color + '55', borderRadius: 10, padding: 10, marginBottom: 8 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                      <Ionicons name={activeRpgTitle.icon as any} size={18} color={activeRpgTitle.color} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 10, color: theme.subtext, fontWeight: '700', textTransform: 'uppercase' }}>Gelar Aktif Terpasang:</Text>
+                        <Text style={{ fontSize: 12.5, fontWeight: '900', color: activeRpgTitle.color }}>{activeRpgTitle.label}</Text>
+                      </View>
+                    </View>
+                    <TouchableOpacity
+                      style={{ backgroundColor: activeRpgTitle.color + '30', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}
+                      onPress={() => handleToggleEquipTitle(activeRpgTitle)}
+                    >
+                      <Text style={{ color: activeRpgTitle.color, fontSize: 10, fontWeight: '800' }}>Lepas</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trophyScrollList}>
+                  {ALL_RPG_TITLES.map((title) => {
+                    const isUnlocked = unlockedTitleIds.includes(title.id);
+                    const isEquipped = activeRpgTitle?.id === title.id;
+                    return (
+                      <TouchableOpacity
+                        key={title.id}
+                        style={[
+                          styles.achievementBadgeCard,
+                          {
+                            backgroundColor: isEquipped ? title.color + '18' : isUnlocked ? theme.cardInner : (isLightMode ? '#F1F5F9' : '#0B0F17'),
+                            borderColor: isEquipped ? title.color : isUnlocked ? title.color + '55' : theme.border,
+                            opacity: isUnlocked ? 1 : 0.6,
+                          },
+                        ]}
+                        onPress={() => {
+                          if (isUnlocked) {
+                            handleToggleEquipTitle(title);
+                          } else {
+                            showAlert('Gelar Terkunci', `${title.description}\n\nDapatkan gelar ini dari Peti Misterius 📦, Roda Putar 🎰, atau mengalahkan Bos Arena!`);
+                          }
+                        }}
+                        activeOpacity={0.75}
+                      >
+                        <View style={[styles.achievementIconWrap, { backgroundColor: isUnlocked ? title.color + '22' : theme.border }]}>
+                          <Ionicons name={title.icon as any} size={18} color={isUnlocked ? title.color : theme.muted} />
+                        </View>
+                        <Text style={[styles.achievementTitle, { color: isUnlocked ? theme.text : theme.muted }]} numberOfLines={1}>
+                          {title.label}
+                        </Text>
+                        <Text style={[styles.achievementDesc, { color: theme.subtext }]} numberOfLines={2}>
+                          {title.description}
+                        </Text>
+                        <View style={[styles.achievementRewardPill, { backgroundColor: isEquipped ? title.color : isUnlocked ? '#10B98120' : theme.border }]}>
+                          <Ionicons
+                            name={isEquipped ? 'checkmark-circle' : isUnlocked ? 'checkmark' : 'lock-closed'}
+                            size={10}
+                            color={isEquipped ? '#FFFFFF' : isUnlocked ? '#10B981' : theme.muted}
+                          />
+                          <Text style={[styles.achievementRewardText, { color: isEquipped ? '#FFFFFF' : isUnlocked ? '#10B981' : theme.muted }]}>
+                            {isEquipped ? 'Dipasang' : isUnlocked ? 'Miliki' : 'Terkunci'}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
               </View>
 
               {/* 4. ADMIN PANEL BUTTON (HANYA MUNCUL JIKA USER ADALAH ADMIN) */}
@@ -1554,7 +1867,7 @@ export default function ProfileScreen() {
         onRequestClose={() => setShowClaimModal(false)}
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.claimModalCard, { backgroundColor: isLightMode ? '#FFFFFF' : '#11141C', borderColor: isLightMode ? '#E2E8F0' : '#253856' }]}>
+          <View style={[styles.claimModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
 
             <View style={styles.claimModalHeader}>
               <View style={[styles.claimIconCircle, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
@@ -2355,6 +2668,110 @@ const styles = StyleSheet.create({
   themeHeaderSub: {
     fontSize: 11,
     marginTop: 1,
+  },
+  emptyTrophyCard: {
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  emptyTrophyTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  emptyTrophyDesc: {
+    fontSize: 11,
+    textAlign: 'center',
+    lineHeight: 15,
+  },
+  trophyScrollList: {
+    gap: 10,
+    paddingVertical: 4,
+  },
+  trophyItemCard: {
+    width: 130,
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 10,
+    alignItems: 'center',
+    gap: 4,
+  },
+  trophyBossName: {
+    fontSize: 11,
+    fontWeight: '800',
+    textAlign: 'center',
+    marginTop: 2,
+  },
+  trophySubjectText: {
+    fontSize: 9.5,
+    fontWeight: '600',
+    textAlign: 'center',
+  },
+  trophyXpBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 2,
+  },
+  trophyXpText: {
+    color: '#F59E0B',
+    fontSize: 9.5,
+    fontWeight: '800',
+  },
+  trophyDateText: {
+    fontSize: 9,
+    marginTop: 1,
+  },
+  achievementGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 4,
+  },
+  achievementBadgeCard: {
+    width: 140,
+    borderRadius: 12,
+    borderWidth: 1,
+    padding: 10,
+    gap: 4,
+  },
+  achievementIconWrap: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 2,
+  },
+  achievementTitle: {
+    fontSize: 12,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  achievementDesc: {
+    fontSize: 10,
+    lineHeight: 13,
+  },
+  achievementRewardPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+    marginTop: 4,
+  },
+  achievementRewardText: {
+    fontSize: 9.5,
+    fontWeight: '800',
   },
   themeModeTabsRow: {
     flexDirection: 'row',

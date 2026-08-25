@@ -30,7 +30,8 @@ export function calculateUserXp(
   completedTasksCount: number = 0,
   journalsCount: number = 0,
   streak: number = 0,
-  quizAnsweredCorrectly: number = 0
+  quizAnsweredCorrectly: number = 0,
+  extraXp: number = 0
 ): UserLevelInfo {
   // Formula:
   // - Note dibuat: 25 XP
@@ -38,13 +39,15 @@ export function calculateUserXp(
   // - Jurnal refleksi: 15 XP
   // - Kuis dijawab benar: 10 XP
   // - Streak harian: 30 XP per hari aktif
+  // - Bonus Bos Pertarungan RPG / Quest: extraXp
   const totalXp = Math.max(
     0,
     notesCount * 25 +
     completedTasksCount * 20 +
     journalsCount * 15 +
     quizAnsweredCorrectly * 10 +
-    streak * 30
+    streak * 30 +
+    extraXp
   );
 
   let currentTier = LEVEL_TIERS[0];

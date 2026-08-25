@@ -16,6 +16,7 @@ import {
   Dimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useTheme } from '../contexts/ThemeContext';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -26,12 +27,29 @@ interface XpPopupProps {
   xp: number;
   visible: boolean;
   color?: string;
+  bgColor?: string;
+  borderColor?: string;
+  textColor?: string;
   onDone?: () => void;
   x?: number;
   y?: number;
 }
 
-export function XpPopup({ xp, visible, color = '#FBBF24', onDone }: XpPopupProps) {
+export function XpPopup({
+  xp,
+  visible,
+  color,
+  bgColor,
+  borderColor,
+  textColor,
+  onDone,
+}: XpPopupProps) {
+  const { theme, isLightMode } = useTheme();
+  const activeColor = color || (isLightMode ? '#D97706' : '#FBBF24');
+  const activeBg = bgColor || (isLightMode ? 'rgba(255, 255, 255, 0.96)' : 'rgba(15, 23, 42, 0.96)');
+  const activeBorder = borderColor || (isLightMode ? '#F59E0B' : '#FBBF24');
+  const activeText = textColor || (isLightMode ? '#B45309' : '#FBBF24');
+
   const translateY = useRef(new Animated.Value(0)).current;
   const opacity = useRef(new Animated.Value(0)).current;
   const scale = useRef(new Animated.Value(0.5)).current;
@@ -72,11 +90,16 @@ export function XpPopup({ xp, visible, color = '#FBBF24', onDone }: XpPopupProps
       <Animated.View
         style={[
           styles.xpPopup,
-          { transform: [{ translateY }, { scale }], opacity },
+          {
+            backgroundColor: activeBg,
+            borderColor: activeBorder,
+            transform: [{ translateY }, { scale }],
+            opacity,
+          },
         ]}
       >
-        <Ionicons name="star" size={16} color={color} />
-        <Text style={[styles.xpText, { color }]}>+{xp} XP</Text>
+        <Ionicons name="star" size={16} color={activeColor} />
+        <Text style={[styles.xpText, { color: activeText }]}>+{xp} XP</Text>
       </Animated.View>
     </View>
   );
@@ -285,9 +308,29 @@ interface MilestoneCelebrateProps {
   streak: number;
   onClose: () => void;
   accentColor?: string;
+  cardBg?: string;
+  textColor?: string;
+  subtextColor?: string;
+  borderColor?: string;
 }
 
-export function MilestoneCelebrate({ visible, streak, onClose, accentColor = '#FBBF24' }: MilestoneCelebrateProps) {
+export function MilestoneCelebrate({
+  visible,
+  streak,
+  onClose,
+  accentColor,
+  cardBg,
+  textColor,
+  subtextColor,
+  borderColor,
+}: MilestoneCelebrateProps) {
+  const { theme, isLightMode } = useTheme();
+  const activeCardBg = cardBg || (isLightMode ? '#FFFFFF' : theme.card);
+  const activeText = textColor || theme.text;
+  const activeSubtext = subtextColor || theme.subtext;
+  const activeBorder = borderColor || theme.border;
+  const activeAccent = accentColor || theme.accent;
+
   const overlayOpacity = useRef(new Animated.Value(0)).current;
   const cardScale = useRef(new Animated.Value(0.5)).current;
   const cardOpacity = useRef(new Animated.Value(0)).current;
@@ -299,7 +342,7 @@ export function MilestoneCelebrate({ visible, streak, onClose, accentColor = '#F
     if (streak >= 30) return { icon: '💎', title: 'Daya Tahan Baja!', desc: `30 hari! Kamu lebih konsisten dari 95% mahasiswa.`, color: '#60A5FA' };
     if (streak >= 14) return { icon: '🔥', title: '2 Minggu Solid!', desc: `14 hari berturut-turut. Kebiasaan belajarmu sudah terbentuk!`, color: '#F97316' };
     if (streak >= 7) return { icon: '⭐', title: 'Satu Minggu Penuh!', desc: `7 hari streak! Kamu sudah buktikan komitmenmu.`, color: '#FBBF24' };
-    return { icon: '✨', title: 'Luar Biasa!', desc: `${streak} hari aktif belajar dan refleksi!`, color: accentColor };
+    return { icon: '✨', title: 'Luar Biasa!', desc: `${streak} hari aktif belajar dan refleksi!`, color: activeAccent };
   };
 
   const milestoneData = getMilestoneData();
@@ -336,7 +379,17 @@ export function MilestoneCelebrate({ visible, streak, onClose, accentColor = '#F
     <Modal transparent visible={visible} onRequestClose={handleClose} animationType="none">
       <Animated.View style={[styles.milestoneOverlay, { opacity: overlayOpacity }]}>
         <ConfettiBurst visible={visible} count={60} />
-        <Animated.View style={[styles.milestoneCard, { transform: [{ scale: cardScale }], opacity: cardOpacity }]}>
+        <Animated.View
+          style={[
+            styles.milestoneCard,
+            {
+              backgroundColor: activeCardBg,
+              borderColor: activeBorder,
+              transform: [{ scale: cardScale }],
+              opacity: cardOpacity,
+            },
+          ]}
+        >
           <Animated.View style={{ transform: [{ translateY: iconBounce }] }}>
             <Text style={styles.milestoneEmoji}>{milestoneData.icon}</Text>
           </Animated.View>
@@ -348,8 +401,8 @@ export function MilestoneCelebrate({ visible, streak, onClose, accentColor = '#F
             </View>
           </Animated.View>
 
-          <Text style={styles.milestoneTitle}>{milestoneData.title}</Text>
-          <Text style={styles.milestoneDesc}>{milestoneData.desc}</Text>
+          <Text style={[styles.milestoneTitle, { color: activeText }]}>{milestoneData.title}</Text>
+          <Text style={[styles.milestoneDesc, { color: activeSubtext }]}>{milestoneData.desc}</Text>
 
           <TouchableOpacity style={[styles.milestoneBtn, { backgroundColor: milestoneData.color }]} onPress={handleClose} activeOpacity={0.85}>
             <Text style={styles.milestoneBtnText}>Mantap, Lanjutkan! 🚀</Text>

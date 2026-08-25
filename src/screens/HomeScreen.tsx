@@ -44,6 +44,22 @@ import {
   AnimatedProgressBar,
 } from '../components/DuolingoAnimations';
 import { calculateUserXp } from '../lib/xpCalculator';
+import VirtualGardenModal from '../components/VirtualGardenModal';
+import { getExtraUserXp } from '../lib/rpgStorage';
+import DailyRewardModal from '../components/DailyRewardModal';
+import { checkDailyReward, claimDailyReward, DailyReward, DAILY_REWARD_SCHEDULE } from '../lib/dailyRewardStorage';
+import LootChestModal from '../components/LootChestModal';
+import LuckyWheelModal from '../components/LuckyWheelModal';
+import {
+  getChestCount,
+  getWheelTickets,
+  getActiveTitle,
+  addChest,
+  awardWheelTicketForActivity,
+  RpgTitle,
+  LootResult,
+} from '../lib/lootChestStorage';
+import { addWaterDrops } from '../lib/gardenStorage';
 
 const DEFAULT_DAILY_QUESTS = [
   { id: '1', title: 'Curhat atau refleksi sejenak ke AI', completed: false, icon: 'chatbubble-ellipses-outline' },
@@ -129,7 +145,21 @@ export default function HomeScreen() {
   const [showConfetti, setShowConfetti] = useState(false);
   const [showMilestone, setShowMilestone] = useState(false);
   const [showLevelModal, setShowLevelModal] = useState(false);
+  const [showGardenModal, setShowGardenModal] = useState(false);
+  const [extraXp, setExtraXp] = useState(0);
   const [streakJustIncreased] = useState(false);
+
+  // Daily Reward Modal State
+  const [showDailyRewardModal, setShowDailyRewardModal] = useState(false);
+  const [dailyRewardData, setDailyRewardData] = useState<DailyReward>(DAILY_REWARD_SCHEDULE[0]);
+  const [dailyRewardStreak, setDailyRewardStreak] = useState(1);
+
+  // Loot Chest & Lucky Wheel State
+  const [showChestModal, setShowChestModal] = useState(false);
+  const [showWheelModal, setShowWheelModal] = useState(false);
+  const [chestCount, setChestCount] = useState(0);
+  const [wheelTickets, setWheelTickets] = useState(0);
+  const [activeTitle, setActiveTitle] = useState<RpgTitle | null>(null);
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Selamat Pagi' : hour < 15 ? 'Selamat Siang' : hour < 18 ? 'Selamat Sore' : 'Selamat Malam';
@@ -195,6 +225,20 @@ export default function HomeScreen() {
   };
 
   const fetchData = useCallback(async () => {
+    // Always load local gamification resources (Peti, Tiket Roda, Gelar)
+    try {
+      const [chests, tickets, title] = await Promise.all([
+        getChestCount(),
+        getWheelTickets(),
+        getActiveTitle(),
+      ]);
+      setChestCount(chests);
+      setWheelTickets(tickets);
+      setActiveTitle(title);
+    } catch (e) {
+      console.log('Error loading gamification storage:', e);
+    }
+
     if (!user) {
       setUsername('Mahasiswa');
       loadDailyQuests();
@@ -259,6 +303,35 @@ export default function HomeScreen() {
         }
       } catch (e) {
         setActiveDraft(null);
+      }
+
+      const earnedExtraXp = await getExtraUserXp();
+      setExtraXp(earnedExtraXp);
+
+      // Check Daily Login Reward
+      try {
+        const rewardCheck = await checkDailyReward();
+        if (rewardCheck.shouldShow) {
+          setDailyRewardData(rewardCheck.reward);
+          setDailyRewardStreak(rewardCheck.streak);
+          setShowDailyRewardModal(true);
+        }
+      } catch (e) {
+        console.log('Daily reward check error:', e);
+      }
+
+      // Check Loot Chests, Wheel Tickets & Active Title
+      try {
+        const [chests, tickets, title] = await Promise.all([
+          getChestCount(),
+          getWheelTickets(),
+          getActiveTitle(),
+        ]);
+        setChestCount(chests);
+        setWheelTickets(tickets);
+        setActiveTitle(title);
+      } catch (e) {
+        console.log('Error loading gamification storage:', e);
       }
 
       loadDailyQuests(hasTodayChat, hasTodayJournal);
@@ -340,11 +413,16 @@ export default function HomeScreen() {
       const updated = currentTasks.map(t => t.id === taskId ? { ...t, is_completed: true } : t);
       await cacheTasksLocally(user.id, updated);
     }
-    // XP Pop-up animasi
+    // XP Pop-up animasi + Water + Chest + Ticket
     setXpAmount(20);
     setShowXpPopup(false);
     setTimeout(() => setShowXpPopup(true), 50);
-    showAlert('Tugas Selesai! 🎉', '+20 XP! Satu tugas kuliahmu berhasil diselesaikan.');
+    await addWaterDrops(1).catch(() => {});
+    await addChest(1).catch(() => {});
+    await awardWheelTicketForActivity().catch(() => {});
+    getChestCount().then(setChestCount);
+    getWheelTickets().then(setWheelTickets);
+    showAlert('Tugas Selesai! 🎉', '+20 XP, +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda 🎰!');
   };
 
   const handleQuickSelectMood = (moodOption: MoodOption) => {
@@ -477,7 +555,7 @@ export default function HomeScreen() {
   const questPercentage = Math.round((completedQuestsCount / quests.length) * 100);
   const currentMoodOption = moods.find(m => m.type === todayMood);
   const isFirstTimeUser = totalNotesCount === 0 && pendingTasksCount === 0 && recentEntries.length === 0;
-  const userLevel = calculateUserXp(totalNotesCount, 0, recentEntries.length, streak);
+  const userLevel = calculateUserXp(totalNotesCount, 0, recentEntries.length, streak, 0, extraXp);
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -994,7 +1072,10 @@ export default function HomeScreen() {
         <XpPopup
           xp={xpAmount}
           visible={showXpPopup}
-          color={theme.accentLight}
+          color={isLightMode ? '#D97706' : '#FBBF24'}
+          bgColor={isLightMode ? 'rgba(255, 255, 255, 0.96)' : 'rgba(15, 23, 42, 0.96)'}
+          borderColor={isLightMode ? '#F59E0B' : '#FBBF24'}
+          textColor={isLightMode ? '#B45309' : '#FBBF24'}
           onDone={() => setShowXpPopup(false)}
         />
         <MilestoneCelebrate
@@ -1002,6 +1083,66 @@ export default function HomeScreen() {
           streak={streak}
           onClose={() => setShowMilestone(false)}
           accentColor={theme.accent}
+          cardBg={theme.card}
+          textColor={theme.text}
+          subtextColor={theme.subtext}
+          borderColor={theme.border}
+        />
+        <VirtualGardenModal
+          visible={showGardenModal}
+          onClose={() => setShowGardenModal(false)}
+        />
+        <DailyRewardModal
+          visible={showDailyRewardModal}
+          reward={dailyRewardData}
+          streak={dailyRewardStreak}
+          onClaim={async () => {
+            await claimDailyReward(dailyRewardStreak);
+            setShowDailyRewardModal(false);
+            setExtraXp(prev => prev + dailyRewardData.xp);
+            setXpAmount(dailyRewardData.xp);
+            setShowXpPopup(true);
+          }}
+        />
+        <LootChestModal
+          visible={showChestModal}
+          onClose={() => {
+            setShowChestModal(false);
+            getChestCount().then(setChestCount);
+            getActiveTitle().then(setActiveTitle);
+          }}
+          onRewardClaimed={async (rew) => {
+            if (rew.xpAmount && rew.xpAmount > 0) {
+              setExtraXp(prev => prev + (rew.xpAmount || 0));
+              setXpAmount(rew.xpAmount);
+              setShowXpPopup(true);
+            }
+            if (rew.waterAmount && rew.waterAmount > 0) {
+              await addWaterDrops(rew.waterAmount);
+            }
+            getChestCount().then(setChestCount);
+            getActiveTitle().then(setActiveTitle);
+          }}
+        />
+        <LuckyWheelModal
+          visible={showWheelModal}
+          onClose={() => {
+            setShowWheelModal(false);
+            getWheelTickets().then(setWheelTickets);
+            getActiveTitle().then(setActiveTitle);
+          }}
+          onRewardClaimed={async (rew) => {
+            if (rew.xpAmount && rew.xpAmount > 0) {
+              setExtraXp(prev => prev + (rew.xpAmount || 0));
+              setXpAmount(rew.xpAmount);
+              setShowXpPopup(true);
+            }
+            if (rew.waterAmount && rew.waterAmount > 0) {
+              await addWaterDrops(rew.waterAmount);
+            }
+            getWheelTickets().then(setWheelTickets);
+            getActiveTitle().then(setActiveTitle);
+          }}
         />
 
         <ScrollView
@@ -1011,28 +1152,47 @@ export default function HomeScreen() {
       >
         <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
-          {/* Top Bar Greeting & Streak Indicator */}
+          {/* Top Bar Greeting, Garden & Streak Indicator */}
           <View style={styles.topBar}>
-            <View>
+            <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
               <Text style={[styles.greetingText, { color: isLightMode ? theme.text : theme.accentLight }]}>{greeting}</Text>
-              <Text style={[styles.usernameText, { color: theme.text }]}>{username || 'Mahasiswa'}</Text>
+              <Text style={[styles.usernameText, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{username || 'Mahasiswa'}</Text>
+              {activeTitle && (
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                  <Ionicons name={activeTitle.icon as any} size={11} color={activeTitle.color} />
+                  <Text style={{ color: activeTitle.color, fontSize: 10.5, fontWeight: '800' }} numberOfLines={1}>
+                    [{activeTitle.label}]
+                  </Text>
+                </View>
+              )}
             </View>
 
-            <TouchableOpacity
-              style={[styles.streakPill, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={() => {
-                // Tampilkan milestone kalau streak cocok
-                if ([7, 14, 30, 60, 100].includes(streak)) {
-                  setShowMilestone(true);
-                } else {
-                  showAlert('Streak Keaktifan', `Kamu sudah aktif ${streak} hari berturut-turut belajar dan berefleksi. Pertahankan ritmemu!`);
-                }
-              }}
-              activeOpacity={0.7}
-            >
-              <StreakFlamePulse streak={streak} color={sem.warning} size={15} isActive={streakJustIncreased} />
-              <Text style={[styles.streakNumber, { color: theme.text }]}>{streak} Hari</Text>
-            </TouchableOpacity>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <TouchableOpacity
+                style={[styles.streakPill, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => setShowGardenModal(true)}
+                activeOpacity={0.7}
+              >
+                <Ionicons name="leaf" size={14} color="#10B981" />
+                <Text style={[styles.streakNumber, { color: theme.text }]}>Taman</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.streakPill, { backgroundColor: theme.card, borderColor: theme.border }]}
+                onPress={() => {
+                  // Tampilkan milestone kalau streak cocok
+                  if ([7, 14, 30, 60, 100].includes(streak)) {
+                    setShowMilestone(true);
+                  } else {
+                    showAlert('Streak Keaktifan', `Kamu sudah aktif ${streak} hari berturut-turut belajar dan berefleksi. Pertahankan ritmemu!`);
+                  }
+                }}
+                activeOpacity={0.7}
+              >
+                <StreakFlamePulse streak={streak} color={sem.warning} size={15} isActive={streakJustIncreased} />
+                <Text style={[styles.streakNumber, { color: theme.text }]}>{streak} Hari</Text>
+              </TouchableOpacity>
+            </View>
           </View>
 
           {/* Gamified Level & XP Card */}
@@ -1072,6 +1232,69 @@ export default function HomeScreen() {
               />
             </TouchableOpacity>
           </FadeSlideIn>
+
+          {/* Mini-Games / Zona Hadiah & Gacha Row */}
+          <View style={{ flexDirection: 'row', gap: 10, marginTop: 2 }}>
+            {/* Peti Misterius Card */}
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor: theme.card,
+                borderColor: chestCount > 0 ? '#F59E0B' : theme.border,
+                borderWidth: 1,
+                borderRadius: 14,
+                padding: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+              onPress={() => {
+                getChestCount().then(setChestCount);
+                setShowChestModal(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#F59E0B20', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="gift" size={18} color="#F59E0B" />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: theme.text }} numberOfLines={1}>Peti Misteri</Text>
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: chestCount > 0 ? '#F59E0B' : theme.subtext }} numberOfLines={1}>
+                  {chestCount > 0 ? `${chestCount} Siap Buka 📦` : 'Peti Habis'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Roda Keberuntungan Card */}
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor: theme.card,
+                borderColor: wheelTickets > 0 ? '#EC4899' : theme.border,
+                borderWidth: 1,
+                borderRadius: 14,
+                padding: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 8,
+              }}
+              onPress={() => {
+                getWheelTickets().then(setWheelTickets);
+                setShowWheelModal(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#EC489920', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="radio-button-on" size={18} color="#EC4899" />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ fontSize: 12, fontWeight: '800', color: theme.text }} numberOfLines={1}>Roda Putar</Text>
+                <Text style={{ fontSize: 10.5, fontWeight: '700', color: wheelTickets > 0 ? '#EC4899' : theme.subtext }} numberOfLines={1}>
+                  {wheelTickets > 0 ? `${wheelTickets} Tiket Putar 🎰` : 'Tiket Habis'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
 
           {/* Offline Warning Banner */}
           {!isOnline && (
@@ -1254,7 +1477,7 @@ export default function HomeScreen() {
           activeOpacity={1}
           onPress={() => setShowLevelModal(false)}
         >
-          <TouchableOpacity activeOpacity={1} style={[styles.levelModalCard, { backgroundColor: isLightMode ? '#FFFFFF' : '#141822', borderColor: theme.border }]}>
+          <TouchableOpacity activeOpacity={1} style={[styles.levelModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
             {/* Modal Top Hero */}
             <View style={styles.levelModalTop}>
               <View style={[styles.levelModalEmojiWrap, { backgroundColor: theme.accentBg }]}>
@@ -1280,10 +1503,15 @@ export default function HomeScreen() {
 
             {/* Left-Aligned Clean XP Breakdown Guide */}
             <View style={[styles.xpGuideBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-              <Text style={[styles.xpGuideHeader, { color: theme.text }]}>💡 Cara Mengumpulkan XP:</Text>
-              
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Ionicons name="information-circle" size={15} color={theme.accentLight} />
+                <Text style={[styles.xpGuideHeader, { color: theme.text }]}>Cara Mengumpulkan XP:</Text>
+              </View>
+
               <View style={styles.xpGuideItem}>
-                <Text style={styles.xpGuideIcon}>🎯</Text>
+                <View style={[styles.xpGuideIconCircle, { backgroundColor: '#6366F115' }]}>
+                  <Ionicons name="radio-button-on" size={16} color="#818CF8" />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Misi Ketenangan Harian</Text>
                   <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Selesaikan 4 misi relaksasi & refleksi</Text>
@@ -1292,7 +1520,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.xpGuideItem}>
-                <Text style={styles.xpGuideIcon}>📚</Text>
+                <View style={[styles.xpGuideIconCircle, { backgroundColor: '#3B82F615' }]}>
+                  <Ionicons name="document-text" size={16} color="#60A5FA" />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Buat Catatan Materi Kuliah</Text>
                   <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Tulis ringkasan atau scan foto buku</Text>
@@ -1301,7 +1531,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.xpGuideItem}>
-                <Text style={styles.xpGuideIcon}>✅</Text>
+                <View style={[styles.xpGuideIconCircle, { backgroundColor: '#10B98115' }]}>
+                  <Ionicons name="checkmark-circle" size={16} color="#34D399" />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Selesaikan Tugas Kuliah</Text>
                   <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Centang tugas atau subtask pengerjaan</Text>
@@ -1310,7 +1542,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={styles.xpGuideItem}>
-                <Text style={styles.xpGuideIcon}>💭</Text>
+                <View style={[styles.xpGuideIconCircle, { backgroundColor: '#8B5CF615' }]}>
+                  <Ionicons name="chatbubble-ellipses" size={16} color="#A78BFA" />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Tulis Jurnal Refleksi</Text>
                   <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Refleksikan perasaan & mood harian</Text>
@@ -1319,7 +1553,9 @@ export default function HomeScreen() {
               </View>
 
               <View style={[styles.xpGuideItem, { borderBottomWidth: 0 }]}>
-                <Text style={styles.xpGuideIcon}>🔥</Text>
+                <View style={[styles.xpGuideIconCircle, { backgroundColor: '#F59E0B15' }]}>
+                  <Ionicons name="flame" size={16} color="#F59E0B" />
+                </View>
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.xpGuideTitle, { color: theme.text }]}>Jaga Streak Keaktifan</Text>
                   <Text style={[styles.xpGuideSub, { color: theme.subtext }]}>Aktif belajar berturut-turut setiap hari</Text>
@@ -1394,28 +1630,29 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
   },
   greetingText: {
-    fontSize: 11.5,
+    fontSize: 11,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 0.6,
   },
   usernameText: {
-    fontSize: 22,
+    fontSize: 20,
     fontWeight: '800',
     letterSpacing: -0.4,
     marginTop: 1,
+    flexShrink: 1,
   },
   streakPill: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
-    gap: 5,
+    gap: 4,
   },
   streakNumber: {
-    fontSize: 12,
+    fontSize: 11.5,
     fontWeight: '700',
   },
   levelCard: {
@@ -1527,8 +1764,12 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: 'rgba(255, 255, 255, 0.05)',
   },
-  xpGuideIcon: {
-    fontSize: 17,
+  xpGuideIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   xpGuideTitle: {
     fontSize: 12,

@@ -26,6 +26,9 @@ import {
   FadeSlideIn,
   StreakFlamePulse,
 } from '../components/DuolingoAnimations';
+import VirtualGardenModal from '../components/VirtualGardenModal';
+import { addGrowthPoints, addWaterDrops } from '../lib/gardenStorage';
+import { addChest, awardWheelTicketForActivity } from '../lib/lootChestStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseDeadline, getDeadlinePresets } from '../lib/dateUtils';
 import {
@@ -221,6 +224,7 @@ export default function StudyNotesScreen() {
   const [showXpPopup, setShowXpPopup] = useState(false);
   const [xpAmount, setXpAmount] = useState(20);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showGardenModal, setShowGardenModal] = useState(false);
 
   useEffect(() => {
     if (subjects.length > 0 && !newTaskSubject) {
@@ -374,14 +378,18 @@ export default function StudyNotesScreen() {
           }
           notifyPomodoroFinished(activePomodoroTask?.title, pomoTotalTime < 10 * 60);
 
-          // XP Popup + Confetti Animasi
+          // XP Popup + Confetti Animasi + Water Garden + Loot Chest
           setXpAmount(30);
           setShowXpPopup(false);
           setTimeout(() => setShowXpPopup(true), 50);
           setShowConfetti(true);
           setTimeout(() => setShowConfetti(false), 3500);
+          addGrowthPoints(25).catch(() => {});
+          addWaterDrops(2).catch(() => {});
+          addChest(1).catch(() => {});
+          awardWheelTicketForActivity().catch(() => {});
 
-          showAlert('🎉 Sesi Selesai! (+30 XP)', 'Kerja bagus! Sesi fokus selesai dan kamu mendapatkan +30 XP.');
+          showAlert('Sesi Fokus Selesai! (+30 XP, +2 💧 & +1 📦)', 'Kerja luar biasa! Sesi fokus berhasil diselesaikan, tanaman disiram (+25 XP Pertumbuhan), kamu mendapatkan +30 XP, +2 Tetes Air, +1 Peti Misterius, dan +1 Tiket Roda Keberuntungan!');
         }
       }, 500);
     } else {
@@ -462,7 +470,12 @@ export default function StudyNotesScreen() {
     setNewTaskDueDate('');
     setNewTaskNotes('');
     if (isMobile) setShowTaskForm(false);
-    showAlert('Sukses', 'Tugas kuliah berhasil disimpan.');
+
+    // Reward for adding task
+    addWaterDrops(1).catch(() => {});
+    addChest(1).catch(() => {});
+    awardWheelTicketForActivity().catch(() => {});
+    showAlert('Tugas Berhasil Ditambahkan! 🎉', 'Kamu mendapatkan +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda Keberuntungan 🎰!');
   };
 
   // Toggle Task Completion
@@ -470,10 +483,14 @@ export default function StudyNotesScreen() {
     const newStatus = !task.is_completed;
     if (newStatus) {
       cancelTaskNotification(task.id);
-      // XP Pop-up animasi
+      // XP Pop-up animasi + Water Drop + Chest + Ticket
       setXpAmount(20);
       setShowXpPopup(false);
       setTimeout(() => setShowXpPopup(true), 50);
+      addWaterDrops(1).catch(() => {});
+      addChest(1).catch(() => {});
+      awardWheelTicketForActivity().catch(() => {});
+      showAlert('Tugas Selesai! 🎉', '+20 XP, +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda 🎰!');
     } else {
       scheduleTaskDeadlineNotification({ ...task, is_completed: false });
     }
@@ -819,6 +836,10 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
         visible={showXpPopup}
         color="#FBBF24"
         onDone={() => setShowXpPopup(false)}
+      />
+      <VirtualGardenModal
+        visible={showGardenModal}
+        onClose={() => setShowGardenModal(false)}
       />
 
       <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
@@ -1829,6 +1850,22 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 
             <Text style={[styles.pomoHeader, { color: theme.text }]}>Studio Fokus Belajar</Text>
             <Text style={[styles.pomoSub, { color: theme.subtext }]}>Tingkatkan konsentrasi belajar dengan teknik Pomodoro teruji.</Text>
+
+            {/* Virtual Garden Plant Banner Link */}
+            <TouchableOpacity
+              style={[styles.pomoGardenPillBanner, { backgroundColor: theme.card, borderColor: theme.border }]}
+              onPress={() => setShowGardenModal(true)}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.pomoGardenIconBox, { backgroundColor: theme.accentBg }]}>
+                <Ionicons name="leaf-outline" size={15} color={theme.accentLight} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.pomoGardenTitle, { color: theme.text }]}>Taman Fokus Mahasiswa</Text>
+                <Text style={[styles.pomoGardenSub, { color: theme.subtext }]}>Selesaikan sesi untuk menyiram & menumbuhkan pohonmu</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={14} color={theme.subtext} />
+            </TouchableOpacity>
 
             {/* Duration Selector */}
             <View style={styles.pomoPresetsRow}>
@@ -3036,6 +3073,31 @@ const styles = StyleSheet.create({
   pomoPickTargetText: {
     fontSize: 11.5,
     fontWeight: '600',
+  },
+  pomoGardenPillBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    width: '100%',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 10,
+    marginBottom: 12,
+  },
+  pomoGardenIconBox: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  pomoGardenTitle: {
+    fontSize: 12.5,
+    fontWeight: '700',
+  },
+  pomoGardenSub: {
+    fontSize: 10.5,
+    marginTop: 1,
   },
 
   /* Edit Task Modal Styles */

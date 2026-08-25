@@ -21,6 +21,7 @@ import MarkdownRenderer from '../components/MarkdownRenderer';
 import ScanNoteModal from '../components/ScanNoteModal';
 import Flashcard3DModal from '../components/Flashcard3DModal';
 import AudioLecturePlayer from '../components/AudioLecturePlayer';
+import QuizBattleModal from '../components/QuizBattleModal';
 import { exportStudyNoteToPdf } from '../lib/pdfExporter';
 import {
   XpPopup,
@@ -35,6 +36,8 @@ import {
   cacheNotesLocally,
   getCachedNotes
 } from '../lib/offlineSync';
+import { addWaterDrops, addGrowthPoints } from '../lib/gardenStorage';
+import { addChest, awardWheelTicketForActivity } from '../lib/lootChestStorage';
 
 type StudyNoteRouteProp = RouteProp<RootStackParamList, 'StudyNoteDetail'>;
 
@@ -82,6 +85,7 @@ export default function StudyNoteDetailScreen() {
   const [showXpPopup, setShowXpPopup] = useState(false);
   const [xpAmount, setXpAmount] = useState(10);
   const [showConfetti, setShowConfetti] = useState(false);
+  const [showQuizBattleModal, setShowQuizBattleModal] = useState(false);
   const [shakeQuestionIndex, setShakeQuestionIndex] = useState<number | null>(null);
 
   const [loading, setLoading] = useState(false);
@@ -658,7 +662,8 @@ Kembalikan HANYA JSON array murni tanpa markdown pembungkus dengan format:
   };
 
   // AI Feature 2: Generate Comprehensive Interactive Quiz (3, 5, or 10 Questions)
-  const handleGenerateQuiz = async () => {
+  const handleGenerateQuiz = async (autoLaunchBattle?: boolean | any) => {
+    const shouldLaunch = autoLaunchBattle === true;
     if (!content.trim()) {
       showAlert('Perhatian', 'Isi catatan terlebih dahulu untuk membuat soal kuis.');
       return;
@@ -739,7 +744,20 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         await cacheNotesLocally(user.id, updated);
       }
 
-      showAlert('Kuis Siap', `${cleanQuestions.length} soal kuis telah dibuat dan tersimpan ke catatan.`);
+      if (shouldLaunch) {
+        setShowQuizBattleModal(true);
+      } else {
+        showAlert(
+          'Kuis Siap',
+          `${cleanQuestions.length} soal kuis telah berhasil dibuat. Ingin langsung menantang Monster Bos dalam Mode RPG Battle?`,
+          {
+            confirmText: 'Mulai Boss Battle ⚔️',
+            onClose: () => {
+              setShowQuizBattleModal(true);
+            }
+          }
+        );
+      }
     } catch (e: any) {
       showAlert('Gagal', e.message || 'Terjadi kesalahan saat menyusun kuis AI.');
     } finally {
@@ -856,7 +874,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     }
 
     setLoading(false);
-    showAlert('Tersimpan', 'Catatan kuliah berhasil disimpan.');
+    if (!noteId) {
+      addWaterDrops(1).catch(() => {});
+      addChest(1).catch(() => {});
+      awardWheelTicketForActivity().catch(() => {});
+      addGrowthPoints(25).catch(() => {});
+      showAlert('Catatan Berhasil Disimpan! 🎉', 'Kamu mendapatkan +1 Tetes Air 💧 untuk Taman, +1 Peti Misterius 📦, dan +1 Tiket Roda Keberuntungan 🎰!');
+    } else {
+      showAlert('Tersimpan', 'Catatan kuliah berhasil diperbarui.');
+    }
     if (noteId) {
       setViewMode('reader');
     } else {
@@ -1065,7 +1091,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
               <View style={styles.desktopTwoColRow}>
                 {/* Left Main Column: Document Paper & Quiz */}
                 <View style={styles.desktopLeftMainCol}>
-                  <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                  <View style={[styles.documentPaper, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     
                     {/* Meta Top Info Bar */}
                     <View style={styles.documentMetaRow}>
@@ -1134,6 +1160,37 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                           </TouchableOpacity>
                         </View>
                       </View>
+
+                      {/* RPG Boss Battle Hero Launch Banner */}
+                      <TouchableOpacity
+                        style={[
+                          styles.rpgBossLaunchBanner,
+                          { backgroundColor: isLightMode ? '#FEF2F2' : '#230E12', borderColor: isLightMode ? '#FECACA' : '#6B1D28' }
+                        ]}
+                        onPress={() => setShowQuizBattleModal(true)}
+                        activeOpacity={0.85}
+                      >
+                        <View style={[styles.rpgBossIconBox, { backgroundColor: '#EF4444' + '22' }]}>
+                          <Ionicons name="flash" size={18} color="#EF4444" />
+                        </View>
+                        <View style={{ flex: 1 }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Text style={[styles.rpgBossLaunchTitle, { color: isLightMode ? '#991B1B' : '#FCA5A5' }]}>
+                              Mode Boss Battle RPG
+                            </Text>
+                            <View style={styles.rpgNewBadge}>
+                              <Text style={styles.rpgNewBadgeText}>GAME</Text>
+                            </View>
+                          </View>
+                          <Text style={[styles.rpgBossLaunchSub, { color: isLightMode ? '#B91C1C' : '#F87171' }]}>
+                            Tantang Monster Bos materi ini dengan HP Bar & efek serangan!
+                          </Text>
+                        </View>
+                        <View style={[styles.rpgPlayBtnCapsule, { backgroundColor: '#EF4444' }]}>
+                          <Ionicons name="play" size={12} color="#FFFFFF" />
+                          <Text style={styles.rpgPlayBtnText}>Mainkan</Text>
+                        </View>
+                      </TouchableOpacity>
 
                       {/* Score Progress Bar */}
                       <View style={[styles.scoreBarCard, { backgroundColor: isLightMode ? '#ECFDF5' : '#131D19', borderColor: isLightMode ? '#A7F3D0' : '#1D3B2D' }]}>
@@ -1446,7 +1503,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
               /* ── MOBILE SINGLE-COLUMN LAYOUT ── */
               <View style={styles.readerContainer}>
                 {/* Mobile Document Paper Canvas */}
-                <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                <View style={[styles.documentPaper, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   {/* Meta Top Info Bar */}
                   <View style={styles.documentMetaRow}>
                     <View style={[styles.readerSubjectBadge, { backgroundColor: theme.accentBg }]}>
@@ -1575,6 +1632,32 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         </View>
                       </View>
 
+                      {/* Boss Battle RPG Mode Pill */}
+                      <TouchableOpacity
+                        style={[
+                          styles.docActionPill,
+                          { backgroundColor: isLightMode ? '#FEF2F2' : '#2D1216', borderColor: isLightMode ? '#FECACA' : '#6B1D28' }
+                        ]}
+                        onPress={() => {
+                          if (quizData.length > 0) {
+                            setShowQuizBattleModal(true);
+                          } else {
+                            confirmAction(
+                              'Mulai Boss Battle RPG? ⚔️',
+                              'Catatan ini belum memiliki soal kuis. Apakah kamu ingin AI langsung menyusun soal dan membuka arena pertarungan?',
+                              async () => {
+                                await handleGenerateQuiz(true);
+                              }
+                            );
+                          }
+                        }}
+                      >
+                        <Ionicons name="flash" size={13} color="#EF4444" />
+                        <Text style={[styles.docActionPillText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>
+                          Boss Battle RPG
+                        </Text>
+                      </TouchableOpacity>
+
                       <TouchableOpacity
                         style={[styles.docActionPill, { backgroundColor: theme.card, borderColor: theme.border }]}
                         onPress={() => setShowScanModal(true)}
@@ -1664,6 +1747,37 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         </TouchableOpacity>
                       </View>
                     </View>
+
+                    {/* RPG Boss Battle Hero Launch Banner */}
+                    <TouchableOpacity
+                      style={[
+                        styles.rpgBossLaunchBanner,
+                        { backgroundColor: isLightMode ? '#FEF2F2' : '#230E12', borderColor: isLightMode ? '#FECACA' : '#6B1D28' }
+                      ]}
+                      onPress={() => setShowQuizBattleModal(true)}
+                      activeOpacity={0.85}
+                    >
+                      <View style={[styles.rpgBossIconBox, { backgroundColor: '#EF4444' + '22' }]}>
+                        <Ionicons name="flash" size={18} color="#EF4444" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={[styles.rpgBossLaunchTitle, { color: isLightMode ? '#991B1B' : '#FCA5A5' }]}>
+                            Mode Boss Battle RPG
+                          </Text>
+                          <View style={styles.rpgNewBadge}>
+                            <Text style={styles.rpgNewBadgeText}>GAME</Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.rpgBossLaunchSub, { color: isLightMode ? '#B91C1C' : '#F87171' }]}>
+                          Tantang Monster Bos materi ini dengan HP Bar & efek serangan!
+                        </Text>
+                      </View>
+                      <View style={[styles.rpgPlayBtnCapsule, { backgroundColor: '#EF4444' }]}>
+                        <Ionicons name="play" size={12} color="#FFFFFF" />
+                        <Text style={styles.rpgPlayBtnText}>Mainkan</Text>
+                      </View>
+                    </TouchableOpacity>
 
                     {/* Score Progress Bar */}
                     <View style={[styles.scoreBarCard, { backgroundColor: isLightMode ? '#ECFDF5' : '#131D19', borderColor: isLightMode ? '#A7F3D0' : '#1D3B2D' }]}>
@@ -1777,7 +1891,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
               <View style={styles.desktopTwoColRow}>
                 {/* Left Main Column: Form Inputs */}
                 <View style={styles.desktopLeftMainCol}>
-                  <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                  <View style={[styles.documentPaper, { backgroundColor: theme.card, borderColor: theme.border }]}>
 
                     {/* Draft Status Banner */}
                     {!noteId && (draftSavedTime || hasRestoredDraft) ? (
@@ -2109,7 +2223,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
             ) : (
               /* ── MOBILE SINGLE-COLUMN EDIT LAYOUT ── */
               <View style={styles.editContainer}>
-                <View style={[styles.documentPaper, { backgroundColor: isLightMode ? '#FFFFFF' : theme.card, borderColor: theme.border }]}>
+                <View style={[styles.documentPaper, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   {/* Draft Status Banner */}
                   {!noteId && (draftSavedTime || hasRestoredDraft) ? (
                     <View style={[styles.draftBannerRow, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F1E19', borderColor: isLightMode ? '#86EFAC' : '#1D4537' }]}>
@@ -2475,6 +2589,22 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         title={title || 'Materi Catatan'}
         flashcards={flashcards}
         onSaveFlashcards={handleSaveFlashcardsState}
+      />
+
+      {/* AI Quiz RPG Boss Battle Arena Modal */}
+      <QuizBattleModal
+        visible={showQuizBattleModal}
+        onClose={() => setShowQuizBattleModal(false)}
+        noteTitle={title || 'Catatan Kuliah'}
+        subject={subject}
+        quizQuestions={quizData}
+        onBattleWon={(earnedXp) => {
+          setXpAmount(earnedXp);
+          setShowXpPopup(true);
+          addWaterDrops(1).catch(() => {});
+          addChest(1).catch(() => {});
+          awardWheelTicketForActivity().catch(() => {});
+        }}
       />
     </SafeAreaView>
   );
@@ -3185,6 +3315,56 @@ const styles = StyleSheet.create({
     color: '#EF4444',
     fontSize: 11,
     fontWeight: '600',
+  },
+  rpgBossLaunchBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1.5,
+    gap: 10,
+  },
+  rpgBossIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rpgBossLaunchTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    letterSpacing: -0.2,
+  },
+  rpgNewBadge: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 5,
+    paddingVertical: 1,
+    borderRadius: 4,
+  },
+  rpgNewBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 8.5,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  rpgBossLaunchSub: {
+    fontSize: 10.5,
+    marginTop: 2,
+    lineHeight: 14,
+  },
+  rpgPlayBtnCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+  },
+  rpgPlayBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
   },
   scoreBarCard: {
     backgroundColor: '#131D19',

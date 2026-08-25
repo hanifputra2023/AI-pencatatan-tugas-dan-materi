@@ -764,6 +764,16 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
 
   const isLightMode = isColorLight(computedTheme.bg) || computedTheme.mode === 'light';
 
+  // If a photo wallpaper is active, apply glassmorphic translucency to cards so wallpaper shines through beautifully
+  if (bgCustomImage || bgArtStyle === 'custom-photo') {
+    computedTheme = {
+      ...computedTheme,
+      card: isLightMode ? 'rgba(255, 255, 255, 0.88)' : 'rgba(20, 24, 34, 0.85)',
+      cardInner: isLightMode ? 'rgba(241, 245, 249, 0.80)' : 'rgba(14, 17, 23, 0.80)',
+      border: isLightMode ? 'rgba(226, 232, 240, 0.90)' : 'rgba(30, 36, 48, 0.90)',
+    };
+  }
+
   useEffect(() => {
     if (typeof document !== 'undefined') {
       document.documentElement.style.backgroundColor = computedTheme.bg;
