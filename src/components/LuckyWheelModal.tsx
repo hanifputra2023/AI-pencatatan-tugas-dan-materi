@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from "react";
 import {
-  View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing, Platform,
+  View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing,
 } from "react-native";
+import Svg, { Path, Circle, G, Text as SvgText } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
 import {
@@ -34,7 +35,7 @@ function buildArcPath(startDeg: number, endDeg: number): string {
   const start = polar(startDeg);
   const end = polar(endDeg);
   const largeArc = endDeg - startDeg > 180 ? 1 : 0;
-  return [`M ${WHEEL_R} ${WHEEL_R}`, `L ${start.x} ${start.y}`, `A ${WHEEL_R} ${WHEEL_R} 0 ${largeArc} 1 ${end.x} ${end.y}`, "Z"].join(" ");
+  return [`M ${WHEEL_R} ${WHEEL_R}`, `L ${start.x.toFixed(3)} ${start.y.toFixed(3)}`, `A ${WHEEL_R} ${WHEEL_R} 0 ${largeArc} 1 ${end.x.toFixed(3)} ${end.y.toFixed(3)}`, "Z"].join(" ");
 }
 
 const EMOJI_MAP: Record<string, string> = {
@@ -44,44 +45,79 @@ const EMOJI_MAP: Record<string, string> = {
 
 function WheelSVG({ rotationAnim }: { rotationAnim: Animated.Value }) {
   const [deg, setDeg] = useState(0);
+
   useEffect(() => {
-    const id = rotationAnim.addListener(({ value }) => setDeg(value));
+    const id = rotationAnim.addListener(({ value }) => setDeg(value % 360));
     return () => rotationAnim.removeListener(id);
   }, [rotationAnim]);
 
-  const labelR = WHEEL_R * 0.65;
-  const iconR = WHEEL_R * 0.82;
-
-  if (Platform.OS !== "web") {
-    return (
-      <View style={{ width: SVG_SIZE, height: SVG_SIZE, borderRadius: WHEEL_R, backgroundColor: "#1E293B", alignItems: "center", justifyContent: "center" }}>
-        <Text style={{ color: "#fff", fontSize: 32 }}>🎰</Text>
-      </View>
-    );
-  }
+  const iconR = WHEEL_R * 0.76;
+  const labelR = WHEEL_R * 0.52;
 
   return (
-    <div style={{ width: SVG_SIZE, height: SVG_SIZE, transform: `rotate(${deg}deg)`, willChange: "transform", borderRadius: "50%", overflow: "hidden", border: "3px solid rgba(255,255,255,0.18)", boxShadow: "0 0 32px rgba(0,0,0,0.5)", flexShrink: 0 }}>
-      <svg width={SVG_SIZE} height={SVG_SIZE} viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`} style={{ display: "block" }}>
+    <Animated.View
+      style={{
+        width: SVG_SIZE,
+        height: SVG_SIZE,
+        transform: [{ rotate: `${deg}deg` }],
+        borderRadius: WHEEL_R,
+        overflow: "hidden",
+        borderWidth: 3,
+        borderColor: "rgba(255,255,255,0.25)",
+        shadowColor: "#000",
+        shadowOpacity: 0.5,
+        shadowRadius: 16,
+        elevation: 8,
+      }}
+    >
+      <Svg width={SVG_SIZE} height={SVG_SIZE} viewBox={`0 0 ${SVG_SIZE} ${SVG_SIZE}`}>
         {WHEEL_SEGMENTS.map((seg, i) => {
           const startDeg = i * SEG_ANGLE;
           const endDeg = startDeg + SEG_ANGLE;
           const midDeg = startDeg + SEG_ANGLE / 2;
-          const lp = polar(midDeg, labelR);
           const ip = polar(midDeg, iconR);
+          const lp = polar(midDeg, labelR);
           const path = buildArcPath(startDeg, endDeg);
+
           return (
-            <g key={seg.id}>
-              <path d={path} fill={seg.color} stroke="rgba(0,0,0,0.25)" strokeWidth={1.5} />
-              <text x={ip.x} y={ip.y} textAnchor="middle" dominantBaseline="middle" fontSize={13} style={{ pointerEvents: "none", userSelect: "none" }} transform={`rotate(${midDeg}, ${ip.x}, ${ip.y})`}>{EMOJI_MAP[seg.id] || "✨"}</text>
-              <text x={lp.x} y={lp.y} textAnchor="middle" dominantBaseline="middle" fontSize={8} fontWeight="800" fill={seg.textColor} style={{ pointerEvents: "none", userSelect: "none" }} transform={`rotate(${midDeg}, ${lp.x}, ${lp.y})`}>{seg.label}</text>
-            </g>
+            <G key={seg.id}>
+              <Path d={path} fill={seg.color} stroke="rgba(0,0,0,0.2)" strokeWidth={1.5} />
+              <SvgText
+                x={ip.x}
+                y={ip.y}
+                fontSize={13}
+                textAnchor="middle"
+                alignmentBaseline="middle"
+                rotation={midDeg}
+                originX={ip.x}
+                originY={ip.y}
+              >
+                {EMOJI_MAP[seg.id] || "✨"}
+              </SvgText>
+              <SvgText
+                x={lp.x}
+                y={lp.y}
+                fontSize={7.5}
+                fontWeight="bold"
+                fill={seg.textColor || "#FFFFFF"}
+                textAnchor="middle"
+                alignmentBaseline="middle"
+                rotation={midDeg}
+                originX={lp.x}
+                originY={lp.y}
+              >
+                {seg.label}
+              </SvgText>
+            </G>
           );
         })}
-        <circle cx={WHEEL_R} cy={WHEEL_R} r={24} fill="#0F172A" stroke="#F59E0B" strokeWidth={3} />
-        <text x={WHEEL_R} y={WHEEL_R + 2} textAnchor="middle" dominantBaseline="middle" fontSize={18} style={{ pointerEvents: "none" }}>🎰</text>
-      </svg>
-    </div>
+        {/* Center hub */}
+        <Circle cx={WHEEL_R} cy={WHEEL_R} r={22} fill="#0F172A" stroke="#F59E0B" strokeWidth={3} />
+        <SvgText x={WHEEL_R} y={WHEEL_R + 1} fontSize={18} textAnchor="middle" alignmentBaseline="middle">
+          🎰
+        </SvgText>
+      </Svg>
+    </Animated.View>
   );
 }
 
