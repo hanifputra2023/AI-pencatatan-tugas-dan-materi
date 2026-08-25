@@ -1292,11 +1292,14 @@ export default function HomeScreen() {
             <BossEventBanner
               event={activeBossEvent}
               onChallenge={() => {
-                navigation.navigate('Main', { screen: 'StudyNotes' } as any);
-                showAlert(
-                  `Menantang ${activeBossEvent.name}! ⚔️`,
-                  'Buka salah satu catatan kuliahmu dan tekan tombol "Mode RPG Boss Battle" untuk menaklukkannya!'
-                );
+                // Navigate to Study tab → Notes tab where Boss Battle button exists
+                (navigation.getParent() as any)?.navigate('Study', { initialTab: 'notes' });
+                setTimeout(() => {
+                  showAlert(
+                    `⚔️ Menantang ${activeBossEvent.name}!`,
+                    `Bos Event Mingguan sedang menunggumu!\n\nBuka salah satu catatan kuliah di bawah, lalu tekan tombol "Mode RPG Boss Battle" untuk melancarkan serangan!`
+                  );
+                }, 400);
               }}
               onDismiss={() => setShowBossEventDismissed(true)}
             />

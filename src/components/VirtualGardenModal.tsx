@@ -11,11 +11,13 @@ import {
   GARDEN_SPECIES_LIST,
   getActivePlant,
   saveActivePlant,
-  addGrowthPoints,
+  waterPlant,
   getHarvestedPlants,
   plantNewSeed,
   getWaterDrops,
   consumeWaterDrop,
+  WATER_PER_STAGE,
+  getGrowthPerWater,
 } from '../lib/gardenStorage';
 import { FloatingBadge, ConfettiBurst, XpPopup } from './DuolingoAnimations';
 import { showAlert } from '../lib/alert';
@@ -59,6 +61,15 @@ export default function VirtualGardenModal({
   const handleWaterPlant = async () => {
     if (!activePlant) return;
 
+    // Stage 4 = already bloomed — no more watering!
+    if (activePlant.stage >= 4) {
+      showAlert(
+        '🌸 Tanaman Sudah Mekar Sempurna!',
+        `${currentSpecies.name} sudah mencapai Fase 4 dan buff "${currentSpecies.passiveBuff}" sudah aktif!\n\nTanam benih baru di tab Koleksi Bibit untuk memulai perjalanan baru.`
+      );
+      return;
+    }
+
     if (waterDrops <= 0) {
       setShowWaterHelp(true);
       return;
@@ -68,7 +79,10 @@ export default function VirtualGardenModal({
     if (!didConsume) return;
 
     setWaterDrops(prev => Math.max(0, prev - 1));
-    const { plant, didLevelUp, didBloom } = await addGrowthPoints(20);
+    const result = await waterPlant();
+    if (!result) return;
+
+    const { plant, didLevelUp, didBloom } = result;
     setActivePlant(plant);
     onPlantUpdated?.();
 
@@ -77,6 +91,10 @@ export default function VirtualGardenModal({
       setShowXp(true);
       const harvestList = await getHarvestedPlants();
       setHarvests(harvestList);
+      showAlert(
+        `🌸 ${currentSpecies.name} Mekar Sempurna!`,
+        `Selamat! Tanamanmu mencapai Fase 4!\n\nBuff "${currentSpecies.passiveBuff}" sekarang AKTIF selama kamu tidak mengganti tanaman!`
+      );
     } else if (didLevelUp) {
       setShowXp(true);
     }
@@ -220,9 +238,15 @@ export default function VirtualGardenModal({
               {/* Growth Progress Bar */}
               <View style={styles.progressSection}>
                 <View style={styles.progressLabelsRow}>
-                  <Text style={[styles.progressLabelLeft, { color: theme.subtext }]}>Pertumbuhan</Text>
+                  <Text style={[styles.progressLabelLeft, { color: theme.subtext }]}>
+                    {activePlant.stage < 4
+                      ? `Fase ${activePlant.stage} → ${activePlant.stage + 1}`
+                      : 'Mekar Sempurna ✅'}
+                  </Text>
                   <Text style={[styles.progressLabelRight, { color: theme.accentLight }]}>
-                    {activePlant.growthPoints} / 100 XP
+                    {activePlant.stage < 4
+                      ? `Butuh ${WATER_PER_STAGE[activePlant.stage]} 💧 (${Math.round(activePlant.growthPoints)}%)`
+                      : 'Buff Aktif!'}
                   </Text>
                 </View>
                 <View style={[styles.progressBarTrack, { backgroundColor: theme.border }]}>
@@ -230,40 +254,59 @@ export default function VirtualGardenModal({
                     style={[
                       styles.progressBarFill,
                       {
-                        backgroundColor: currentSpecies.accentColor || theme.primary,
+                        backgroundColor: activePlant.stage >= 4
+                          ? '#10B981'
+                          : (currentSpecies.accentColor || theme.primary),
                         width: `${Math.min(100, activePlant.growthPoints)}%` as any,
                       },
                     ]}
                   />
                 </View>
+                {activePlant.stage < 4 && (
+                  <Text style={{ fontSize: 9.5, color: theme.muted, marginTop: 2 }}>
+                    Fase {activePlant.stage}: 1 siram = +{getGrowthPerWater(activePlant.stage)}% pertumbuhan
+                  </Text>
+                )}
               </View>
 
               {/* Action Buttons: Water */}
               <View style={[styles.actionButtonsRow, { width: '100%' }]}>
-                <TouchableOpacity
-                  style={[
-                    styles.waterBtn,
-                    waterDrops > 0 ? {
-                      backgroundColor: theme.primary,
-                    } : {
-                      backgroundColor: isLightMode ? '#F1F5F9' : '#141E2E',
-                      borderWidth: 1.5,
-                      borderColor: '#0284C755',
-                    }
-                  ]}
-                  onPress={handleWaterPlant}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons name="water" size={16} color={waterDrops > 0 ? '#FFFFFF' : '#38BDF8'} />
-                  <Text
+                {activePlant.stage >= 4 ? (
+                  // Stage 4: Show buff active state, no watering
+                  <View style={[styles.waterBtn, { backgroundColor: '#10B98120', borderWidth: 1.5, borderColor: '#10B981' }]}>
+                    <Ionicons name="shield-checkmark" size={16} color="#10B981" />
+                    <Text style={[styles.waterBtnText, { color: '#10B981' }]}>
+                      Buff Aktif: {currentSpecies.passiveBuff}
+                    </Text>
+                  </View>
+                ) : (
+                  <TouchableOpacity
                     style={[
-                      styles.waterBtnText,
-                      waterDrops <= 0 && { color: theme.text, fontWeight: '800' }
+                      styles.waterBtn,
+                      waterDrops > 0 ? {
+                        backgroundColor: theme.primary,
+                      } : {
+                        backgroundColor: isLightMode ? '#F1F5F9' : '#141E2E',
+                        borderWidth: 1.5,
+                        borderColor: '#0284C755',
+                      }
                     ]}
+                    onPress={handleWaterPlant}
+                    activeOpacity={0.8}
                   >
-                    {waterDrops > 0 ? `Siram Tanaman (Pakai 1 💧 / +20 XP)` : `Air Habis (Lihat Cara Dapat 💧)`}
-                  </Text>
-                </TouchableOpacity>
+                    <Ionicons name="water" size={16} color={waterDrops > 0 ? '#FFFFFF' : '#38BDF8'} />
+                    <Text
+                      style={[
+                        styles.waterBtnText,
+                        waterDrops <= 0 && { color: theme.text, fontWeight: '800' }
+                      ]}
+                    >
+                      {waterDrops > 0
+                        ? `Siram Tanaman (1 💧 → +${getGrowthPerWater(activePlant.stage)}% Fase ${activePlant.stage})`
+                        : `Air Habis (Lihat Cara Dapat 💧)`}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <Text style={[styles.howToGrowNote, { color: theme.muted, fontSize: 9.5 }]}>
