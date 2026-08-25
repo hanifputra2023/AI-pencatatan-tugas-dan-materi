@@ -31,7 +31,12 @@ import {
   processOfflineSyncQueue,
   queueOfflineAction,
 } from '../lib/offlineSync';
-import { scheduleDailyRoutineReminders } from '../lib/notifications';
+import {
+  scheduleDailyRoutineReminders,
+  scheduleStreakProtectionReminder,
+  notifyBossEventSpawned,
+  notifyLuckyHourActivated,
+} from '../lib/notifications';
 import { DashboardSkeleton } from '../components/DashboardSkeleton';
 import {
   XpPopup,
@@ -45,7 +50,7 @@ import {
 } from '../components/DuolingoAnimations';
 import { calculateUserXp } from '../lib/xpCalculator';
 import VirtualGardenModal from '../components/VirtualGardenModal';
-import { getExtraUserXp } from '../lib/rpgStorage';
+import { getExtraUserXp, addExtraUserXp } from '../lib/rpgStorage';
 import DailyRewardModal from '../components/DailyRewardModal';
 import { checkDailyReward, claimDailyReward, DailyReward, DAILY_REWARD_SCHEDULE } from '../lib/dailyRewardStorage';
 import LootChestModal from '../components/LootChestModal';
@@ -54,12 +59,19 @@ import {
   getChestCount,
   getWheelTickets,
   getActiveTitle,
+  unlockTitle,
   addChest,
   awardWheelTicketForActivity,
   RpgTitle,
   LootResult,
 } from '../lib/lootChestStorage';
 import { addWaterDrops } from '../lib/gardenStorage';
+import BossEventBanner from '../components/BossEventBanner';
+import BattlePassModal from '../components/BattlePassModal';
+import LuckyHourBanner from '../components/LuckyHourBanner';
+import { BossEvent, trySpawnBossEvent, defeatBossEvent } from '../lib/bossEventStorage';
+import { LuckyHourStatus, getLuckyHourStatus, tryTriggerLuckyHour, LUCKY_HOUR_MULTIPLIER } from '../lib/luckyHourStorage';
+import { getBattlePassProgress, addBattlePassXp } from '../lib/battlePassStorage';
 
 const DEFAULT_DAILY_QUESTS = [
   { id: '1', title: 'Curhat atau refleksi sejenak ke AI', completed: false, icon: 'chatbubble-ellipses-outline' },
@@ -160,6 +172,17 @@ export default function HomeScreen() {
   const [chestCount, setChestCount] = useState(0);
   const [wheelTickets, setWheelTickets] = useState(0);
   const [activeTitle, setActiveTitle] = useState<RpgTitle | null>(null);
+
+  // Boss Event State
+  const [activeBossEvent, setActiveBossEvent] = useState<BossEvent | null>(null);
+  const [showBossEventDismissed, setShowBossEventDismissed] = useState(false);
+
+  // Battle Pass State
+  const [showBattlePassModal, setShowBattlePassModal] = useState(false);
+  const [battlePassTier, setBattlePassTier] = useState(1);
+
+  // Lucky Hour State
+  const [luckyHour, setLuckyHour] = useState<LuckyHourStatus>({ active: false, expiresAt: 0, remainingMs: 0 });
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Selamat Pagi' : hour < 15 ? 'Selamat Siang' : hour < 18 ? 'Selamat Sore' : 'Selamat Malam';
@@ -320,16 +343,33 @@ export default function HomeScreen() {
         console.log('Daily reward check error:', e);
       }
 
-      // Check Loot Chests, Wheel Tickets & Active Title
+      // Check Loot Chests, Wheel Tickets, Active Title, Battle Pass & Boss Event
       try {
-        const [chests, tickets, title] = await Promise.all([
+        const [chests, tickets, title, bp, bEvent, lhStatus] = await Promise.all([
           getChestCount(),
           getWheelTickets(),
           getActiveTitle(),
+          getBattlePassProgress(),
+          trySpawnBossEvent(),
+          getLuckyHourStatus(),
         ]);
         setChestCount(chests);
         setWheelTickets(tickets);
         setActiveTitle(title);
+        if (bp) setBattlePassTier(bp.currentTier);
+        if (bEvent && !bEvent.defeated) setActiveBossEvent(bEvent);
+
+        if (lhStatus.active) {
+          setLuckyHour(lhStatus);
+        } else {
+          // Attempt random Lucky Hour trigger (18% chance)
+          const triggered = await tryTriggerLuckyHour();
+          if (triggered) {
+            const freshLh = await getLuckyHourStatus();
+            setLuckyHour(freshLh);
+            notifyLuckyHourActivated();
+          }
+        }
       } catch (e) {
         console.log('Error loading gamification storage:', e);
       }
@@ -345,6 +385,9 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchData();
     scheduleDailyRoutineReminders();
+    if (streak > 0) {
+      scheduleStreakProtectionReminder(streak);
+    }
 
     const unsubscribeNetwork = subscribeNetworkStatus(async (online) => {
       setIsOnline(online);
@@ -413,16 +456,30 @@ export default function HomeScreen() {
       const updated = currentTasks.map(t => t.id === taskId ? { ...t, is_completed: true } : t);
       await cacheTasksLocally(user.id, updated);
     }
-    // XP Pop-up animasi + Water + Chest + Ticket
-    setXpAmount(20);
+
+    // XP calculation with 2x Lucky Hour bonus
+    const baseTaskXp = 20;
+    const isLh = luckyHour.active && luckyHour.expiresAt > Date.now();
+    const finalXp = isLh ? baseTaskXp * LUCKY_HOUR_MULTIPLIER : baseTaskXp;
+
+    // XP Pop-up animasi + Water + Chest + Ticket + Battle Pass
+    setXpAmount(finalXp);
     setShowXpPopup(false);
     setTimeout(() => setShowXpPopup(true), 50);
     await addWaterDrops(1).catch(() => {});
     await addChest(1).catch(() => {});
     await awardWheelTicketForActivity().catch(() => {});
+    const bpResult = await addBattlePassXp(finalXp).catch(() => null);
+    if (bpResult && bpResult.newTier > bpResult.prevTier) {
+      setBattlePassTier(bpResult.newTier);
+    }
+
     getChestCount().then(setChestCount);
     getWheelTickets().then(setWheelTickets);
-    showAlert('Tugas Selesai! 🎉', '+20 XP, +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda 🎰!');
+    showAlert(
+      isLh ? '⚡ LUCKY HOUR BONUS! Tugas Selesai! 🎉' : 'Tugas Selesai! 🎉',
+      `+${finalXp} XP ${isLh ? '(2X XP Aktif! 🔥)' : ''}, +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda 🎰!`
+    );
   };
 
   const handleQuickSelectMood = (moodOption: MoodOption) => {
@@ -1099,9 +1156,13 @@ export default function HomeScreen() {
           onClaim={async () => {
             await claimDailyReward(dailyRewardStreak);
             setShowDailyRewardModal(false);
-            setExtraXp(prev => prev + dailyRewardData.xp);
-            setXpAmount(dailyRewardData.xp);
-            setShowXpPopup(true);
+            if (dailyRewardData.xp > 0) {
+              await addExtraUserXp(dailyRewardData.xp);
+              await addBattlePassXp(dailyRewardData.xp);
+              setExtraXp(prev => prev + dailyRewardData.xp);
+              setXpAmount(dailyRewardData.xp);
+              setShowXpPopup(true);
+            }
           }}
         />
         <LootChestModal
@@ -1110,9 +1171,12 @@ export default function HomeScreen() {
             setShowChestModal(false);
             getChestCount().then(setChestCount);
             getActiveTitle().then(setActiveTitle);
+            getExtraUserXp().then(setExtraXp);
           }}
           onRewardClaimed={async (rew) => {
             if (rew.xpAmount && rew.xpAmount > 0) {
+              await addExtraUserXp(rew.xpAmount);
+              await addBattlePassXp(rew.xpAmount);
               setExtraXp(prev => prev + (rew.xpAmount || 0));
               setXpAmount(rew.xpAmount);
               setShowXpPopup(true);
@@ -1120,8 +1184,12 @@ export default function HomeScreen() {
             if (rew.waterAmount && rew.waterAmount > 0) {
               await addWaterDrops(rew.waterAmount);
             }
+            if (rew.titleId) {
+              await unlockTitle(rew.titleId);
+            }
             getChestCount().then(setChestCount);
             getActiveTitle().then(setActiveTitle);
+            getExtraUserXp().then(setExtraXp);
           }}
         />
         <LuckyWheelModal
@@ -1130,9 +1198,12 @@ export default function HomeScreen() {
             setShowWheelModal(false);
             getWheelTickets().then(setWheelTickets);
             getActiveTitle().then(setActiveTitle);
+            getExtraUserXp().then(setExtraXp);
           }}
           onRewardClaimed={async (rew) => {
             if (rew.xpAmount && rew.xpAmount > 0) {
+              await addExtraUserXp(rew.xpAmount);
+              await addBattlePassXp(rew.xpAmount);
               setExtraXp(prev => prev + (rew.xpAmount || 0));
               setXpAmount(rew.xpAmount);
               setShowXpPopup(true);
@@ -1140,9 +1211,21 @@ export default function HomeScreen() {
             if (rew.waterAmount && rew.waterAmount > 0) {
               await addWaterDrops(rew.waterAmount);
             }
+            if (rew.titleId) {
+              await unlockTitle(rew.titleId);
+            }
             getWheelTickets().then(setWheelTickets);
             getActiveTitle().then(setActiveTitle);
+            getExtraUserXp().then(setExtraXp);
           }}
+        />
+        <BattlePassModal
+          visible={showBattlePassModal}
+          onClose={() => {
+            setShowBattlePassModal(false);
+            getBattlePassProgress().then(p => p && setBattlePassTier(p.currentTier));
+          }}
+          currentXp={userLevel.totalXp}
         />
 
         <ScrollView
@@ -1195,8 +1278,32 @@ export default function HomeScreen() {
             </View>
           </View>
 
-          {/* Gamified Level & XP Card */}
-          <FadeSlideIn delay={60}>
+          {/* Lucky Hour Banner */}
+          {luckyHour.active && (
+            <LuckyHourBanner
+              expiresAt={luckyHour.expiresAt}
+              remainingMs={luckyHour.remainingMs}
+              onClose={() => setLuckyHour({ active: false, expiresAt: 0, remainingMs: 0 })}
+            />
+          )}
+
+          {/* Boss Event 24h Limited Banner */}
+          {activeBossEvent && !activeBossEvent.defeated && !showBossEventDismissed && (
+            <BossEventBanner
+              event={activeBossEvent}
+              onChallenge={() => {
+                navigation.navigate('Main', { screen: 'StudyNotes' } as any);
+                showAlert(
+                  `Menantang ${activeBossEvent.name}! ⚔️`,
+                  'Buka salah satu catatan kuliahmu dan tekan tombol "Mode RPG Boss Battle" untuk menaklukkannya!'
+                );
+              }}
+              onDismiss={() => setShowBossEventDismissed(true)}
+            />
+          )}
+
+          {/* Level & XP Gamification Card */}
+          <FadeSlideIn delay={150}>
             <TouchableOpacity
               style={[styles.levelCard, { backgroundColor: theme.card, borderColor: theme.border }]}
               onPress={() => setShowLevelModal(true)}
@@ -1233,8 +1340,8 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </FadeSlideIn>
 
-          {/* Mini-Games / Zona Hadiah & Gacha Row */}
-          <View style={{ flexDirection: 'row', gap: 10, marginTop: 2 }}>
+          {/* Mini-Games / Zona Hadiah 3-Card Row */}
+          <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
             {/* Peti Misterius Card */}
             <TouchableOpacity
               style={{
@@ -1246,7 +1353,7 @@ export default function HomeScreen() {
                 padding: 10,
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 8,
+                gap: 6,
               }}
               onPress={() => {
                 getChestCount().then(setChestCount);
@@ -1254,13 +1361,13 @@ export default function HomeScreen() {
               }}
               activeOpacity={0.8}
             >
-              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#F59E0B20', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="gift" size={18} color="#F59E0B" />
+              <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: '#F59E0B20', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="gift" size={16} color="#F59E0B" />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ fontSize: 12, fontWeight: '800', color: theme.text }} numberOfLines={1}>Peti Misteri</Text>
-                <Text style={{ fontSize: 10.5, fontWeight: '700', color: chestCount > 0 ? '#F59E0B' : theme.subtext }} numberOfLines={1}>
-                  {chestCount > 0 ? `${chestCount} Siap Buka 📦` : 'Peti Habis'}
+                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Peti</Text>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: chestCount > 0 ? '#F59E0B' : theme.subtext }} numberOfLines={1}>
+                  {chestCount > 0 ? `${chestCount} 📦` : 'Habis'}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -1276,7 +1383,7 @@ export default function HomeScreen() {
                 padding: 10,
                 flexDirection: 'row',
                 alignItems: 'center',
-                gap: 8,
+                gap: 6,
               }}
               onPress={() => {
                 getWheelTickets().then(setWheelTickets);
@@ -1284,13 +1391,40 @@ export default function HomeScreen() {
               }}
               activeOpacity={0.8}
             >
-              <View style={{ width: 36, height: 36, borderRadius: 10, backgroundColor: '#EC489920', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="radio-button-on" size={18} color="#EC4899" />
+              <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: '#EC489920', alignItems: 'center', justifyContent: 'center' }}>
+                <Ionicons name="radio-button-on" size={16} color="#EC4899" />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ fontSize: 12, fontWeight: '800', color: theme.text }} numberOfLines={1}>Roda Putar</Text>
-                <Text style={{ fontSize: 10.5, fontWeight: '700', color: wheelTickets > 0 ? '#EC4899' : theme.subtext }} numberOfLines={1}>
-                  {wheelTickets > 0 ? `${wheelTickets} Tiket Putar 🎰` : 'Tiket Habis'}
+                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Roda</Text>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: wheelTickets > 0 ? '#EC4899' : theme.subtext }} numberOfLines={1}>
+                  {wheelTickets > 0 ? `${wheelTickets} 🎰` : 'Habis'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Battle Pass Card */}
+            <TouchableOpacity
+              style={{
+                flex: 1,
+                backgroundColor: theme.card,
+                borderColor: '#7C3AED88',
+                borderWidth: 1,
+                borderRadius: 14,
+                padding: 10,
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 6,
+              }}
+              onPress={() => setShowBattlePassModal(true)}
+              activeOpacity={0.8}
+            >
+              <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: '#7C3AED20', alignItems: 'center', justifyContent: 'center' }}>
+                <Text style={{ fontSize: 14 }}>🎖️</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Pass</Text>
+                <Text style={{ fontSize: 10, fontWeight: '700', color: '#A78BFA' }} numberOfLines={1}>
+                  Tier {battlePassTier}
                 </Text>
               </View>
             </TouchableOpacity>

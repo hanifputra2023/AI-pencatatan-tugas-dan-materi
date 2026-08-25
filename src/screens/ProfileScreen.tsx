@@ -1025,6 +1025,8 @@ export default function ProfileScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trophyScrollList}>
                   {ALL_ACHIEVEMENTS.map((ach) => {
                     const isUnlocked = unlockedAchievements.some(u => u.id === ach.id);
+                    const rarityColor = ach.rarity === 'mythic' ? '#EF4444' : ach.rarity === 'legendary' ? '#F59E0B' : ach.rarity === 'epic' ? '#8B5CF6' : '#3B82F6';
+                    const rarityLabel = ach.rarity === 'mythic' ? 'MYTHIC' : ach.rarity === 'legendary' ? 'LEGEND' : ach.rarity === 'epic' ? 'EPIC' : 'RARE';
                     return (
                       <View
                         key={ach.id}
@@ -1032,24 +1034,29 @@ export default function ProfileScreen() {
                           styles.achievementBadgeCard,
                           {
                             backgroundColor: isUnlocked ? theme.cardInner : (isLightMode ? '#F1F5F9' : '#0B0F17'),
-                            borderColor: isUnlocked ? ach.iconColor + '66' : theme.border,
+                            borderColor: isUnlocked ? rarityColor : theme.border,
                             opacity: isUnlocked ? 1 : 0.65,
                           },
                         ]}
                       >
-                        <View
-                          style={[
-                            styles.achievementIconWrap,
-                            {
-                              backgroundColor: isUnlocked ? ach.iconColor + '20' : theme.border,
-                            },
-                          ]}
-                        >
-                          <Ionicons
-                            name={ach.icon as any}
-                            size={20}
-                            color={isUnlocked ? ach.iconColor : theme.muted}
-                          />
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 4 }}>
+                          <View
+                            style={[
+                              styles.achievementIconWrap,
+                              {
+                                backgroundColor: isUnlocked ? rarityColor + '20' : theme.border,
+                              },
+                            ]}
+                          >
+                            <Ionicons
+                              name={ach.icon as any}
+                              size={18}
+                              color={isUnlocked ? rarityColor : theme.muted}
+                            />
+                          </View>
+                          <View style={{ backgroundColor: rarityColor + '22', paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 4 }}>
+                            <Text style={{ color: rarityColor, fontSize: 8.5, fontWeight: '900' }}>{rarityLabel}</Text>
+                          </View>
                         </View>
                         <Text
                           style={[
@@ -1137,6 +1144,8 @@ export default function ProfileScreen() {
                   {ALL_RPG_TITLES.map((title) => {
                     const isUnlocked = unlockedTitleIds.includes(title.id);
                     const isEquipped = activeRpgTitle?.id === title.id;
+                    const rarityColor = title.rarity === 'mythic' ? '#EF4444' : title.rarity === 'legendary' ? '#F59E0B' : title.rarity === 'epic' ? '#8B5CF6' : '#3B82F6';
+                    const rarityLabel = title.rarity === 'mythic' ? 'MYTHIC' : title.rarity === 'legendary' ? 'LEGEND' : title.rarity === 'epic' ? 'EPIC' : 'RARE';
                     return (
                       <TouchableOpacity
                         key={title.id}
@@ -1144,7 +1153,7 @@ export default function ProfileScreen() {
                           styles.achievementBadgeCard,
                           {
                             backgroundColor: isEquipped ? title.color + '18' : isUnlocked ? theme.cardInner : (isLightMode ? '#F1F5F9' : '#0B0F17'),
-                            borderColor: isEquipped ? title.color : isUnlocked ? title.color + '55' : theme.border,
+                            borderColor: isEquipped ? title.color : isUnlocked ? rarityColor : theme.border,
                             opacity: isUnlocked ? 1 : 0.6,
                           },
                         ]}
@@ -1152,13 +1161,18 @@ export default function ProfileScreen() {
                           if (isUnlocked) {
                             handleToggleEquipTitle(title);
                           } else {
-                            showAlert('Gelar Terkunci', `${title.description}\n\nDapatkan gelar ini dari Peti Misterius 📦, Roda Putar 🎰, atau mengalahkan Bos Arena!`);
+                            showAlert('Gelar Terkunci', `${title.description}\n\nKelangkaan: ${rarityLabel}\nDapatkan gelar ini dari Peti Misterius 📦, Roda Putar 🎰, atau mengalahkan Bos Arena!`);
                           }
                         }}
                         activeOpacity={0.75}
                       >
-                        <View style={[styles.achievementIconWrap, { backgroundColor: isUnlocked ? title.color + '22' : theme.border }]}>
-                          <Ionicons name={title.icon as any} size={18} color={isUnlocked ? title.color : theme.muted} />
+                        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', width: '100%', marginBottom: 4 }}>
+                          <View style={[styles.achievementIconWrap, { backgroundColor: isUnlocked ? rarityColor + '22' : theme.border }]}>
+                            <Ionicons name={title.icon as any} size={18} color={isUnlocked ? rarityColor : theme.muted} />
+                          </View>
+                          <View style={{ backgroundColor: rarityColor + '22', paddingHorizontal: 5, paddingVertical: 1.5, borderRadius: 4 }}>
+                            <Text style={{ color: rarityColor, fontSize: 8.5, fontWeight: '900' }}>{rarityLabel}</Text>
+                          </View>
                         </View>
                         <Text style={[styles.achievementTitle, { color: isUnlocked ? theme.text : theme.muted }]} numberOfLines={1}>
                           {title.label}

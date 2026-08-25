@@ -7,7 +7,7 @@ const KEY_ACTIVE_TITLE = '@rpg_active_title';
 const KEY_WHEEL_TICKETS = '@lucky_wheel_tickets';
 const KEY_WHEEL_LAST_ACTIVITY_DATE = '@lucky_wheel_last_activity_date';
 
-export type LootRarity = 'common' | 'rare' | 'epic' | 'legendary';
+export type LootRarity = 'rare' | 'epic' | 'legendary' | 'mythic';
 
 export interface LootResult {
   type: 'xp' | 'water' | 'title' | 'skin';
@@ -43,75 +43,101 @@ export interface WheelSegment {
 }
 
 export const ALL_RPG_TITLES: RpgTitle[] = [
-  { id: 'penakluk_golem', label: 'Penakluk Golem Kalkulus', icon: 'skull', color: '#F59E0B', description: 'Mengalahkan bos pertama', rarity: 'common' },
-  { id: 'penguasa_deadline', label: 'Penguasa Deadline', icon: 'time', color: '#EF4444', description: 'Menyelesaikan tugas tepat waktu', rarity: 'common' },
-  { id: 'arsitek_logika', label: 'Arsitek Logika', icon: 'construct', color: '#3B82F6', description: 'Jawab 10 soal tanpa salah', rarity: 'rare' },
-  { id: 'dewa_taman_zen', label: 'Dewa Taman Zen', icon: 'flower', color: '#10B981', description: 'Panen 3 tanaman mekar penuh', rarity: 'rare' },
-  { id: 'samurai_belajar', label: 'Samurai Belajar', icon: 'flash', color: '#8B5CF6', description: 'Combo 4x berturut dalam kuis', rarity: 'epic' },
-  { id: 'sang_roh_akademis', label: 'Sang Roh Akademis', icon: 'star', color: '#FBBF24', description: 'Capai streak 7 hari berturut', rarity: 'epic' },
-  { id: 'dewa_begadang', label: 'Dewa Begadang', icon: 'moon', color: '#6366F1', description: 'Belajar setelah jam 11 malam', rarity: 'common' },
-  { id: 'monster_catatan', label: 'Monster Catatan', icon: 'document-text', color: '#14B8A6', description: 'Membuat 10+ catatan kuliah', rarity: 'rare' },
-  { id: 'pendekar_pomodoro', label: 'Pendekar Pomodoro', icon: 'timer', color: '#F97316', description: 'Selesaikan 5 sesi Pomodoro', rarity: 'common' },
-  { id: 'legenda_arena', label: 'Legenda Arena', icon: 'trophy', color: '#EAB308', description: 'Kalahkan 5 boss berbeda', rarity: 'epic' },
-  { id: 'penjelajah_ilmu', label: 'Penjelajah Ilmu', icon: 'compass', color: '#06B6D4', description: 'Membuka 5 jenis materi berbeda', rarity: 'rare' },
-  { id: 'shadow_of_wisdom', label: 'Shadow of Wisdom', icon: 'eye', color: '#A855F7', description: 'Diperoleh dari Peti Langka', rarity: 'legendary' },
-  { id: 'ultima_scholar', label: 'Ultima Scholar', icon: 'diamond', color: '#22D3EE', description: 'Gelar paling langka di app', rarity: 'legendary' },
-  { id: 'wali_ujian', label: 'Wali Ujian', icon: 'shield-checkmark', color: '#10B981', description: 'Raih XP di atas 1000', rarity: 'epic' },
-  { id: 'jiwa_pagi', label: 'Jiwa Pagi', icon: 'sunny', color: '#FDE68A', description: 'Login sebelum jam 7 pagi', rarity: 'common' },
-  { id: 'pemimpin_forum', label: 'Pemimpin Forum', icon: 'people', color: '#EC4899', description: 'Diperoleh dari Lucky Wheel', rarity: 'rare' },
-  { id: 'sang_alchemist', label: 'Sang Alchemist', icon: 'flask', color: '#7C3AED', description: 'Buka peti 3x dalam sehari', rarity: 'rare' },
-  { id: 'penguasa_roda', label: 'Penguasa Roda Nasib', icon: 'refresh-circle', color: '#F472B6', description: 'Menang Jackpot di Lucky Wheel', rarity: 'epic' },
-  { id: 'naga_api_belajar', label: 'Naga Api Belajar', icon: 'flame', color: '#DC2626', description: 'Streak 14 hari berturut-turut', rarity: 'legendary' },
-  { id: 'dewa_koin_emas', label: 'Dewa Koin Emas', icon: 'cash', color: '#FBBF24', description: 'Kumpulkan 500+ XP total', rarity: 'epic' },
-];
+  // ── RARE (Langka - Tier 1) ──
+  { id: 'penakluk_golem', label: 'Penakluk Golem Kalkulus', icon: 'skull', color: '#3B82F6', description: 'Kalahkan bos kalkulus pertama di arena kuis', rarity: 'rare' },
+  { id: 'penguasa_deadline', label: 'Penguasa Deadline', icon: 'time', color: '#3B82F6', description: 'Selesaikan 5 tugas sebelum tenggat waktu', rarity: 'rare' },
+  { id: 'arsitek_logika', label: 'Arsitek Logika', icon: 'construct', color: '#3B82F6', description: 'Jawab 10 soal kuis tanpa pernah salah', rarity: 'rare' },
+  { id: 'dewa_taman_zen', label: 'Pencinta Taman Zen', icon: 'flower', color: '#3B82F6', description: 'Rawat tanaman hingga mekar sempurna', rarity: 'rare' },
+  { id: 'dewa_begadang', label: 'Ksatria Tengah Malam', icon: 'moon', color: '#3B82F6', description: 'Belajar dan membuat catatan setelah jam 11 malam', rarity: 'rare' },
+  { id: 'monster_catatan', label: 'Pencatat Rajin', icon: 'document-text', color: '#3B82F6', description: 'Membuat 5+ catatan kuliah komprehensif', rarity: 'rare' },
+  { id: 'pendekar_pomodoro', label: 'Pendekar Pomodoro', icon: 'timer', color: '#3B82F6', description: 'Selesaikan 5 sesi fokus Pomodoro tanpa henti', rarity: 'rare' },
+  { id: 'penjelajah_ilmu', label: 'Penjelajah Mata Kuliah', icon: 'compass', color: '#3B82F6', description: 'Mencatat materi di 3 mata kuliah berbeda', rarity: 'rare' },
+  { id: 'jiwa_pagi', label: 'Pejuang Subuh Akademis', icon: 'sunny', color: '#3B82F6', description: 'Mulai belajar dan login sebelum jam 7 pagi', rarity: 'rare' },
 
-export const WHEEL_SEGMENTS: WheelSegment[] = [
-  { id: 'xp_small', label: '+30 XP', subLabel: 'Bonus Belajar', color: '#1E40AF', textColor: '#FFFFFF', icon: 'star', weight: 25,
-    reward: { type: 'xp', rarity: 'common', label: '+30 XP', value: 30, icon: 'star', color: '#60A5FA', xpAmount: 30 } },
-  { id: 'water_3', label: '+3 Tetes Air', subLabel: 'Untuk Taman', color: '#0369A1', textColor: '#FFFFFF', icon: 'water', weight: 20,
-    reward: { type: 'water', rarity: 'common', label: '+3 Tetes Air', value: 3, icon: 'water', color: '#38BDF8', waterAmount: 3 } },
-  { id: 'xp_medium', label: '+60 XP', subLabel: 'Bonus Kuliah', color: '#7C3AED', textColor: '#FFFFFF', icon: 'flash', weight: 20,
-    reward: { type: 'xp', rarity: 'common', label: '+60 XP', value: 60, icon: 'flash', color: '#A78BFA', xpAmount: 60 } },
-  { id: 'chest_free', label: 'Peti Gratis!', subLabel: 'Misterius', color: '#B45309', textColor: '#FFFFFF', icon: 'gift', weight: 12,
-    reward: { type: 'xp', rarity: 'rare', label: 'Peti Misterius Gratis!', value: 1, icon: 'gift', color: '#F59E0B', xpAmount: 0 } },
-  { id: 'xp_big', label: '+100 XP', subLabel: '+ 2 Tetes Air', color: '#059669', textColor: '#FFFFFF', icon: 'trending-up', weight: 10,
-    reward: { type: 'xp', rarity: 'rare', label: '+100 XP + 2 Tetes Air', value: 100, icon: 'trending-up', color: '#34D399', xpAmount: 100, waterAmount: 2 } },
-  { id: 'title_random', label: 'Gelar RPG!', subLabel: 'Acak', color: '#9D174D', textColor: '#FFFFFF', icon: 'ribbon', weight: 8,
-    reward: { type: 'title', rarity: 'rare', label: 'Gelar RPG Acak', value: 'random', icon: 'ribbon', color: '#F472B6' } },
-  { id: 'streak_shield', label: 'Streak Shield', subLabel: 'Pelindung Streak', color: '#1D4ED8', textColor: '#FFFFFF', icon: 'shield', weight: 8,
-    reward: { type: 'xp', rarity: 'epic', label: 'Streak Shield Aktif!', value: 50, icon: 'shield', color: '#60A5FA', xpAmount: 50 } },
-  { id: 'jackpot', label: 'JACKPOT!', subLabel: '+200 XP', color: '#DC2626', textColor: '#FFFFFF', icon: 'trophy', weight: 5,
-    reward: { type: 'xp', rarity: 'legendary', label: 'JACKPOT! +200 XP', value: 200, icon: 'trophy', color: '#EF4444', xpAmount: 200 } },
+  // ── EPIC (Epik - Tier 2) ──
+  { id: 'samurai_belajar', label: 'Samurai Belajar Kilat', icon: 'flash', color: '#8B5CF6', description: 'Raih Combo Critical Strike x4 di Arena Boss', rarity: 'epic' },
+  { id: 'sang_roh_akademis', label: 'Sang Roh Akademis', icon: 'star', color: '#8B5CF6', description: 'Pertahankan Streak Belajar 7 hari penuh', rarity: 'epic' },
+  { id: 'legenda_arena', label: 'Gladiator Kuis', icon: 'trophy', color: '#8B5CF6', description: 'Taklukkan 5 bos materi berbeda di Arena Kuis', rarity: 'epic' },
+  { id: 'wali_ujian', label: 'Wali Penguasa Ujian', icon: 'shield-checkmark', color: '#8B5CF6', description: 'Raih total perolehan di atas 2,500 XP', rarity: 'epic' },
+  { id: 'pemimpin_forum', label: 'Sang Orator Ilmiah', icon: 'people', color: '#8B5CF6', description: 'Diperoleh dari putaran keberuntungan Lucky Wheel', rarity: 'epic' },
+  { id: 'sang_alchemist', label: 'Sang Alchemist Pengetahuan', icon: 'flask', color: '#8B5CF6', description: 'Buka 3 Peti Misterius dalam satu hari', rarity: 'epic' },
+  { id: 'penguasa_roda', label: 'Penguasa Roda Nasib', icon: 'refresh-circle', color: '#8B5CF6', description: 'Menangkan Hadiah JACKPOT di Lucky Wheel', rarity: 'epic' },
+  { id: 'dewa_koin_emas', label: 'Kolektor XP Sejati', icon: 'cash', color: '#8B5CF6', description: 'Kumpulkan lebih dari 5,000 XP total', rarity: 'epic' },
+  { id: 'pembelah_materi', label: 'Pembelah Rumus Rumit', icon: 'hardware-chip', color: '#8B5CF6', description: 'Taklukkan Boss Fase 2 tanpa HP tersisa di bawah 50%', rarity: 'epic' },
+
+  // ── LEGENDARY (Legendaris - Tier 3) ──
+  { id: 'shadow_of_wisdom', label: 'Shadow of Wisdom', icon: 'eye', color: '#F59E0B', description: 'Diperoleh hanya dari drop Peti Misterius Langka', rarity: 'legendary' },
+  { id: 'naga_api_belajar', label: 'Naga Api Belajar', icon: 'flame', color: '#F59E0B', description: 'Pertahankan Streak Belajar 30 hari berturut-turut', rarity: 'legendary' },
+  { id: 'penakluk_event_boss', label: 'Penakluk Boss 24 Jam', icon: 'bonfire', color: '#F59E0B', description: 'Kalahkan Boss Event Terbatas sebelum waktunya habis', rarity: 'legendary' },
+  { id: 'tuan_kebun_abadi', label: 'Tuan Kebun Abadi', icon: 'leaf', color: '#F59E0B', description: 'Panen 5 varietas tanaman langka di Taman Fokus', rarity: 'legendary' },
+  { id: 'archmage_skripsi', label: 'Archmage Tugas Akhir', icon: 'sparkles', color: '#F59E0B', description: 'Selesaikan 25 tugas kuliah dan sub-tugas AI', rarity: 'legendary' },
+  { id: 'penguasa_dimensi_studi', label: 'Penguasa Dimensi Studi', icon: 'planet', color: '#F59E0B', description: 'Selesaikan 50 sesi Pomodoro (1,250 menit fokus)', rarity: 'legendary' },
+
+  // ── MYTHIC (Mitos / Prismatic - Tier 4 Paling Langka) ──
+  { id: 'ultima_scholar', label: 'Ultima Scholar', icon: 'diamond', color: '#EF4444', description: 'Gelar Mahadewa Pengetahuan — Capai Tier 30 Battle Pass', rarity: 'mythic' },
+  { id: 'avatar_kebijaksanaan_abadi', label: 'Avatar Kebijaksanaan Abadi', icon: 'infinite', color: '#EF4444', description: 'Capai Level 20 Ultima Transcendent (50,000+ XP)', rarity: 'mythic' },
+  { id: 'sang_penguasa_waktu', label: 'Sang Penguasa Waktu', icon: 'hourglass', color: '#EF4444', description: 'Pertahankan Streak 100 Hari berturut-turut tanpa putus', rarity: 'mythic' },
+  { id: 'dewa_seluruh_elemen', label: 'Dewa Seluruh Elemen Ilmu', icon: 'color-wand', color: '#EF4444', description: 'Buka setidaknya 20 Gelar RPG dan 15 Lencana Pencapaian', rarity: 'mythic' },
 ];
 
 export const RARITY_COLORS: Record<LootRarity, string> = {
-  common: '#6B7280', rare: '#3B82F6', epic: '#8B5CF6', legendary: '#F59E0B',
+  rare: '#3B82F6',
+  epic: '#8B5CF6',
+  legendary: '#F59E0B',
+  mythic: '#EF4444',
 };
+
 export const RARITY_LABELS: Record<LootRarity, string> = {
-  common: 'Biasa', rare: 'Langka', epic: 'Epik', legendary: 'Legendaris',
+  rare: 'Langka (Rare)',
+  epic: 'Epik (Epic)',
+  legendary: 'Legendaris (Legendary)',
+  mythic: 'Mitos (Mythic)',
 };
+
+export const WHEEL_SEGMENTS: WheelSegment[] = [
+  { id: 'xp_small', label: '+40 XP', subLabel: 'Bonus Belajar', color: '#1E3A8A', textColor: '#FFFFFF', icon: 'star', weight: 26,
+    reward: { type: 'xp', rarity: 'rare', label: '+40 XP', value: 40, icon: 'star', color: '#60A5FA', xpAmount: 40 } },
+  { id: 'water_3', label: '+3 Tetes Air', subLabel: 'Untuk Taman', color: '#0369A1', textColor: '#FFFFFF', icon: 'water', weight: 22,
+    reward: { type: 'water', rarity: 'rare', label: '+3 Tetes Air 💧', value: 3, icon: 'water', color: '#38BDF8', waterAmount: 3 } },
+  { id: 'xp_medium', label: '+80 XP', subLabel: 'Bonus Epik', color: '#6D28D9', textColor: '#FFFFFF', icon: 'flash', weight: 18,
+    reward: { type: 'xp', rarity: 'epic', label: '+80 XP Epik!', value: 80, icon: 'flash', color: '#A78BFA', xpAmount: 80 } },
+  { id: 'chest_free', label: 'Peti Misterius', subLabel: 'Gratis!', color: '#B45309', textColor: '#FFFFFF', icon: 'gift', weight: 12,
+    reward: { type: 'xp', rarity: 'epic', label: '1 Peti Misterius Gratis! 📦', value: 1, icon: 'gift', color: '#F59E0B', xpAmount: 0 } },
+  { id: 'xp_big', label: '+150 XP', subLabel: '+ 3 Tetes Air', color: '#047857', textColor: '#FFFFFF', icon: 'trending-up', weight: 9,
+    reward: { type: 'xp', rarity: 'legendary', label: '+150 XP + 3 Tetes Air!', value: 150, icon: 'trending-up', color: '#34D399', xpAmount: 150, waterAmount: 3 } },
+  { id: 'title_random', label: 'Gelar RPG!', subLabel: 'Rare/Epic', color: '#BE185D', textColor: '#FFFFFF', icon: 'ribbon', weight: 7,
+    reward: { type: 'title', rarity: 'epic', label: 'Gelar RPG Eksklusif', value: 'random', icon: 'ribbon', color: '#F472B6' } },
+  { id: 'streak_shield', label: 'Streak Shield', subLabel: '+75 XP', color: '#1D4ED8', textColor: '#FFFFFF', icon: 'shield', weight: 4,
+    reward: { type: 'xp', rarity: 'legendary', label: 'Streak Shield & +75 XP!', value: 75, icon: 'shield', color: '#60A5FA', xpAmount: 75 } },
+  { id: 'jackpot', label: 'JACKPOT!', subLabel: '+300 XP + Title', color: '#DC2626', textColor: '#FFFFFF', icon: 'trophy', weight: 2,
+    reward: { type: 'xp', rarity: 'mythic', label: 'JACKPOT MITOS! +300 XP 🏆', value: 300, icon: 'trophy', color: '#EF4444', xpAmount: 300 } },
+];
 
 export function rollLootChest(): LootResult {
   const rand = Math.random() * 100;
-  if (rand < 5) {
-    const skinColors = ['#EC4899', '#8B5CF6', '#10B981', '#F59E0B', '#EF4444', '#06B6D4'];
-    const color = skinColors[Math.floor(Math.random() * skinColors.length)];
-    return { type: 'skin', rarity: 'legendary', label: 'Skin Tema Eksklusif', value: color, icon: 'color-palette', color, skinColor: color };
-  } else if (rand < 20) {
-    const pool = Math.random() < 0.3
-      ? ALL_RPG_TITLES.filter(t => t.rarity === 'epic' || t.rarity === 'legendary')
-      : ALL_RPG_TITLES.filter(t => t.rarity === 'rare');
+  if (rand < 4) {
+    // 4% Mythic Drop: Mythic Title or Exclusive theme
+    const mythicTitles = ALL_RPG_TITLES.filter(t => t.rarity === 'mythic');
+    const title = mythicTitles[Math.floor(Math.random() * mythicTitles.length)] || ALL_RPG_TITLES[0];
+    return { type: 'title', rarity: 'mythic', label: `Gelar Mitos: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: 200 };
+  } else if (rand < 16) {
+    // 12% Legendary Drop: Legendary Title / Big XP
+    const pool = ALL_RPG_TITLES.filter(t => t.rarity === 'legendary');
     const title = pool[Math.floor(Math.random() * pool.length)];
-    return { type: 'title', rarity: title.rarity, label: `Gelar: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id };
-  } else if (rand < 45) {
+    return { type: 'title', rarity: 'legendary', label: `Gelar Legendaris: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: 120 };
+  } else if (rand < 40) {
+    // 24% Epic Drop: Epic Title or 100 XP + Water
+    const pool = ALL_RPG_TITLES.filter(t => t.rarity === 'epic');
+    const title = pool[Math.floor(Math.random() * pool.length)];
+    return { type: 'title', rarity: 'epic', label: `Gelar Epik: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: 75 };
+  } else if (rand < 65) {
+    // 25% Water drops
     const amount = Math.floor(Math.random() * 3) + 3;
-    return { type: 'water', rarity: 'common', label: `+${amount} Tetes Air`, value: amount, icon: 'water', color: '#38BDF8', waterAmount: amount };
-  } else if (rand < 60) {
-    const xp = (Math.floor(Math.random() * 6) + 10) * 10;
-    return { type: 'xp', rarity: 'rare', label: `+${xp} XP Raksasa!`, value: xp, icon: 'flash', color: '#A78BFA', xpAmount: xp };
+    return { type: 'water', rarity: 'rare', label: `+${amount} Tetes Air Taman`, value: amount, icon: 'water', color: '#38BDF8', waterAmount: amount };
   } else {
-    const xp = (Math.floor(Math.random() * 11) + 2) * 5;
-    return { type: 'xp', rarity: 'common', label: `+${xp} XP`, value: xp, icon: 'star', color: '#FBBF24', xpAmount: xp };
+    // 35% Rare XP
+    const xp = (Math.floor(Math.random() * 5) + 6) * 10; // 60 - 100 XP
+    return { type: 'xp', rarity: 'rare', label: `+${xp} XP Belajar`, value: xp, icon: 'star', color: '#3B82F6', xpAmount: xp };
   }
 }
 

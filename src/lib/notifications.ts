@@ -469,3 +469,69 @@ export function notifyPomodoroFinished(taskTitle?: string, isBreak = false) {
   sendImmediateNotification(title, body);
 }
 
+/**
+ * Schedule daily streak protection reminder at 20:00 (8 PM)
+ */
+export async function scheduleStreakProtectionReminder(streakDays: number) {
+  if (Platform.OS === 'web' || !ExpoNotifications) return;
+  try {
+    // Cancel existing reminder if any
+    await ExpoNotifications.cancelScheduledNotificationAsync('streak-protection-reminder').catch(() => {});
+
+    await ExpoNotifications.scheduleNotificationAsync({
+      identifier: 'streak-protection-reminder',
+      content: {
+        title: '🔥 Streakmu Terancam Putus!',
+        body: streakDays > 0
+          ? `Streak ${streakDays} harimu akan hilang malam ini! Buka catatan atau selesaikan 1 tugas untuk menyelamatkannya!`
+          : 'Belum belajar hari ini? Selesaikan 1 aktivitas singkat sebelum malam berakhir!',
+        sound: true,
+        channelId: 'default',
+        data: { type: 'streak_protection' },
+      },
+      trigger: {
+        type: ExpoNotifications.SchedulableTriggerInputTypes?.DAILY || 'daily',
+        hour: 20,
+        minute: 0,
+        repeats: true,
+        channelId: 'default',
+      },
+    });
+  } catch (e) {
+    console.log('Error scheduling streak protection reminder:', e);
+  }
+}
+
+/**
+ * Notify when a Limited 24h Boss Event spawns
+ */
+export function notifyBossEventSpawned(bossName: string) {
+  sendImmediateNotification(
+    '⚔️ Boss Event Terbatas Muncul!',
+    `"${bossName}" menantangmu! Kalahkan dalam 24 jam untuk klaim Gelar Legendaris & Hadiah Langka!`
+  );
+}
+
+/**
+ * Notify when Lucky Hour (2x XP) triggers
+ */
+export function notifyLuckyHourActivated() {
+  playChimeSound('pomodoro');
+  sendImmediateNotification(
+    '🎲 LUCKY HOUR AKTIF! (10 Menit)',
+    'Semua XP dari kuis, tugas, dan catatan dilipatgandakan ×2! Belajar sekarang sebelum waktu habis!'
+  );
+}
+
+/**
+ * Notify when user has unopened Loot Chests waiting
+ */
+export function notifyLootChestsWaiting(chestCount: number) {
+  if (chestCount <= 0) return;
+  sendImmediateNotification(
+    '📦 Peti Misterius Menunggumu!',
+    `Kamu punya ${chestCount} peti belum dibuka! Buka sekarang untuk kesempatan dapat Gelar RPG & Tetes Air.`
+  );
+}
+
+

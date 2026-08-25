@@ -15,14 +15,26 @@ export interface UserLevelInfo {
 }
 
 export const LEVEL_TIERS = [
-  { level: 1, minXp: 0, maxXp: 100, title: 'Mahasiswa Pemula', icon: '🌱' },
-  { level: 2, minXp: 100, maxXp: 300, title: 'Pembelajar Aktif', icon: '📖' },
-  { level: 3, minXp: 300, maxXp: 650, title: 'Penjelajah Ilmu', icon: '🧭' },
-  { level: 4, minXp: 650, maxXp: 1100, title: 'Sarjana Fokus', icon: '🎯' },
-  { level: 5, minXp: 1100, maxXp: 1700, title: 'Master Riset', icon: '🔬' },
-  { level: 6, minXp: 1700, maxXp: 2500, title: 'Akademisi Hebat', icon: '⚡' },
-  { level: 7, minXp: 2500, maxXp: 3500, title: 'Cendekiawan Agung', icon: '👑' },
-  { level: 8, minXp: 3500, maxXp: 5000, title: 'Profesor Kehormatan', icon: '🏆' },
+  { level: 1,  minXp: 0,     maxXp: 150,   title: 'Mahasiswa Pemula',         icon: '🌱' },
+  { level: 2,  minXp: 150,   maxXp: 400,   title: 'Pembelajar Aktif',         icon: '📖' },
+  { level: 3,  minXp: 400,   maxXp: 800,   title: 'Penjelajah Ilmu',          icon: '🧭' },
+  { level: 4,  minXp: 800,   maxXp: 1400,  title: 'Sarjana Fokus',            icon: '🎯' },
+  { level: 5,  minXp: 1400,  maxXp: 2200,  title: 'Master Riset',             icon: '🔬' },
+  { level: 6,  minXp: 2200,  maxXp: 3200,  title: 'Akademisi Hebat',          icon: '⚡' },
+  { level: 7,  minXp: 3200,  maxXp: 4500,  title: 'Pendekar Teori',           icon: '⚔️' },
+  { level: 8,  minXp: 4500,  maxXp: 6100,  title: 'Arsitek Solusi',           icon: '🏛️' },
+  { level: 9,  minXp: 6100,  maxXp: 8000,  title: 'Pakar Multidisiplin',      icon: '🔮' },
+  { level: 10, minXp: 8000,  maxXp: 10200, title: 'Cendekiawan Agung',        icon: '👑' },
+  { level: 11, minXp: 10200, maxXp: 12700, title: 'Sang Maestro Analisis',    icon: '✨' },
+  { level: 12, minXp: 12700, maxXp: 15500, title: 'Profesor Kehormatan',      icon: '🏆' },
+  { level: 13, minXp: 15500, maxXp: 18700, title: 'Penjaga Perpustakaan Kuno',icon: '📜' },
+  { level: 14, minXp: 18700, maxXp: 22300, title: 'Sage Pengetahuan Murni',  icon: '🌌' },
+  { level: 15, minXp: 22300, maxXp: 26300, title: 'Grandmaster Akademik',     icon: '💎' },
+  { level: 16, minXp: 26300, maxXp: 30800, title: 'Roh Pencerahan Global',    icon: '🔥' },
+  { level: 17, minXp: 30800, maxXp: 35800, title: 'Archmage Filsafat',        icon: '🪐' },
+  { level: 18, minXp: 35800, maxXp: 41400, title: 'Dewa Kebijaksanaan',       icon: '🌟' },
+  { level: 19, minXp: 41400, maxXp: 47600, title: 'Legenda Abadi Universitas',icon: '🛡️' },
+  { level: 20, minXp: 47600, maxXp: 55000, title: 'Ultima Transcendent',      icon: '👑' },
 ];
 
 export function calculateUserXp(

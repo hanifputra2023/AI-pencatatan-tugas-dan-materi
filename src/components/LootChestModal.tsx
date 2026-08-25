@@ -8,6 +8,9 @@ import {
   LootResult, rollLootChest, consumeChest, getChestCount,
   unlockTitle, ALL_RPG_TITLES, RARITY_COLORS, RARITY_LABELS,
 } from "../lib/lootChestStorage";
+import { addWaterDrops } from "../lib/gardenStorage";
+import { addExtraUserXp } from "../lib/rpgStorage";
+import { addBattlePassXp } from "../lib/battlePassStorage";
 import { ConfettiBurst, XpPopup } from "./DuolingoAnimations";
 
 interface Props {
@@ -69,13 +72,18 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
     ]).start(async () => {
       const loot = rollLootChest();
       setReward(loot);
-      if (loot.titleId) { await unlockTitle(loot.titleId); }
+      if (loot.titleId) { await unlockTitle(loot.titleId).catch(() => {}); }
+      if (loot.waterAmount && loot.waterAmount > 0) { await addWaterDrops(loot.waterAmount).catch(() => {}); }
+      if (loot.xpAmount && loot.xpAmount > 0) {
+        await addExtraUserXp(loot.xpAmount).catch(() => {});
+        await addBattlePassXp(loot.xpAmount).catch(() => {});
+      }
 
       setPhase("open");
       // Glow up
       Animated.timing(glowAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start(() => {
         setPhase("reveal");
-        setShowConfetti(loot.rarity === "epic" || loot.rarity === "legendary");
+        setShowConfetti(loot.rarity === "epic" || loot.rarity === "legendary" || loot.rarity === "mythic");
         Animated.parallel([
           Animated.spring(revealScale, { toValue: 1, tension: 70, friction: 8, useNativeDriver: true }),
           Animated.timing(revealOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),

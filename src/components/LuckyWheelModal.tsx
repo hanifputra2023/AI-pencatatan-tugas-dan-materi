@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
   View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing, Platform,
 } from "react-native";
@@ -9,6 +9,9 @@ import {
   getWheelTickets, unlockTitle, ALL_RPG_TITLES, LootResult,
   addChest, RARITY_COLORS,
 } from "../lib/lootChestStorage";
+import { addWaterDrops } from "../lib/gardenStorage";
+import { addExtraUserXp } from "../lib/rpgStorage";
+import { addBattlePassXp } from "../lib/battlePassStorage";
 import { ConfettiBurst } from "./DuolingoAnimations";
 
 interface Props {
@@ -128,13 +131,25 @@ export default function LuckyWheelModal({ visible, onClose, onRewardClaimed }: P
       setSpinning(false);
       let finalReward = segment.reward;
       if (segment.id === "title_random") {
-        const pool = ALL_RPG_TITLES.filter(t => t.rarity === "common" || t.rarity === "rare");
+        const pool = ALL_RPG_TITLES.filter(t => t.rarity === "rare" || t.rarity === "epic");
         const picked = pool[Math.floor(Math.random() * pool.length)];
-        await unlockTitle(picked.id);
+        await unlockTitle(picked.id).catch(() => {});
         finalReward = { ...finalReward, titleId: picked.id, label: `Gelar: ${picked.label}` };
       }
-      if (segment.id === "chest_free") await addChest(1);
-      if (segment.id === "jackpot") await unlockTitle("penguasa_roda");
+      if (segment.id === "chest_free") await addChest(1).catch(() => {});
+      if (segment.id === "jackpot") {
+        await unlockTitle("penguasa_roda").catch(() => {});
+        finalReward = { ...finalReward, titleId: "penguasa_roda" };
+      }
+
+      // Persist XP and water permanently to AsyncStorage
+      if (finalReward.waterAmount && finalReward.waterAmount > 0) {
+        await addWaterDrops(finalReward.waterAmount).catch(() => {});
+      }
+      if (finalReward.xpAmount && finalReward.xpAmount > 0) {
+        await addExtraUserXp(finalReward.xpAmount).catch(() => {});
+        await addBattlePassXp(finalReward.xpAmount).catch(() => {});
+      }
 
       setResult({ segment, reward: finalReward });
       const isEpic = finalReward.rarity === "epic" || finalReward.rarity === "legendary";
@@ -195,7 +210,9 @@ export default function LuckyWheelModal({ visible, onClose, onRewardClaimed }: P
               <View style={{ flex: 1 }}>
                 <Text style={[styles.resultLabel, { color: theme.text }]}>{result.reward.label}</Text>
                 <Text style={{ fontSize: 11, color: RARITY_COLORS[result.reward.rarity], fontWeight: "700", marginTop: 2 }}>
-                  {result.reward.rarity === "legendary" ? "✨ LEGENDARIS" : result.reward.rarity === "epic" ? "💜 EPIK" : result.reward.rarity === "rare" ? "💙 LANGKA" : "⚪ BIASA"}
+                  {result.reward.rarity === "mythic" ? "🔥 MITOS (MYTHIC)" :
+                   result.reward.rarity === "legendary" ? "✨ LEGENDARIS" :
+                   result.reward.rarity === "epic" ? "💜 EPIK" : "💙 LANGKA"}
                 </Text>
               </View>
             </Animated.View>

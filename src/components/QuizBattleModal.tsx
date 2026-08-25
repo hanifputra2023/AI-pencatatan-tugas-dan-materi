@@ -154,32 +154,43 @@ export default function QuizBattleModal({
     }
   }, [visible]);
 
+  const resetBattleState = () => {
+    const selectedBoss = getDynamicBoss(noteTitle, subject);
+    setBoss(selectedBoss);
+    setBoss2(getDynamicBossTwo(selectedBoss.id, noteTitle, subject));
+    setBossPhase(1);
+    setBoss1Defeated(false);
+    setBossHp(100);
+    setPlayerHp(100);
+    bossHpAnim.setValue(100);
+    playerHpAnim.setValue(100);
+    setCurrentQIndex(0);
+    setSelectedOption(null);
+    setIsAnswerChecked(false);
+    setIsCorrect(false);
+    setBattleState('fighting');
+    setIsBossHit(false);
+    setIsBossAttacking(false);
+    setShowConfetti(false);
+    setShowXp(false);
+    setFloatingDamageText(null);
+
+    // Reset Combo & Critical System completely
+    setComboCount(0);
+    setComboFlash(false);
+    comboAnim.setValue(0);
+    comboScale.setValue(1);
+
+    actionTranslateX.setValue(0);
+    actionTranslateY.setValue(0);
+    actionRotate.setValue(0);
+    actionScale.setValue(1);
+  };
+
   // Reset states on open
   useEffect(() => {
     if (visible) {
-      const selectedBoss = getDynamicBoss(noteTitle, subject);
-      setBoss(selectedBoss);
-      setBoss2(getDynamicBossTwo(selectedBoss.id, noteTitle, subject));
-      setBossPhase(1);
-      setBoss1Defeated(false);
-      setBossHp(100);
-      setPlayerHp(100);
-      bossHpAnim.setValue(100);
-      playerHpAnim.setValue(100);
-      setCurrentQIndex(0);
-      setSelectedOption(null);
-      setIsAnswerChecked(false);
-      setIsCorrect(false);
-      setBattleState('fighting');
-      setIsBossHit(false);
-      setIsBossAttacking(false);
-      setShowConfetti(false);
-      setShowXp(false);
-      setFloatingDamageText(null);
-      actionTranslateX.setValue(0);
-      actionTranslateY.setValue(0);
-      actionRotate.setValue(0);
-      actionScale.setValue(1);
+      resetBattleState();
     }
   }, [visible, noteTitle, subject]);
 
@@ -745,16 +756,7 @@ export default function QuizBattleModal({
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={[styles.finishBtn, { flex: 1, backgroundColor: theme.primary }]}
-                  onPress={() => {
-                    setBossHp(100);
-                    setPlayerHp(100);
-                    bossHpAnim.setValue(100);
-                    playerHpAnim.setValue(100);
-                    setCurrentQIndex(0);
-                    setSelectedOption(null);
-                    setIsAnswerChecked(false);
-                    setBattleState('fighting');
-                  }}
+                  onPress={resetBattleState}
                 >
                   <Ionicons name="refresh" size={14} color="#FFFFFF" />
                   <Text style={styles.finishBtnText}>Ulang Lagi</Text>
@@ -776,16 +778,7 @@ export default function QuizBattleModal({
 
               <TouchableOpacity
                 style={[styles.finishBtn, { backgroundColor: theme.primary }]}
-                onPress={() => {
-                  setBossHp(100);
-                  setPlayerHp(100);
-                  bossHpAnim.setValue(100);
-                  playerHpAnim.setValue(100);
-                  setCurrentQIndex(0);
-                  setSelectedOption(null);
-                  setIsAnswerChecked(false);
-                  setBattleState('fighting');
-                }}
+                onPress={resetBattleState}
               >
                 <Ionicons name="refresh" size={15} color="#FFFFFF" />
                 <Text style={styles.finishBtnText}>Coba Pertarungan Ulang</Text>
