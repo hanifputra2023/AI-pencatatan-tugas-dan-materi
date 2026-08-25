@@ -1432,17 +1432,21 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   promptChip: {
+    width: '100%',
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 14,
-    paddingVertical: 11,
+    paddingVertical: 12,
     borderRadius: 12,
     borderWidth: 1,
+    minHeight: 46,
   },
   promptText: {
     fontSize: 12.5,
+    fontWeight: '500',
     flex: 1,
+    marginRight: 10,
   },
 
   /* Messages */

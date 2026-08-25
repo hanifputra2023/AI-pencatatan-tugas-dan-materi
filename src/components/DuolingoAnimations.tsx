@@ -470,7 +470,7 @@ export function FadeSlideIn({
   }, [delay, distance, duration]);
 
   return (
-    <Animated.View style={[{ transform: [{ translateY }], opacity }, style]}>
+    <Animated.View style={[{ width: '100%', transform: [{ translateY }], opacity }, style]}>
       {children}
     </Animated.View>
   );

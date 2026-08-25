@@ -26,7 +26,7 @@ export default function AudioLecturePlayer({
   const [isPaused, setIsPaused] = useState(false);
   const [audioSource, setAudioSource] = useState<'summary' | 'full'>(summaryText ? 'summary' : 'full');
   const [playbackSpeed, setPlaybackSpeed] = useState<number>(0.9); // 0.9x is the most natural for Indonesian TTS
-  const [activeVoiceName, setActiveVoiceName] = useState<string>('Memindai suara...');
+  const [activeVoiceName, setActiveVoiceName] = useState<string>('Memindai...');
   const [hasIndonesianVoice, setHasIndonesianVoice] = useState<boolean>(true);
   const [showVoiceHelpModal, setShowVoiceHelpModal] = useState<boolean>(false);
   const [availableIdVoiceId, setAvailableIdVoiceId] = useState<string | undefined>(undefined);
@@ -315,38 +315,40 @@ export default function AudioLecturePlayer({
             <Ionicons name="volume-high" size={15} color={theme.accentLight} />
           </View>
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-              <Text style={[styles.playerHeaderTitle, { color: theme.text }]} numberOfLines={1}>
-                Audio Kuliah (Bahasa Indonesia)
-              </Text>
-              <TouchableOpacity
-                onPress={() => setShowVoiceHelpModal(true)}
-                style={[
-                  styles.badgeHd,
-                  { backgroundColor: hasIndonesianVoice ? (isLightMode ? '#DCFCE7' : '#0F261E') : (isLightMode ? '#FEF3C7' : '#2B2010') }
-                ]}
-              >
-                <Text style={[styles.badgeHdText, { color: hasIndonesianVoice ? (isLightMode ? '#15803D' : '#34D399') : (isLightMode ? '#B45309' : '#FBBF24') }]}>
-                  {activeVoiceName}
-                </Text>
-                <Ionicons name="information-circle-outline" size={11} color={hasIndonesianVoice ? (isLightMode ? '#15803D' : '#34D399') : (isLightMode ? '#B45309' : '#FBBF24')} />
-              </TouchableOpacity>
-            </View>
-            <Text style={[styles.playerHeaderSub, { color: theme.subtext }]}>
+            <Text style={[styles.playerHeaderTitle, { color: theme.text }]} numberOfLines={1}>
+              Audio Kuliah
+            </Text>
+            <Text style={[styles.playerHeaderSub, { color: theme.subtext }]} numberOfLines={1}>
               {isPlaying
                 ? isPaused
                   ? 'Dijeda'
                   : 'Sedang Membacakan Materi...'
-                : 'Tekan Play untuk mulai mendengarkan'}
+                : 'Tekan Play untuk mendengarkan'}
             </Text>
           </View>
         </View>
 
-        {onClose && (
-          <TouchableOpacity onPress={() => { stopPlayback(); onClose(); }} style={[styles.closeBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-            <Ionicons name="close" size={14} color={theme.subtext} />
+        {/* Right Action Group: Voice Badge + Close Button */}
+        <View style={styles.headerRightGroup}>
+          <TouchableOpacity
+            onPress={() => setShowVoiceHelpModal(true)}
+            style={[
+              styles.badgeHd,
+              { backgroundColor: hasIndonesianVoice ? (isLightMode ? '#DCFCE7' : '#0F261E') : (isLightMode ? '#FEF3C7' : '#2B2010') }
+            ]}
+          >
+            <Text style={[styles.badgeHdText, { color: hasIndonesianVoice ? (isLightMode ? '#15803D' : '#34D399') : (isLightMode ? '#B45309' : '#FBBF24') }]}>
+              {hasIndonesianVoice ? 'Bahasa Indonesia' : 'Voice Standar'}
+            </Text>
+            <Ionicons name="information-circle-outline" size={11} color={hasIndonesianVoice ? (isLightMode ? '#15803D' : '#34D399') : (isLightMode ? '#B45309' : '#FBBF24')} />
           </TouchableOpacity>
-        )}
+
+          {onClose && (
+            <TouchableOpacity onPress={() => { stopPlayback(); onClose(); }} style={[styles.closeBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+              <Ionicons name="close" size={14} color={theme.subtext} />
+            </TouchableOpacity>
+          )}
+        </View>
       </View>
 
       {/* Mode Selector: Summary vs Full Content */}
@@ -427,7 +429,7 @@ export default function AudioLecturePlayer({
                   backgroundColor: isPlaying && !isPaused ? theme.accentLight : theme.border,
                   height: w.interpolate({
                     inputRange: [0, 1],
-                    outputRange: [4, 22],
+                    outputRange: [4, 20],
                   }),
                 }
               ]}
@@ -499,7 +501,7 @@ const styles = StyleSheet.create({
   playerCard: {
     borderRadius: 14,
     borderWidth: 1,
-    padding: 14,
+    padding: 12,
     gap: 10,
     marginBottom: 14,
   },
@@ -507,16 +509,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: 8,
   },
   titleInfoGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 8,
     flex: 1,
+    minWidth: 0,
+  },
+  headerRightGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
   },
   iconPill: {
-    width: 32,
-    height: 32,
+    width: 30,
+    height: 30,
     borderRadius: 8,
     alignItems: 'center',
     justifyContent: 'center',
@@ -528,17 +538,17 @@ const styles = StyleSheet.create({
   badgeHd: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 3,
     paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+    paddingVertical: 3,
+    borderRadius: 6,
   },
   badgeHdText: {
     fontSize: 9.5,
     fontWeight: '800',
   },
   playerHeaderSub: {
-    fontSize: 11,
+    fontSize: 10.5,
     marginTop: 1,
   },
   closeBtn: {
@@ -575,16 +585,16 @@ const styles = StyleSheet.create({
   controlsRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingHorizontal: 10,
-    paddingVertical: 8,
+    paddingHorizontal: 8,
+    paddingVertical: 6,
     borderRadius: 10,
     borderWidth: 1,
-    gap: 10,
+    gap: 8,
   },
   mainPlayBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
+    width: 34,
+    height: 34,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -599,22 +609,24 @@ const styles = StyleSheet.create({
   soundwaveWrap: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
-    height: 24,
+    justifyContent: 'center',
+    gap: 3,
+    height: 22,
     flex: 1,
-    paddingHorizontal: 6,
+    paddingHorizontal: 2,
   },
   soundwaveBar: {
-    width: 3.5,
-    borderRadius: 2,
+    width: 3,
+    borderRadius: 1.5,
   },
   speedSelectorGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 3,
+    gap: 2,
+    flexShrink: 0,
   },
   speedChip: {
-    paddingHorizontal: 6,
+    paddingHorizontal: 5,
     paddingVertical: 3,
     borderRadius: 5,
     borderWidth: 1,
@@ -624,7 +636,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
   },
   speedChipText: {
-    fontSize: 10.5,
+    fontSize: 10,
     fontWeight: '600',
   },
   speedChipTextActive: {
