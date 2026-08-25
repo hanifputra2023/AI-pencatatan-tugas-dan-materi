@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, Animated } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -26,8 +26,8 @@ export default function BossEventBanner({ event, onChallenge, onDismiss }: Props
     );
     const glow = Animated.loop(
       Animated.sequence([
-        Animated.timing(glowAnim, { toValue: 1, duration: 1200, useNativeDriver: false }),
-        Animated.timing(glowAnim, { toValue: 0, duration: 1200, useNativeDriver: false }),
+        Animated.timing(glowAnim, { toValue: 1, duration: 1200, useNativeDriver: true }),
+        Animated.timing(glowAnim, { toValue: 0.4, duration: 1200, useNativeDriver: true }),
       ])
     );
     pulse.start();
@@ -47,10 +47,6 @@ export default function BossEventBanner({ event, onChallenge, onDismiss }: Props
 
   if (timeLeft.expired || event.defeated) return null;
 
-  const borderColor = glowAnim.interpolate({
-    inputRange: [0, 1],
-    outputRange: [event.color + '88', event.color],
-  });
 
   const pad = (n: number) => String(n).padStart(2, '0');
   const timeStr = `${pad(timeLeft.hours)}:${pad(timeLeft.minutes)}:${pad(timeLeft.seconds)}`;
@@ -61,7 +57,8 @@ export default function BossEventBanner({ event, onChallenge, onDismiss }: Props
         styles.banner,
         {
           backgroundColor: event.color + '18',
-          borderColor: borderColor,
+          borderColor: event.color + 'AA',
+          opacity: glowAnim.interpolate({ inputRange: [0.4, 1], outputRange: [0.85, 1] }),
           transform: [{ scale: pulseAnim }],
         },
       ]}
@@ -123,7 +120,7 @@ const styles = StyleSheet.create({
   emoji: { fontSize: 22 },
   badge: { paddingHorizontal: 6, paddingVertical: 2, borderRadius: 6 },
   badgeText: { color: '#FFF', fontSize: 9, fontWeight: '800', letterSpacing: 0.5 },
-  timerText: { fontSize: 11, fontWeight: '800', fontVariant: ['tabular-nums'] as any },
+  timerText: { fontSize: 11, fontWeight: '800' },
   bossName: { fontSize: 13, fontWeight: '800', marginTop: 1 },
   rewardHint: { fontSize: 10, marginTop: 2 },
   rightSide: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
