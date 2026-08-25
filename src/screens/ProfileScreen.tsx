@@ -342,18 +342,14 @@ export default function ProfileScreen() {
   const [customBgHex, setCustomBgHex] = useState(theme.bg);
   const [customCardHex, setCustomCardHex] = useState(theme.card);
   const [customAccentHex, setCustomAccentHex] = useState(theme.primary);
+  const [customTextHex, setCustomTextHex] = useState(theme.text);
+  const [customSubtextHex, setCustomSubtextHex] = useState(theme.subtext);
 
-  useEffect(() => {
-    setCustomBgHex(theme.bg);
-  }, [theme.bg]);
-
-  useEffect(() => {
-    setCustomCardHex(theme.card);
-  }, [theme.card]);
-
-  useEffect(() => {
-    setCustomAccentHex(theme.primary);
-  }, [theme.primary]);
+  useEffect(() => { setCustomBgHex(theme.bg); }, [theme.bg]);
+  useEffect(() => { setCustomCardHex(theme.card); }, [theme.card]);
+  useEffect(() => { setCustomAccentHex(theme.primary); }, [theme.primary]);
+  useEffect(() => { setCustomTextHex(theme.text); }, [theme.text]);
+  useEffect(() => { setCustomSubtextHex(theme.subtext); }, [theme.subtext]);
 
   const handleBgHexChange = (val: string) => {
     setCustomBgHex(val);
@@ -379,15 +375,36 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleTextHexChange = (val: string) => {
+    setCustomTextHex(val);
+    const clean = val.trim().startsWith('#') ? val.trim() : ('#' + val.trim());
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(clean)) {
+      setCustomColor('text', clean.toUpperCase());
+    }
+  };
+
+  const handleSubtextHexChange = (val: string) => {
+    setCustomSubtextHex(val);
+    const clean = val.trim().startsWith('#') ? val.trim() : ('#' + val.trim());
+    if (/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(clean)) {
+      setCustomColor('subtext', clean.toUpperCase());
+    }
+  };
+
   // Color Pamphlet Modal State
   const [showColorPamphletModal, setShowColorPamphletModal] = useState(false);
-  const [colorPamphletTarget, setColorPamphletTarget] = useState<'bg' | 'card' | 'primary'>('bg');
+  const [colorPamphletTarget, setColorPamphletTarget] = useState<'bg' | 'card' | 'primary' | 'text' | 'subtext'>('bg');
   const [pamphletSearchQuery, setPamphletSearchQuery] = useState('');
   const [tempSelectedColor, setTempSelectedColor] = useState(theme.bg);
 
-  const openColorPamphlet = (target: 'bg' | 'card' | 'primary') => {
+  const openColorPamphlet = (target: 'bg' | 'card' | 'primary' | 'text' | 'subtext') => {
     setColorPamphletTarget(target);
-    const initialHex = target === 'bg' ? customBgHex : target === 'card' ? customCardHex : customAccentHex;
+    const initialHex =
+      target === 'bg' ? customBgHex
+      : target === 'card' ? customCardHex
+      : target === 'text' ? customTextHex
+      : target === 'subtext' ? customSubtextHex
+      : customAccentHex;
     setTempSelectedColor(initialHex);
     setPamphletSearchQuery('');
     setShowColorPamphletModal(true);
@@ -404,26 +421,66 @@ export default function ProfileScreen() {
     } else if (colorPamphletTarget === 'primary') {
       setCustomColor('primary', cleanHex);
       setCustomAccentHex(cleanHex);
+    } else if (colorPamphletTarget === 'text') {
+      setCustomColor('text', cleanHex);
+      setCustomTextHex(cleanHex);
+    } else if (colorPamphletTarget === 'subtext') {
+      setCustomColor('subtext', cleanHex);
+      setCustomSubtextHex(cleanHex);
     }
     setShowColorPamphletModal(false);
   };
 
+  // Trigger native browser color picker (appended to body to avoid browser blocking programmatic clicks)
   const triggerNativeWebColorPicker = () => {
     if (Platform.OS === 'web' && typeof document !== 'undefined') {
       const input = document.createElement('input');
       input.type = 'color';
-      input.value = tempSelectedColor.startsWith('#') && tempSelectedColor.length === 7 ? tempSelectedColor : '#2563EB';
+      input.style.position = 'fixed';
+      input.style.top = '-9999px';
+      input.style.left = '-9999px';
+      input.style.opacity = '0';
+      input.style.pointerEvents = 'none';
+      input.value = tempSelectedColor.startsWith('#') && tempSelectedColor.length === 7
+        ? tempSelectedColor
+        : '#2563EB';
+      document.body.appendChild(input);
       input.oninput = (e: any) => {
         const chosen = (e.target.value || '').toUpperCase();
-        if (chosen) {
-          setTempSelectedColor(chosen);
-        }
+        if (chosen) setTempSelectedColor(chosen);
       };
       input.onchange = (e: any) => {
         const chosen = (e.target.value || '').toUpperCase();
-        if (chosen) {
-          applyPamphletColor(chosen);
-        }
+        if (chosen) applyPamphletColor(chosen);
+        document.body.removeChild(input);
+      };
+      input.click();
+    }
+  };
+
+  // Direct color picker (tanpa buka modal pamflet) - untuk tombol roda warna langsung di Studio Kustom
+  const triggerDirectColorPicker = (target: 'bg' | 'card' | 'primary' | 'text' | 'subtext', currentHex: string) => {
+    if (Platform.OS === 'web' && typeof document !== 'undefined') {
+      const input = document.createElement('input');
+      input.type = 'color';
+      input.style.position = 'fixed';
+      input.style.top = '-9999px';
+      input.style.left = '-9999px';
+      input.style.opacity = '0';
+      input.style.pointerEvents = 'none';
+      input.value = currentHex.startsWith('#') && currentHex.length === 7 ? currentHex : '#2563EB';
+      document.body.appendChild(input);
+      input.oninput = (e: any) => {
+        const chosen = (e.target.value || '').toUpperCase();
+        if (!chosen) return;
+        if (target === 'bg') { setCustomColor('bg', chosen); setCustomBgHex(chosen); }
+        else if (target === 'card') { setCustomColor('card', chosen); setCustomCardHex(chosen); }
+        else if (target === 'primary') { setCustomColor('primary', chosen); setCustomAccentHex(chosen); }
+        else if (target === 'text') { setCustomColor('text', chosen); setCustomTextHex(chosen); }
+        else if (target === 'subtext') { setCustomColor('subtext', chosen); setCustomSubtextHex(chosen); }
+      };
+      input.onchange = (e: any) => {
+        document.body.removeChild(input);
       };
       input.click();
     }
@@ -1464,6 +1521,15 @@ export default function ProfileScreen() {
                           }
                         }}
                       />
+                      {Platform.OS === 'web' && (
+                        <TouchableOpacity
+                          style={[styles.colorWheelBtn, { backgroundColor: '#1E293B', borderColor: theme.border }]}
+                          onPress={() => triggerDirectColorPicker('bg', customBgHex)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={{ fontSize: 14 }}>🎨</Text>
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity
                         style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
                         onPress={() => openColorPamphlet('bg')}
@@ -1511,6 +1577,15 @@ export default function ProfileScreen() {
                           }
                         }}
                       />
+                      {Platform.OS === 'web' && (
+                        <TouchableOpacity
+                          style={[styles.colorWheelBtn, { backgroundColor: '#1E293B', borderColor: theme.border }]}
+                          onPress={() => triggerDirectColorPicker('card', customCardHex)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={{ fontSize: 14 }}>🎨</Text>
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity
                         style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
                         onPress={() => openColorPamphlet('card')}
@@ -1558,6 +1633,15 @@ export default function ProfileScreen() {
                           }
                         }}
                       />
+                      {Platform.OS === 'web' && (
+                        <TouchableOpacity
+                          style={[styles.colorWheelBtn, { backgroundColor: '#1E293B', borderColor: theme.border }]}
+                          onPress={() => triggerDirectColorPicker('primary', customAccentHex)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={{ fontSize: 14 }}>🎨</Text>
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity
                         style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
                         onPress={() => openColorPamphlet('primary')}
@@ -1568,29 +1652,153 @@ export default function ProfileScreen() {
                       </TouchableOpacity>
                     </View>
 
-                    {/* 4. Text Contrast Option */}
-                    <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>4. Kontras Warna Teks:</Text>
-                    <View style={{ flexDirection: 'row', gap: 8, marginTop: 4 }}>
-                      <TouchableOpacity
-                        style={[
-                          styles.contrastOptionBtn,
-                          { backgroundColor: '#0E1117', borderColor: theme.text === '#F3F4F6' ? theme.accentLight : theme.border }
-                        ]}
-                        onPress={() => setCustomColor('text', '#F3F4F6')}
-                      >
-                        <Text style={{ color: '#F3F4F6', fontSize: 11, fontWeight: '700' }}>Teks Putih / Terang</Text>
-                      </TouchableOpacity>
+                    {/* 4. Text Color Picker (Full Custom) */}
+                    <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 12 }]}>4. Warna Teks / Tulisan:</Text>
 
+                    {/* Quick preset text colors */}
+                    <View style={[styles.colorChipsRow, { marginTop: 4 }]}>
+                      {[
+                        '#F3F4F6', '#FFFFFF', '#E2E8F0', '#CBD5E1', '#94A3B8',
+                        '#0F172A', '#1E293B', '#334155', '#475569', '#64748B',
+                        '#FDE68A', '#86EFAC', '#93C5FD', '#F9A8D4', '#C4B5FD',
+                        '#FCA5A5', '#FDBA74', '#6EE7B7', '#7DD3FC', '#A5B4FC',
+                      ].map(textCol => (
+                        <TouchableOpacity
+                          key={textCol}
+                          style={[
+                            styles.colorChipBtn,
+                            {
+                              backgroundColor: textCol,
+                              borderColor: theme.text.toUpperCase() === textCol.toUpperCase() ? theme.accentLight : (isColorLight(textCol) ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.15)'),
+                            },
+                            theme.text.toUpperCase() === textCol.toUpperCase() && styles.colorChipBtnActive,
+                          ]}
+                          onPress={() => {
+                            setCustomColor('text', textCol);
+                            setCustomTextHex(textCol);
+                          }}
+                        >
+                          {theme.text.toUpperCase() === textCol.toUpperCase() && (
+                            <Ionicons name="checkmark" size={12} color={isColorLight(textCol) ? '#000' : '#FFF'} />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <View style={styles.hexInputRow}>
+                      <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                      <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customTextHex.trim().startsWith('#') ? customTextHex.trim() : '#' + customTextHex.trim()) ? (customTextHex.trim().startsWith('#') ? customTextHex.trim() : '#' + customTextHex.trim()) : theme.text, borderWidth: 1, borderColor: theme.border }]} />
+                      <TextInput
+                        style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                        placeholder="#F3F4F6"
+                        placeholderTextColor={theme.muted}
+                        value={customTextHex}
+                        autoCapitalize="characters"
+                        maxLength={7}
+                        onChangeText={handleTextHexChange}
+                        onBlur={() => {
+                          if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customTextHex.trim().startsWith('#') ? customTextHex.trim() : '#' + customTextHex.trim())) {
+                            setCustomTextHex(theme.text);
+                          }
+                        }}
+                      />
+                      {Platform.OS === 'web' && (
+                        <TouchableOpacity
+                          style={[styles.colorWheelBtn, { backgroundColor: '#1E293B', borderColor: theme.border }]}
+                          onPress={() => triggerDirectColorPicker('text', customTextHex)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={{ fontSize: 14 }}>🎨</Text>
+                        </TouchableOpacity>
+                      )}
                       <TouchableOpacity
-                        style={[
-                          styles.contrastOptionBtn,
-                          { backgroundColor: '#FFFFFF', borderColor: theme.text === '#0F172A' ? theme.accent : theme.border }
-                        ]}
-                        onPress={() => setCustomColor('text', '#0F172A')}
+                        style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                        onPress={() => openColorPamphlet('text')}
+                        activeOpacity={0.8}
                       >
-                        <Text style={{ color: '#0F172A', fontSize: 11, fontWeight: '700' }}>Teks Hitam / Gelap</Text>
+                        <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
                       </TouchableOpacity>
                     </View>
+                    <Text style={{ color: theme.subtext, fontSize: 11, marginTop: 4 }}>
+                      Teks utama preview: <Text style={{ color: theme.text, fontWeight: '700' }}>{customTextHex}</Text>
+                    </Text>
+
+                    {/* 5. Subtext / Description Color Picker */}
+                    <Text style={[styles.customFieldTitle, { color: theme.text, marginTop: 14 }]}>5. Warna Subtext / Teks Deskripsi:</Text>
+                    <Text style={{ color: theme.subtext, fontSize: 11, marginBottom: 6 }}>
+                      Warna untuk tulisan abu-abu seperti keterangan, label, dan deskripsi.
+                    </Text>
+
+                    {/* Quick preset subtext colors */}
+                    <View style={[styles.colorChipsRow, { marginTop: 2 }]}>
+                      {[
+                        '#9CA3AF', '#6B7280', '#94A3B8', '#64748B', '#71717A',
+                        '#A3A3A3', '#D1D5DB', '#E5E7EB', '#475569', '#334155',
+                        '#A78BFA', '#6EE7B7', '#93C5FD', '#F9A8D4', '#FCA5A5',
+                        '#FDBA74', '#FDE68A', '#86EFAC', '#7DD3FC', '#C4B5FD',
+                      ].map(subCol => (
+                        <TouchableOpacity
+                          key={subCol}
+                          style={[
+                            styles.colorChipBtn,
+                            {
+                              backgroundColor: subCol,
+                              borderColor: theme.subtext.toUpperCase() === subCol.toUpperCase() ? theme.accentLight : (isColorLight(subCol) ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.15)'),
+                            },
+                            theme.subtext.toUpperCase() === subCol.toUpperCase() && styles.colorChipBtnActive,
+                          ]}
+                          onPress={() => {
+                            setCustomColor('subtext', subCol);
+                            setCustomSubtextHex(subCol);
+                          }}
+                        >
+                          {theme.subtext.toUpperCase() === subCol.toUpperCase() && (
+                            <Ionicons name="checkmark" size={12} color={isColorLight(subCol) ? '#000' : '#FFF'} />
+                          )}
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+
+                    <View style={styles.hexInputRow}>
+                      <Text style={[styles.hexInputPrefix, { color: theme.subtext }]}>HEX:</Text>
+                      <View style={[styles.hexColorIndicator, { backgroundColor: /^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customSubtextHex.trim().startsWith('#') ? customSubtextHex.trim() : '#' + customSubtextHex.trim()) ? (customSubtextHex.trim().startsWith('#') ? customSubtextHex.trim() : '#' + customSubtextHex.trim()) : theme.subtext, borderWidth: 1, borderColor: theme.border }]} />
+                      <TextInput
+                        style={[styles.hexInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                        placeholder="#9CA3AF"
+                        placeholderTextColor={theme.muted}
+                        value={customSubtextHex}
+                        autoCapitalize="characters"
+                        maxLength={7}
+                        onChangeText={handleSubtextHexChange}
+                        onBlur={() => {
+                          if (!/^#([0-9A-Fa-f]{3}|[0-9A-Fa-f]{6})$/.test(customSubtextHex.trim().startsWith('#') ? customSubtextHex.trim() : '#' + customSubtextHex.trim())) {
+                            setCustomSubtextHex(theme.subtext);
+                          }
+                        }}
+                      />
+                      {Platform.OS === 'web' && (
+                        <TouchableOpacity
+                          style={[styles.colorWheelBtn, { backgroundColor: '#1E293B', borderColor: theme.border }]}
+                          onPress={() => triggerDirectColorPicker('subtext', customSubtextHex)}
+                          activeOpacity={0.8}
+                        >
+                          <Text style={{ fontSize: 14 }}>🎨</Text>
+                        </TouchableOpacity>
+                      )}
+                      <TouchableOpacity
+                        style={[styles.openPamphletBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}
+                        onPress={() => openColorPamphlet('subtext')}
+                        activeOpacity={0.8}
+                      >
+                        <Ionicons name="color-palette-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.openPamphletBtnText, { color: theme.accentLight }]}>Buka Palet</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <Text style={{ fontSize: 11, marginTop: 4 }}>
+                      <Text style={{ color: theme.subtext }}>Subtext preview: </Text>
+                      <Text style={{ color: theme.subtext, fontWeight: '700' }}>Teks deskripsi seperti ini</Text>
+                    </Text>
 
                     {/* Reset Button */}
                     <TouchableOpacity
@@ -2223,7 +2431,11 @@ export default function ProfileScreen() {
                         ? 'Latar Belakang (Background)'
                         : colorPamphletTarget === 'card'
                           ? 'Kartu & Panel (Card)'
-                          : 'Tombol Aksen & Highlight'}
+                          : colorPamphletTarget === 'text'
+                            ? 'Warna Teks / Judul Utama'
+                            : colorPamphletTarget === 'subtext'
+                              ? 'Warna Subtext / Deskripsi'
+                              : 'Tombol Aksen & Highlight'}
                     </Text>
                   </Text>
                 </View>
@@ -3688,5 +3900,13 @@ const styles = StyleSheet.create({
   saveCustomAiBtnText: {
     fontSize: 12.5,
     fontWeight: '700',
+  },
+  colorWheelBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
   },
 });

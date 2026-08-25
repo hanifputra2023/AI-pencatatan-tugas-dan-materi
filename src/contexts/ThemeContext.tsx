@@ -387,7 +387,7 @@ interface ThemeContextType {
   isLightMode: boolean;
   setThemeMode: (mode: 'dark' | 'light' | 'custom') => Promise<void>;
   setTheme: (themeId: string) => Promise<void>;
-  setCustomColor: (key: 'bg' | 'card' | 'primary' | 'accent' | 'text' | 'border', value: string) => Promise<void>;
+  setCustomColor: (key: 'bg' | 'card' | 'primary' | 'accent' | 'text' | 'subtext' | 'muted' | 'border', value: string) => Promise<void>;
   setFullCustomTheme: (custom: Partial<AppTheme>) => Promise<void>;
   resetTheme: () => Promise<void>;
   darkThemes: AppTheme[];
@@ -618,7 +618,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   };
 
   // Set Single Custom Color
-  const setCustomColor = async (key: 'bg' | 'card' | 'primary' | 'accent' | 'text' | 'border', value: string) => {
+  const setCustomColor = async (key: 'bg' | 'card' | 'primary' | 'accent' | 'text' | 'subtext' | 'muted' | 'border', value: string) => {
     setLocalThemeMode('custom');
 
     const base = ALL_THEMES.find(t => t.id === themeId) || DARK_THEMES[0];
