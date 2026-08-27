@@ -162,7 +162,7 @@ export default function StudyNotesScreen() {
   const { theme, isLightMode } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<TabParamList, 'Study'>>();
-  const { isDesktop, isTablet, isMobile } = useResponsive();
+  const { isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
 
   const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
@@ -1251,17 +1251,21 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
               <TouchableOpacity
                 style={[
                   styles.notesBossRaidBanner,
+                  isSmallPhone && styles.notesBossRaidBannerSmall,
                   { backgroundColor: (activeBossEvent.color || '#DC2626') + '15', borderColor: activeBossEvent.color || '#DC2626' }
                 ]}
                 onPress={handleChallengeBoss}
                 activeOpacity={0.85}
               >
-                <View style={[styles.notesBossRaidIcon, { backgroundColor: (activeBossEvent.color || '#DC2626') + '25' }]}>
-                  <Text style={{ fontSize: 20 }}>{activeBossEvent.emoji || '⚔️'}</Text>
+                <View style={[styles.notesBossRaidIcon, isSmallPhone && styles.notesBossRaidIconSmall, { backgroundColor: (activeBossEvent.color || '#DC2626') + '25' }]}>
+                  <Text style={[styles.notesBossRaidEmoji, isSmallPhone && styles.notesBossRaidEmojiSmall]}>{activeBossEvent.emoji || '⚔️'}</Text>
                 </View>
-                <View style={{ flex: 1, minWidth: 0 }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Text style={[styles.notesBossRaidTitle, { color: activeBossEvent.color || '#DC2626' }]}>
+                <View style={styles.notesBossRaidInfo}>
+                  <View style={styles.notesBossRaidTitleRow}>
+                    <Text
+                      style={[styles.notesBossRaidTitle, { color: activeBossEvent.color || '#DC2626' }, isSmallPhone && styles.notesBossRaidTitleSmall]}
+                      numberOfLines={1}
+                    >
                       Tantangan Event: {activeBossEvent.name}
                     </Text>
                     <View style={[styles.notesBossRaidBadge, { backgroundColor: activeBossEvent.color || '#DC2626' }]}>
@@ -1272,9 +1276,9 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                     Lawan Boss dengan kuis AI dari seluruh catatanmu! (+{activeBossEvent.rewards.xp} XP)
                   </Text>
                 </View>
-                <View style={[styles.notesBossRaidPlayBtn, { backgroundColor: activeBossEvent.color || '#DC2626' }]}>
-                  <Ionicons name="flash" size={12} color="#FFFFFF" />
-                  <Text style={styles.notesBossRaidPlayBtnText}>Lawan!</Text>
+                <View style={[styles.notesBossRaidPlayBtn, isSmallPhone && styles.notesBossRaidPlayBtnSmall, { backgroundColor: activeBossEvent.color || '#DC2626' }]}>
+                  <Ionicons name="flash" size={isSmallPhone ? 10 : 12} color="#FFFFFF" />
+                  <Text style={[styles.notesBossRaidPlayBtnText, isSmallPhone && styles.notesBossRaidPlayBtnTextSmall]}>Lawan!</Text>
                 </View>
               </TouchableOpacity>
             )}
@@ -3830,21 +3834,53 @@ const styles = StyleSheet.create({
     gap: 10,
     marginBottom: 10,
   },
+  notesBossRaidBannerSmall: {
+    padding: 10,
+    gap: 8,
+  },
   notesBossRaidIcon: {
     width: 40,
     height: 40,
     borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
+    flexShrink: 0,
+  },
+  notesBossRaidIconSmall: {
+    width: 34,
+    height: 34,
+    borderRadius: 9,
+  },
+  notesBossRaidEmoji: {
+    fontSize: 20,
+  },
+  notesBossRaidEmojiSmall: {
+    fontSize: 17,
+  },
+  notesBossRaidInfo: {
+    flex: 1,
+    minWidth: 0,
+    flexShrink: 1,
+  },
+  notesBossRaidTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 1,
   },
   notesBossRaidTitle: {
     fontSize: 13,
     fontWeight: '800',
+    flexShrink: 1,
+  },
+  notesBossRaidTitleSmall: {
+    fontSize: 12,
   },
   notesBossRaidBadge: {
     paddingHorizontal: 5,
     paddingVertical: 2,
     borderRadius: 4,
+    flexShrink: 0,
   },
   notesBossRaidBadgeText: {
     color: '#FFFFFF',
@@ -3862,11 +3898,21 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12,
     paddingVertical: 7,
     borderRadius: 8,
+    flexShrink: 0,
+  },
+  notesBossRaidPlayBtnSmall: {
+    paddingHorizontal: 9,
+    paddingVertical: 6,
+    borderRadius: 7,
+    gap: 3,
   },
   notesBossRaidPlayBtnText: {
     color: '#FFFFFF',
     fontSize: 12,
     fontWeight: '800',
+  },
+  notesBossRaidPlayBtnTextSmall: {
+    fontSize: 11,
   },
   bossLoadingOverlay: {
     flex: 1,

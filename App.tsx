@@ -9,6 +9,7 @@ import { MoodProvider } from './src/contexts/MoodContext';
 import { AlertProvider } from './src/contexts/AlertContext';
 import { SubjectProvider } from './src/contexts/SubjectContext';
 import { BackgroundArtLayer } from './src/components/BackgroundArtLayer';
+import NotificationBootstrapper from './src/components/NotificationBootstrapper';
 import AppNavigator from './src/navigation/AppNavigator';
 
 // Eliminate default browser white focus rings on Web
@@ -90,6 +91,7 @@ export default function App() {
           <MoodProvider>
             <AlertProvider>
               <SubjectProvider>
+                <NotificationBootstrapper />
                 <MainAppContainer />
               </SubjectProvider>
             </AlertProvider>
