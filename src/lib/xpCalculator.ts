@@ -37,30 +37,31 @@ export const LEVEL_TIERS = [
   { level: 20, minXp: 47600, maxXp: 55000, title: 'Ultima Transcendent',      icon: '👑' },
 ];
 
+import { getInMemoryGamificationConfig, isHappyHourActive, GamificationConfig } from './gamificationConfig';
+
 export function calculateUserXp(
   notesCount: number = 0,
   completedTasksCount: number = 0,
   journalsCount: number = 0,
   streak: number = 0,
   quizAnsweredCorrectly: number = 0,
-  extraXp: number = 0
+  extraXp: number = 0,
+  customConfig?: GamificationConfig
 ): UserLevelInfo {
-  // Formula:
-  // - Note dibuat: 25 XP
-  // - Tugas diselesaikan: 20 XP
-  // - Jurnal refleksi: 15 XP
-  // - Kuis dijawab benar: 10 XP
-  // - Streak harian: 30 XP per hari aktif
-  // - Bonus Bos Pertarungan RPG / Quest: extraXp
-  const totalXp = Math.max(
-    0,
-    notesCount * 25 +
-    completedTasksCount * 20 +
-    journalsCount * 15 +
-    quizAnsweredCorrectly * 10 +
-    streak * 30 +
+  const config = customConfig || getInMemoryGamificationConfig();
+  const happyMultiplier = isHappyHourActive(config) ? config.happyHourMultiplier : 1.0;
+  const difficultyFactor = (config.xpMultiplier || 1.0);
+
+  const rawXp = (
+    notesCount * (config.xpPerNote ?? 25) +
+    completedTasksCount * (config.xpPerTask ?? 20) +
+    journalsCount * (config.xpPerJournal ?? 15) +
+    quizAnsweredCorrectly * (config.xpPerQuiz ?? 10) +
+    streak * (config.xpPerStreakDay ?? 30) +
     extraXp
   );
+
+  const totalXp = Math.max(0, Math.round((rawXp / difficultyFactor) * happyMultiplier));
 
   let currentTier = LEVEL_TIERS[0];
   for (let i = 0; i < LEVEL_TIERS.length; i++) {

@@ -105,9 +105,9 @@ export default function MysteryChestModal({
                 <Ionicons name="gift" size={18} color="#F59E0B" />
               </View>
               <View>
-                <Text style={[styles.headerTitle, { color: theme.text }]}>Peti Harta Misterius</Text>
+                <Text style={[styles.headerTitle, { color: theme.text }]}>Kotak Hadiah</Text>
                 <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
-                  Peti Tersisa: <Text style={{ color: "#F59E0B", fontWeight: "900" }}>{chestCount} Peti</Text>
+                  Hadiah Tersisa: <Text style={{ color: "#F59E0B", fontWeight: "900" }}>{chestCount} Hadiah</Text>
                 </Text>
               </View>
             </View>
@@ -145,13 +145,13 @@ export default function MysteryChestModal({
 
               <Text style={[styles.chestPromptTitle, { color: theme.text }]}>
                 {chestCount > 0
-                  ? chestState === "shaking" ? "Membuka Peti Misterius..." : "Ketuk Peti untuk Membuka!"
-                  : "Peti Harta Kosong"}
+                  ? chestState === "shaking" ? "Membuka Kotak Hadiah..." : "Ketuk untuk Membuka!"
+                  : "Kotak Hadiah Kosong"}
               </Text>
               <Text style={[styles.chestPromptSub, { color: theme.subtext }]}>
                 {chestCount > 0
                   ? "Dapatkan XP, Tetes Air, dan Title RPG Langka secara acak!"
-                  : "Selesaikan sesi Pomodoro, kalahkan Bos, atau login harian untuk dapat peti baru!"}
+                  : "Selesaikan sesi Pomodoro, kalahkan Bos, atau login harian untuk dapat Hadiah baru!"}
               </Text>
 
               {chestCount > 0 && chestState === "ready" && (

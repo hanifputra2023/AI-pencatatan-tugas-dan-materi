@@ -4,13 +4,18 @@ import { Platform } from 'react-native';
 import { StudyNote, StudentTask, TaskSubtask } from '../types';
 import { showAlert } from './alert';
 
+import { cleanRawTextEntities, formatMathLatexToReadable } from './latexFormatter';
+
 /**
  * Robust, AST-like Markdown to HTML Converter for High-Quality Multi-Page PDF & Print Rendering
  */
 export function markdownToHtml(md: string): string {
   if (!md) return '';
 
-  const lines = md.replace(/\r\n/g, '\n').split('\n');
+  // 0. Process raw text entities & LaTeX / Math formulas to clean readable Unicode
+  const cleanedMd = formatMathLatexToReadable(cleanRawTextEntities(md));
+
+  const lines = cleanedMd.replace(/\r\n/g, '\n').split('\n');
   const output: string[] = [];
 
   let inCodeBlock = false;
@@ -59,6 +64,8 @@ export function markdownToHtml(md: string): string {
       .replace(/&/g, '&amp;')
       .replace(/</g, '&lt;')
       .replace(/>/g, '&gt;')
+      // Restore allowed safe inline HTML tags
+      .replace(/&lt;u&gt;(.*?)&lt;\/u&gt;/gi, '<u>$1</u>')
       // Bold & Italic
       .replace(/\*\*\*(.*?)\*\*\*/g, '<strong><em>$1</em></strong>')
       .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
@@ -112,7 +119,38 @@ export function markdownToHtml(md: string): string {
       flushTable();
     }
 
-    // 3. Headings
+    // 3. GitHub-style Alert Callouts (> [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION])
+    const calloutMatch = trimmed.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+    if (calloutMatch) {
+      flushList();
+      const type = calloutMatch[1].toUpperCase();
+      let calloutText = calloutMatch[2] || '';
+      // Collect succeeding quote lines
+      while (i + 1 < lines.length && lines[i + 1].trim().startsWith('>')) {
+        i++;
+        const nextQuote = lines[i].trim().replace(/^>\s*/, '');
+        calloutText += (calloutText ? '<br/>' : '') + formatInline(nextQuote);
+      }
+
+      const calloutTitles: Record<string, string> = {
+        NOTE: 'ℹ️ Catatan',
+        TIP: '💡 Tips',
+        IMPORTANT: '⭐ Penting',
+        WARNING: '⚠️ Peringatan',
+        CAUTION: '🛑 Perhatian Khusus',
+      };
+
+      const title = calloutTitles[type] || 'ℹ️ Catatan';
+      output.push(`
+        <div class="callout-box callout-${type.toLowerCase()}">
+          <div class="callout-title">${title}</div>
+          <div class="callout-body">${formatInline(calloutText)}</div>
+        </div>
+      `);
+      continue;
+    }
+
+    // 4. Headings
     if (/^#{1,6}\s+/.test(trimmed)) {
       flushList();
       const level = trimmed.match(/^(#{1,6})/)?.[0].length || 1;
@@ -121,14 +159,14 @@ export function markdownToHtml(md: string): string {
       continue;
     }
 
-    // 4. Horizontal Rule
+    // 5. Horizontal Rule
     if (/^(---|___|\*\*\*)$/.test(trimmed)) {
       flushList();
       output.push('<hr class="doc-divider" />');
       continue;
     }
 
-    // 5. Blockquote
+    // 6. Blockquote
     if (trimmed.startsWith('>')) {
       flushList();
       const quoteText = trimmed.replace(/^>\s?/, '');
@@ -136,19 +174,19 @@ export function markdownToHtml(md: string): string {
       continue;
     }
 
-    // 6. Unordered List
-    if (/^[-*+]\s+/.test(trimmed)) {
+    // 7. Unordered List
+    if (/^[-*+•]\s+/.test(trimmed)) {
       if (inList !== 'ul') {
         flushList();
         inList = 'ul';
         output.push('<ul>');
       }
-      const itemText = trimmed.replace(/^[-*+]\s+/, '');
+      const itemText = trimmed.replace(/^[-*+•]\s+/, '');
       output.push(`<li>${formatInline(itemText)}</li>`);
       continue;
     }
 
-    // 7. Ordered List
+    // 8. Ordered List
     if (/^\d+\.\s+/.test(trimmed)) {
       if (inList !== 'ol') {
         flushList();
@@ -166,7 +204,7 @@ export function markdownToHtml(md: string): string {
       continue;
     }
 
-    // 8. Regular Paragraph
+    // 9. Regular Paragraph
     flushList();
     output.push(`<p>${formatInline(trimmed)}</p>`);
   }
@@ -457,6 +495,30 @@ const BASE_CSS = `
     font-weight: 700;
     color: #059669;
   }
+
+  /* Callout / Alert Boxes */
+  .callout-box {
+    border-left: 4px solid #3B82F6;
+    padding: 10px 14px;
+    margin: 12px 0;
+    border-radius: 0 8px 8px 0;
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .callout-title {
+    font-weight: 800;
+    font-size: 11.5px;
+    margin-bottom: 4px;
+  }
+  .callout-body {
+    font-size: 12.5px;
+    line-height: 1.6;
+  }
+  .callout-note { background-color: #EFF6FF; border-color: #3B82F6; color: #1E3A8A; }
+  .callout-tip { background-color: #ECFDF5; border-color: #10B981; color: #064E3B; }
+  .callout-important { background-color: #F5F3FF; border-color: #8B5CF6; color: #2E1065; }
+  .callout-warning { background-color: #FFFBEB; border-color: #F59E0B; color: #78350F; }
+  .callout-caution { background-color: #FEF2F2; border-color: #EF4444; color: #7F1D1D; }
 
   /* Multi-Page Separation */
   .page-break {

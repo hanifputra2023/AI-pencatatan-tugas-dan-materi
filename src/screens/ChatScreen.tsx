@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
 import { useTheme } from '../contexts/ThemeContext';
@@ -17,8 +17,15 @@ import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
 import { ChatMessage, ChatAttachment, ChatSession } from '../types';
 import * as FileSystem from 'expo-file-system';
 import { confirmAction, showAlert } from '../lib/alert';
-import { safeSaveChatMessages, safeSaveSessions, safeRemoveChatCache } from '../lib/safeStorage';
+import {
+  safeSaveChatMessages,
+  safeSaveSessions,
+  safeRemoveChatCache,
+  safeSaveActiveSessionId,
+  safeGetActiveSessionId,
+} from '../lib/safeStorage';
 import { copyToClipboard } from '../lib/clipboard';
+import { processPickedFile, uriToBase64 } from '../lib/fileReader';
 
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
@@ -30,28 +37,6 @@ import {
   FadeSlideIn,
   PulseDot,
 } from '../components/DuolingoAnimations';
-
-async function uriToBase64(uri: string): Promise<string> {
-  if (uri.startsWith('data:')) {
-    return uri.split(',')[1] || '';
-  }
-  if (Platform.OS === 'web') {
-    const response = await fetch(uri);
-    const blob = await response.blob();
-    return new Promise<string>((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result as string;
-        resolve(result.split(',')[1] || '');
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(blob);
-    });
-  }
-  return await FileSystem.readAsStringAsync(uri, {
-    encoding: FileSystem.EncodingType.Base64,
-  });
-}
 
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
@@ -70,7 +55,11 @@ function generateUUID(): string {
 
 export default function ChatScreen() {
   const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const lastHandledTimestampRef = useRef<number | null>(null);
+
   const { user } = useAuth();
+  const effectiveUserId = user?.id || 'guest_user';
   const { aiPersona, aiBotName, activePersona, customAiName, customAiAvatar } = useMoods();
   const effectiveBotName = customAiName || aiBotName || activePersona.botName || 'Ara';
   const { theme, isLightMode } = useTheme();
@@ -112,6 +101,7 @@ export default function ChatScreen() {
   // Attachment state
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
@@ -122,69 +112,83 @@ export default function ChatScreen() {
     }, delay);
   }, []);
 
+  const handleScroll = (event: any) => {
+    const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
+    const paddingToBottom = 150;
+    const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+    setShowScrollBottomBtn(!isCloseToBottom && contentOffset.y > 250);
+  };
+
   // -------------------------------------------------------------
-  // Load Sessions List & Initialize Active Session
+  // Load Sessions List & Initialize Active Session (Persistent on Refresh)
   // -------------------------------------------------------------
   const fetchSessions = useCallback(async () => {
-    if (!user) {
-      setInitializing(false);
-      return;
-    }
     setLoadingSessions(true);
     try {
       // 1. Read from local cache
-      const localCached = await AsyncStorage.getItem('@chat_sessions_' + user.id);
+      const localCached = await AsyncStorage.getItem('@chat_sessions_' + effectiveUserId);
       let sessionList: ChatSession[] = [];
       if (localCached) {
         sessionList = JSON.parse(localCached);
         setSessions(sessionList);
       }
 
-      // Set active session if not set yet
-      if (!currentSessionId) {
-        if (sessionList.length > 0) {
-          setCurrentSessionId(sessionList[0].id);
-          setCurrentSessionTitle(sessionList[0].title || 'Sesi Obrolan');
-        } else {
-          const freshId = generateUUID();
-          setCurrentSessionId(freshId);
-          setCurrentSessionTitle('Obrolan Baru');
-        }
+      // 2. Retrieve last remembered active session ID
+      const rememberedSessionId = await safeGetActiveSessionId(effectiveUserId);
+
+      if (rememberedSessionId && sessionList.some(s => s.id === rememberedSessionId)) {
+        const active = sessionList.find(s => s.id === rememberedSessionId);
+        setCurrentSessionId(rememberedSessionId);
+        setCurrentSessionTitle(active?.title || 'Sesi Obrolan');
+      } else if (sessionList.length > 0) {
+        setCurrentSessionId(sessionList[0].id);
+        setCurrentSessionTitle(sessionList[0].title || 'Sesi Obrolan');
+        await safeSaveActiveSessionId(effectiveUserId, sessionList[0].id);
+      } else {
+        const freshId = generateUUID();
+        setCurrentSessionId(freshId);
+        setCurrentSessionTitle('Obrolan Baru');
+        await safeSaveActiveSessionId(effectiveUserId, freshId);
       }
     } catch (e) {
       console.log('Error fetching local sessions:', e);
     } finally {
       setLoadingSessions(false);
+      setInitializing(false);
     }
-  }, [user, currentSessionId]);
+  }, [effectiveUserId]);
 
   // -------------------------------------------------------------
   // Load Messages for Specific Session
   // -------------------------------------------------------------
   const fetchHistory = useCallback(async (sessionId: string) => {
-    if (!user || !sessionId) {
+    if (!sessionId) {
       setInitializing(false);
       return;
     }
     setRefreshing(true);
     try {
       // Load from local cache
-      const cachedMsgs = await AsyncStorage.getItem(`@chat_msgs_${user.id}_${sessionId}`);
+      const cachedMsgs = await AsyncStorage.getItem(`@chat_msgs_${effectiveUserId}_${sessionId}`);
       if (cachedMsgs) {
         try {
-          setMessages(JSON.parse(cachedMsgs));
-          scrollToBottom(150);
+          const parsed = JSON.parse(cachedMsgs);
+          setMessages(parsed);
+          if (parsed.length > 0) {
+            scrollToBottom(200);
+          }
         } catch (e) { }
       } else {
         setMessages([]);
       }
+      await safeSaveActiveSessionId(effectiveUserId, sessionId);
     } catch (e) {
       console.log('Error fetching local chat messages:', e);
     } finally {
       setInitializing(false);
       setRefreshing(false);
     }
-  }, [user, scrollToBottom]);
+  }, [effectiveUserId, scrollToBottom]);
 
   useEffect(() => {
     fetchSessions();
@@ -196,12 +200,6 @@ export default function ChatScreen() {
     }
   }, [currentSessionId, fetchHistory]);
 
-  useEffect(() => {
-    if (messages.length > 0) {
-      scrollToBottom(100);
-    }
-  }, [messages.length, scrollToBottom]);
-
   // -------------------------------------------------------------
   // Multi-Session Controls: New Chat, Switch Session, Delete Session
   // -------------------------------------------------------------
@@ -211,13 +209,14 @@ export default function ChatScreen() {
 
     const newSessionItem: ChatSession = {
       id: newSessionId,
-      user_id: user?.id || 'anonymous',
+      user_id: effectiveUserId,
       title: newTitle,
       created_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
 
-    setSessions(prev => [newSessionItem, ...prev.filter(s => s.id !== newSessionId)]);
+    const updatedList = [newSessionItem, ...sessions.filter(s => s.id !== newSessionId)];
+    setSessions(updatedList);
     setCurrentSessionId(newSessionId);
     setCurrentSessionTitle(newTitle);
     setMessages([]);
@@ -225,16 +224,15 @@ export default function ChatScreen() {
     setInputText('');
     setAttachment(null);
 
-    if (user) {
-      const updatedList = [newSessionItem, ...sessions.filter(s => s.id !== newSessionId)];
-      await safeSaveSessions(user.id, updatedList);
-    }
+    await safeSaveSessions(effectiveUserId, updatedList);
+    await safeSaveActiveSessionId(effectiveUserId, newSessionId);
   };
 
   const handleSelectSession = (s: ChatSession) => {
     setCurrentSessionId(s.id);
     setCurrentSessionTitle(s.title || 'Sesi Obrolan');
     setShowSessionDrawer(false);
+    safeSaveActiveSessionId(effectiveUserId, s.id);
     fetchHistory(s.id);
   };
 
@@ -245,11 +243,8 @@ export default function ChatScreen() {
       async () => {
         const updated = sessions.filter(s => s.id !== sessionId);
         setSessions(updated);
-
-        if (user) {
-          await safeSaveSessions(user.id, updated);
-          await safeRemoveChatCache(user.id, sessionId);
-        }
+        await safeSaveSessions(effectiveUserId, updated);
+        await safeRemoveChatCache(effectiveUserId, sessionId);
 
         if (currentSessionId === sessionId) {
           if (updated.length > 0) {
@@ -376,26 +371,8 @@ export default function ChatScreen() {
       });
       if (!res.canceled && res.assets && res.assets[0]) {
         const file = res.assets[0];
-        const rawMime = file.mimeType || '';
-        const isPdfFile = (file.name || '').toLowerCase().endsWith('.pdf') || rawMime === 'application/pdf';
-        const finalMime = isPdfFile ? 'application/pdf' : rawMime;
-
-        let attachType: ChatAttachment['type'] = 'document';
-        if (rawMime.startsWith('image/')) attachType = 'image';
-        else if (rawMime.startsWith('audio/')) attachType = 'audio';
-        else if (isPdfFile) attachType = 'document';
-
-        const needsBase64 = attachType === 'image' || attachType === 'audio' || isPdfFile;
-        const base64Data = needsBase64 ? await uriToBase64(file.uri) : undefined;
-
-        setAttachment({
-          type: attachType,
-          uri: file.uri,
-          name: file.name || 'Dokumen.pdf',
-          size: file.size,
-          mimeType: finalMime,
-          base64: base64Data,
-        });
+        const processedAttachment = await processPickedFile(file);
+        setAttachment(processedAttachment);
       }
     } catch (e: any) {
       showAlert('Gagal Memilih File', e.message || 'Terjadi kesalahan saat memilih file.');
@@ -457,8 +434,10 @@ export default function ChatScreen() {
       }
       setSessions(updatedSessions);
 
+      await safeSaveSessions(effectiveUserId, updatedSessions);
+      await safeSaveActiveSessionId(effectiveUserId, activeSessionId);
+
       if (user) {
-        await safeSaveSessions(user.id, updatedSessions);
         try {
           await supabase.from('chat_sessions').upsert({
             id: activeSessionId,
@@ -485,7 +464,7 @@ export default function ChatScreen() {
 
       try {
         const priorMessages = targetIndex !== -1 ? messages.slice(0, targetIndex) : [];
-        const history: GeminiMessage[] = priorMessages.slice(-10).map(m => ({
+        const history: GeminiMessage[] = priorMessages.slice(-16).map(m => ({
           role: m.role === 'user' ? 'user' : 'model',
           parts: [{ text: m.content }],
         }));
@@ -498,10 +477,7 @@ export default function ChatScreen() {
         if (nextMsg && nextMsg.role === 'assistant') {
           updatedMessages[nextMsgIndex] = { ...nextMsg, content: newAiReply };
           setMessages([...updatedMessages]);
-
-          if (user) {
-            await safeSaveChatMessages(user.id, activeSessionId, updatedMessages);
-          }
+          await safeSaveChatMessages(effectiveUserId, activeSessionId, updatedMessages);
         }
       } catch (err: any) {
         console.error('Edit error:', err);
@@ -516,7 +492,7 @@ export default function ChatScreen() {
     // NORMAL SEND MODE
     const tempUserMsg: ChatMessage = {
       id: 'usr_' + Date.now(),
-      user_id: user?.id || 'anonymous',
+      user_id: effectiveUserId,
       session_id: activeSessionId,
       role: 'user',
       content: text,
@@ -529,7 +505,7 @@ export default function ChatScreen() {
     scrollToBottom(50);
 
     try {
-      const history: GeminiMessage[] = messages.slice(-10).map(m => ({
+      const history: GeminiMessage[] = messages.slice(-16).map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content }],
       }));
@@ -540,7 +516,7 @@ export default function ChatScreen() {
       const tempAiMsg: ChatMessage = {
         id: 'ai_' + Date.now(),
         session_id: activeSessionId,
-        user_id: user?.id || 'anonymous',
+        user_id: effectiveUserId,
         role: 'assistant',
         content: aiReply,
         created_at: new Date().toISOString(),
@@ -550,10 +526,9 @@ export default function ChatScreen() {
       setMessages(newFullList);
       scrollToBottom(100);
 
-      // Save to local cache only
-      if (user) {
-        await safeSaveChatMessages(user.id, activeSessionId, newFullList);
-      }
+      // Save to local cache persistently
+      await safeSaveChatMessages(effectiveUserId, activeSessionId, newFullList);
+      await safeSaveActiveSessionId(effectiveUserId, activeSessionId);
     } catch (err: any) {
       console.error('Chat error:', err);
       setErrorToast(err.message || 'Server AI sedang sibuk. Coba kirim ulang ya.');
@@ -562,6 +537,24 @@ export default function ChatScreen() {
       scrollToBottom(150);
     }
   };
+
+  // Automatically process incoming initialMessage from Study / Task navigation
+  useEffect(() => {
+    const initialMsg = route.params?.initialMessage;
+    const timestamp = route.params?.timestamp || 0;
+    const autoSend = route.params?.autoSend !== false;
+
+    if (initialMsg && !initializing && lastHandledTimestampRef.current !== timestamp) {
+      lastHandledTimestampRef.current = timestamp;
+      if (autoSend) {
+        setTimeout(() => {
+          handleSend(initialMsg);
+        }, 400);
+      } else {
+        setInputText(initialMsg);
+      }
+    }
+  }, [route.params, initializing]);
 
   const handleKeyDown = (e: any) => {
     if (Platform.OS === 'web') {
@@ -579,9 +572,7 @@ export default function ChatScreen() {
       async () => {
         const updated = messages.filter(m => m.id !== msgId);
         setMessages(updated);
-        if (user) {
-          await safeSaveChatMessages(user.id, currentSessionId, updated);
-        }
+        await safeSaveChatMessages(effectiveUserId, currentSessionId, updated);
       },
       'Hapus'
     );
@@ -595,9 +586,7 @@ export default function ChatScreen() {
         'Semua pesan di sesi ini akan dikosongkan.',
         async () => {
           setMessages([]);
-          if (user) {
-            await safeRemoveChatCache(user.id, currentSessionId);
-          }
+          await safeRemoveChatCache(effectiveUserId, currentSessionId);
         },
         'Bersihkan'
       );
@@ -954,30 +943,44 @@ export default function ChatScreen() {
                 </FadeSlideIn>
               </ScrollView>
             ) : (
-              <FlatList
-                ref={flatListRef}
-                data={displayedMessages}
-                renderItem={renderMessage}
-                keyExtractor={item => item.id}
-                contentContainerStyle={styles.messageList}
-                onContentSizeChange={() => scrollToBottom(100)}
-                onLayout={() => scrollToBottom(100)}
-                showsVerticalScrollIndicator={false}
-                ListHeaderComponent={
-                  hasMoreOldMessages ? (
-                    <TouchableOpacity
-                      style={[styles.loadMoreChatBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                      onPress={handleLoadMoreOldMessages}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="time-outline" size={13} color={theme.accentLight} />
-                      <Text style={[styles.loadMoreChatText, { color: theme.accentLight }]}>
-                        Muat pesan sebelumnya ({messages.length - visibleMsgCount} pesan lagi)
-                      </Text>
-                    </TouchableOpacity>
-                  ) : null
-                }
-              />
+              <>
+                <FlatList
+                  ref={flatListRef}
+                  data={displayedMessages}
+                  renderItem={renderMessage}
+                  keyExtractor={item => item.id}
+                  contentContainerStyle={styles.messageList}
+                  onScroll={handleScroll}
+                  scrollEventThrottle={80}
+                  showsVerticalScrollIndicator={true}
+                  ListHeaderComponent={
+                    hasMoreOldMessages ? (
+                      <TouchableOpacity
+                        style={[styles.loadMoreChatBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        onPress={handleLoadMoreOldMessages}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="time-outline" size={13} color={theme.accentLight} />
+                        <Text style={[styles.loadMoreChatText, { color: theme.accentLight }]}>
+                          Muat pesan sebelumnya ({messages.length - visibleMsgCount} pesan lagi)
+                        </Text>
+                      </TouchableOpacity>
+                    ) : null
+                  }
+                />
+
+                {/* Floating Scroll to Bottom Button */}
+                {showScrollBottomBtn && (
+                  <TouchableOpacity
+                    style={[styles.floatingScrollBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={() => scrollToBottom(50)}
+                    activeOpacity={0.8}
+                    accessibilityLabel="Gulir ke Bawah"
+                  >
+                    <Ionicons name="chevron-down" size={18} color={theme.accentLight} />
+                  </TouchableOpacity>
+                )}
+              </>
             )}
 
             {/* Minimalist Typing Indicator */}
@@ -1849,6 +1852,23 @@ const styles = StyleSheet.create({
   optionSub: {
     fontSize: 11,
     marginTop: 1,
+  },
+  floatingScrollBtn: {
+    position: 'absolute',
+    right: 20,
+    bottom: 82,
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.2,
+    shadowRadius: 8,
+    elevation: 8,
+    zIndex: 99,
   },
 });
 

@@ -1,4 +1,4 @@
-﻿import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const KEY_BOSS_EVENT = '@boss_event_current';
 const KEY_BOSS_EVENT_VICTORIES = '@boss_event_victories';
@@ -63,8 +63,8 @@ export async function getCurrentBossEvent(): Promise<BossEvent | null> {
     const raw = await AsyncStorage.getItem(KEY_BOSS_EVENT);
     if (!raw) return null;
     const event: BossEvent = JSON.parse(raw);
-    // Expired?
-    if (Date.now() > event.endTime) {
+    // Expired or already defeated?
+    if (Date.now() > event.endTime || event.defeated) {
       await AsyncStorage.removeItem(KEY_BOSS_EVENT);
       return null;
     }
@@ -108,13 +108,15 @@ export async function defeatBossEvent(): Promise<void> {
     if (!raw) return;
     const event: BossEvent = JSON.parse(raw);
     event.defeated = true;
-    await AsyncStorage.setItem(KEY_BOSS_EVENT, JSON.stringify(event));
 
     // Save to victories log
     const victoriesRaw = await AsyncStorage.getItem(KEY_BOSS_EVENT_VICTORIES);
     const victories: string[] = victoriesRaw ? JSON.parse(victoriesRaw) : [];
     victories.push(event.id);
     await AsyncStorage.setItem(KEY_BOSS_EVENT_VICTORIES, JSON.stringify(victories));
+
+    // Immediately remove from active boss event storage
+    await AsyncStorage.removeItem(KEY_BOSS_EVENT);
   } catch {}
 }
 

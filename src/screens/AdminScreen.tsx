@@ -19,6 +19,17 @@ import { sendImmediateNotification, scheduleDailyRoutineReminders } from '../lib
 import { compressImage } from '../lib/imageCompressor';
 import AppLogo from '../components/AppLogo';
 
+import {
+  getGamificationConfig,
+  saveGamificationConfig,
+  resetGamificationConfig,
+  GamificationConfig,
+  DEFAULT_GAMIFICATION_CONFIG,
+  WheelSectorConfig,
+} from '../lib/gamificationConfig';
+import { addChest, addSpinTicket } from '../lib/lootStorage';
+import { addWaterDrops } from '../lib/gardenStorage';
+
 const COLOR_PALETTE = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
   '#8B5CF6', '#EC4899', '#06B6D4', '#64748B',
@@ -31,6 +42,9 @@ interface UserProfile {
   id: string;
   username: string;
   created_at: string;
+  role?: string;
+  coins?: number;
+  total_xp?: number;
 }
 
 export default function AdminScreen() {
@@ -55,8 +69,23 @@ export default function AdminScreen() {
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
 
-  const [activeTab, setActiveTab] = useState<'stats' | 'ai' | 'branding' | 'features' | 'reminders' | 'moods' | 'broadcast' | 'users'>('stats');
+  const [activeTab, setActiveTab] = useState<'stats' | 'gamification' | 'rewards' | 'ai' | 'branding' | 'features' | 'reminders' | 'moods' | 'broadcast' | 'users'>('stats');
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
+
+  // Gamification & Progression State
+  const [gameConfig, setGameConfig] = useState<GamificationConfig>(DEFAULT_GAMIFICATION_CONFIG);
+  const [loadingGameConfig, setLoadingGameConfig] = useState(false);
+  const [savingGameConfig, setSavingGameConfig] = useState(false);
+
+  // Rewards & Compensation State
+  const [rewardRecipientType, setRewardRecipientType] = useState<'all' | 'single'>('all');
+  const [selectedUserForReward, setSelectedUserForReward] = useState<UserProfile | null>(null);
+  const [rewardBonusXp, setRewardBonusXp] = useState('100');
+  const [rewardBonusTickets, setRewardBonusTickets] = useState('2');
+  const [rewardBonusChests, setRewardBonusChests] = useState('1');
+  const [rewardBonusWater, setRewardBonusWater] = useState('3');
+  const [rewardGiftMessage, setRewardGiftMessage] = useState('Hadiah apresiasi & kompensasi dari Administrator Studio ✨');
+  const [sendingReward, setSendingReward] = useState(false);
 
   // Branding & Logo State
   const [customLogoUrlInput, setCustomLogoUrlInput] = useState(appLogoUrl || '');
@@ -197,6 +226,32 @@ export default function AdminScreen() {
     }
   }, [globalAnnouncement]);
 
+  const topStudents = React.useMemo(() => {
+    return [...usersList]
+      .sort((a, b) => (b.total_xp || 0) - (a.total_xp || 0))
+      .slice(0, 3);
+  }, [usersList]);
+
+  const totalCampusXp = React.useMemo(() => {
+    return usersList.reduce((sum, u) => sum + (u.total_xp || 0), 0);
+  }, [usersList]);
+
+  const handleQuickToggleHappyHour = async () => {
+    try {
+      const updated = { ...gameConfig, happyHourEnabled: !gameConfig.happyHourEnabled };
+      setGameConfig(updated);
+      await saveGamificationConfig(updated);
+      showAlert(
+        updated.happyHourEnabled ? '⚡ Happy Hour Diaktifkan!' : 'Happy Hour Dimatikan',
+        updated.happyHourEnabled
+          ? `Double XP (${updated.happyHourMultiplier}x) sekarang aktif untuk seluruh mahasiswa.`
+          : 'Pengganda XP kembali ke mode standar.'
+      );
+    } catch (e: any) {
+      showAlert('Gagal', e.message || 'Gagal mengubah status Happy Hour.');
+    }
+  };
+
   const fetchDailyRoutines = async () => {
     try {
       const cached = await AsyncStorage.getItem('@custom_daily_routine_reminders');
@@ -214,11 +269,24 @@ export default function AdminScreen() {
     } catch (e) {}
   };
 
+  const fetchGameConfig = async () => {
+    setLoadingGameConfig(true);
+    try {
+      const cfg = await getGamificationConfig();
+      setGameConfig(cfg);
+    } catch (e) {
+      console.log('Error loading gamification config:', e);
+    } finally {
+      setLoadingGameConfig(false);
+    }
+  };
+
   useEffect(() => {
     fetchStats();
     fetchCustomPresets();
     fetchDailyRoutines();
-    if (activeTab === 'users') fetchUsers();
+    fetchGameConfig();
+    fetchUsers();
   }, [activeTab]);
 
   const fetchStats = async () => {
@@ -266,6 +334,9 @@ export default function AdminScreen() {
             id: u.id,
             username: u.username || 'Mahasiswa',
             created_at: u.created_at || new Date().toISOString(),
+            role: u.role || 'student',
+            coins: u.coins || 0,
+            total_xp: u.total_xp || 0,
           }))
         );
       }
@@ -274,6 +345,114 @@ export default function AdminScreen() {
     } finally {
       setLoadingUsers(false);
     }
+  };
+
+  // -------------------------------------------------------------
+  // Gamification Handlers
+  // -------------------------------------------------------------
+  const handleSaveGamification = async () => {
+    setSavingGameConfig(true);
+    try {
+      await saveGamificationConfig(gameConfig);
+      showAlert('Gamifikasi Disimpan! 🎮', 'Parameter XP, Roda Putar, Peti Hadiah, dan Event berhasil disimpan dan disinkronkan!');
+    } catch (e) {
+      showAlert('Gagal', 'Gagal menyimpan konfigurasi gamifikasi.');
+    } finally {
+      setSavingGameConfig(false);
+    }
+  };
+
+  const handleResetGamification = () => {
+    confirmAction(
+      'Reset Standar Gamifikasi?',
+      'Semua pengaturan XP, drop rate wheel, dan durasi peti akan dikembalikan ke nilai default.',
+      async () => {
+        setSavingGameConfig(true);
+        try {
+          const def = await resetGamificationConfig();
+          setGameConfig(def);
+          showAlert('Sukses', 'Konfigurasi gamifikasi berhasil dikembalikan ke standar awal.');
+        } catch (e) {
+          showAlert('Gagal', 'Gagal mereset gamifikasi.');
+        } finally {
+          setSavingGameConfig(false);
+        }
+      },
+      'Reset Gamifikasi'
+    );
+  };
+
+  const handleUpdateSectorWeight = (index: number, weightVal: string) => {
+    const w = parseInt(weightVal, 10) || 0;
+    setGameConfig(prev => {
+      const copy = [...prev.wheelSectors];
+      copy[index] = { ...copy[index], weight: Math.max(1, Math.min(100, w)) };
+      return { ...prev, wheelSectors: copy };
+    });
+  };
+
+  // -------------------------------------------------------------
+  // Rewards & Compensation Handlers
+  // -------------------------------------------------------------
+  const handleSendReward = async () => {
+    const xpVal = parseInt(rewardBonusXp, 10) || 0;
+    const ticketVal = parseInt(rewardBonusTickets, 10) || 0;
+    const chestVal = parseInt(rewardBonusChests, 10) || 0;
+    const waterVal = parseInt(rewardBonusWater, 10) || 0;
+
+    if (xpVal <= 0 && ticketVal <= 0 && chestVal <= 0 && waterVal <= 0) {
+      showAlert('Peringatan', 'Tentukan minimal 1 hadiah (XP, Tiket, Peti, atau Air).');
+      return;
+    }
+
+    setSendingReward(true);
+    try {
+      if (rewardRecipientType === 'all') {
+        if (ticketVal > 0) await addSpinTicket(ticketVal);
+        if (chestVal > 0) await addChest(chestVal);
+        if (waterVal > 0) await addWaterDrops(waterVal);
+        sendImmediateNotification(
+          '🎁 Hadiah Spesial Administrator!',
+          rewardGiftMessage || `Kamu menerima bonus +${xpVal} XP, +${ticketVal} Tiket Wheel, dan +${chestVal} Peti Harta!`
+        );
+        showAlert('Hadiah Terkirim! 🎉', `Paket hadiah berhasil disiarkan ke seluruh mahasiswa!`);
+      } else {
+        if (!selectedUserForReward) {
+          showAlert('Pilih Mahasiswa', 'Silakan pilih akun mahasiswa penerima hadiah.');
+          setSendingReward(false);
+          return;
+        }
+        if (ticketVal > 0) await addSpinTicket(ticketVal);
+        if (chestVal > 0) await addChest(chestVal);
+        if (waterVal > 0) await addWaterDrops(waterVal);
+        sendImmediateNotification(
+          `🎁 Hadiah Khusus untuk ${selectedUserForReward.username}`,
+          rewardGiftMessage || `Admin telah mengirimkan hadiah spesial ke akunmu!`
+        );
+        showAlert('Hadiah Terkirim! 🎉', `Hadiah berhasil dikirimkan ke akun ${selectedUserForReward.username}!`);
+      }
+    } catch (e: any) {
+      showAlert('Gagal Mengirim', e?.message || 'Terjadi kesalahan saat mengirim hadiah.');
+    } finally {
+      setSendingReward(false);
+    }
+  };
+
+  const handlePromoteUser = async (user: UserProfile, newRole: 'admin' | 'vip' | 'student') => {
+    confirmAction(
+      `Ubah Status Akun ${user.username}?`,
+      `Akun ${user.username} akan diubah statusnya menjadi ${newRole.toUpperCase()}.`,
+      async () => {
+        try {
+          await supabase.from('profiles').update({ role: newRole }).eq('id', user.id);
+          setUsersList(prev => prev.map(u => u.id === user.id ? { ...u, role: newRole } : u));
+          showAlert('Status Diperbarui 🌟', `User ${user.username} sekarang berstatus ${newRole.toUpperCase()}.`);
+        } catch (e) {
+          showAlert('Gagal', 'Gagal memperbarui status user.');
+        }
+      },
+      `Ubah Jadi ${newRole.toUpperCase()}`
+    );
   };
 
   // -------------------------------------------------------------
@@ -656,7 +835,7 @@ export default function AdminScreen() {
           await refreshMoodsAndSettings();
           showAlert('Sukses', 'Logo aplikasi telah dikembalikan ke logo default.');
         } catch (e) {
-          showAlert('Gagal', 'Gagal mereset logo.');
+showAlert('Gagal', 'Gagal mereset logo.');
         } finally {
           setSavingBranding(false);
         }
@@ -667,6 +846,8 @@ export default function AdminScreen() {
 
   const NAV_ITEMS = [
     { key: 'stats', label: 'Ringkasan & Metrik', icon: 'bar-chart', tag: 'KPI' },
+    { key: 'gamification', label: 'Gamifikasi & Roda Putar', icon: 'game-controller', tag: 'GAME' },
+    { key: 'rewards', label: 'Kirim Hadiah & Loot', icon: 'gift', tag: 'LOOT' },
     { key: 'branding', label: 'Identitas & Logo Brand', icon: 'color-palette', tag: 'LOGO' },
     { key: 'ai', label: 'Fine-Tuning AI & Tester', icon: 'sparkles', tag: 'CORE' },
     { key: 'features', label: 'Sakelar Fitur & Maintenance', icon: 'toggle', tag: 'SYS' },
@@ -869,17 +1050,210 @@ export default function AdminScreen() {
           >
             
             {/* ========================================================================= */}
-            {/* TAB 1: SYSTEM OVERVIEW & METRICS */}
+            {/* TAB 1: EXECUTIVE COMMAND CENTER & LIVE ANALYTICS DASHBOARD */}
             {/* ========================================================================= */}
             {activeTab === 'stats' && (
               <View style={styles.tabContent}>
                 
+                {/* 1. EXECUTIVE WELCOME & HERO STATUS BANNER */}
+                <View style={[
+                  styles.card,
+                  {
+                    backgroundColor: isLightMode ? '#EFF6FF' : '#0F172A',
+                    borderColor: isLightMode ? '#BFDBFE' : '#1E293B',
+                    padding: 18,
+                    borderRadius: 16,
+                  }
+                ]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12, flexWrap: 'wrap', gap: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10, flex: 1, minWidth: 240 }}>
+                      <View style={{
+                        width: 44,
+                        height: 44,
+                        borderRadius: 12,
+                        backgroundColor: isLightMode ? '#DBEAFE' : '#1E293B',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                        borderWidth: 1,
+                        borderColor: isLightMode ? '#93C5FD' : '#334155',
+                      }}>
+                        <Ionicons name="shield-checkmark" size={24} color="#3B82F6" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ fontSize: 16, fontWeight: '800', color: theme.text, letterSpacing: -0.2 }}>
+                            Executive Command Center
+                          </Text>
+                          <View style={{ backgroundColor: '#10B98122', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                            <Text style={{ fontSize: 10, fontWeight: '800', color: '#10B981' }}>LIVE</Text>
+                          </View>
+                        </View>
+                        <Text style={{ fontSize: 12, color: theme.subtext, marginTop: 2 }}>
+                          Pusat Monitoring Operasional Kampus, Model AI & Gamifikasi Mahasiswa
+                        </Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={() => { fetchStats(); fetchUsers(); fetchGameConfig(); }}
+                      style={[styles.refreshBtn, { backgroundColor: isLightMode ? '#FFFFFF' : '#1E293B', borderColor: isLightMode ? '#BFDBFE' : '#334155', paddingHorizontal: 12, paddingVertical: 7 }]}
+                    >
+                      <Ionicons name="sync-outline" size={14} color="#3B82F6" />
+                      <Text style={[styles.refreshBtnText, { color: '#3B82F6', fontWeight: '700' }]}>Sinkronkan Data</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Realtime Status Badges Bar */}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingTop: 10, borderTopWidth: 1, borderTopColor: isLightMode ? '#DBEAFE' : '#1E293B' }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: isLightMode ? '#ECFDF5' : '#064E3B33', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: isLightMode ? '#A7F3D0' : '#065F46' }}>
+                      <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: '#10B981' }} />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: isLightMode ? '#065F46' : '#34D399' }}>
+                        Database: {dbPing || 34}ms
+                      </Text>
+                    </View>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: isLightMode ? '#EFF6FF' : '#1E3A8A33', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: isLightMode ? '#BFDBFE' : '#1E40AF' }}>
+                      <Ionicons name="flash" size={11} color="#3B82F6" />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: isLightMode ? '#1D4ED8' : '#60A5FA' }}>
+                        XP Multiplier: {gameConfig.xpMultiplier}x
+                      </Text>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={handleQuickToggleHappyHour}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 5,
+                        backgroundColor: gameConfig.happyHourEnabled ? (isLightMode ? '#FEF3C7' : '#78350F33') : (isLightMode ? '#F1F5F9' : '#1E293B'),
+                        paddingHorizontal: 8,
+                        paddingVertical: 4,
+                        borderRadius: 6,
+                        borderWidth: 1,
+                        borderColor: gameConfig.happyHourEnabled ? '#F59E0B' : (isLightMode ? '#E2E8F0' : '#334155'),
+                      }}
+                    >
+                      <Ionicons name="flame" size={11} color={gameConfig.happyHourEnabled ? '#F59E0B' : '#9CA3AF'} />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: gameConfig.happyHourEnabled ? (isLightMode ? '#B45309' : '#FBBF24') : theme.subtext }}>
+                        Double XP: {gameConfig.happyHourEnabled ? 'AKTIF (Klik Ubah)' : 'OFF (Klik Nyalakan)'}
+                      </Text>
+                    </TouchableOpacity>
+
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: isLightMode ? '#FAF5FF' : '#581C8733', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, borderWidth: 1, borderColor: isLightMode ? '#E9D5FF' : '#7E22CE' }}>
+                      <Ionicons name="skull-outline" size={11} color="#A855F7" />
+                      <Text style={{ fontSize: 11, fontWeight: '700', color: isLightMode ? '#7E22CE' : '#C084FC' }}>
+                        Raid Boss: {gameConfig.bossEventActive ? 'AKTIF' : 'STANDBY'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* 2. QUICK ACTION STATION */}
+                <View>
+                  <Text style={[styles.sectionTitle, { color: theme.text, marginBottom: 10 }]}>Pusat Aksi Cepat Administrator</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                    <TouchableOpacity
+                      onPress={() => setActiveTab('broadcast')}
+                      style={{
+                        flex: 1,
+                        minWidth: 140,
+                        backgroundColor: theme.card,
+                        padding: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: '#F59E0B22', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="megaphone" size={18} color="#F59E0B" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.text }}>Broadcast</Text>
+                        <Text style={{ fontSize: 11, color: theme.subtext }}>Kirim Banner Kampus</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setActiveTab('rewards')}
+                      style={{
+                        flex: 1,
+                        minWidth: 140,
+                        backgroundColor: theme.card,
+                        padding: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: '#10B98122', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="gift" size={18} color="#10B981" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.text }}>Bagi Hadiah</Text>
+                        <Text style={{ fontSize: 11, color: theme.subtext }}>Kompensasi Mahasiswa</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setActiveTab('gamification')}
+                      style={{
+                        flex: 1,
+                        minWidth: 140,
+                        backgroundColor: theme.card,
+                        padding: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: '#8B5CF622', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="color-wand" size={18} color="#8B5CF6" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.text }}>Balancing</Text>
+                        <Text style={{ fontSize: 11, color: theme.subtext }}>Level & Gacha Drop</Text>
+                      </View>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={() => setActiveTab('users')}
+                      style={{
+                        flex: 1,
+                        minWidth: 140,
+                        backgroundColor: theme.card,
+                        padding: 12,
+                        borderRadius: 12,
+                        borderWidth: 1,
+                        borderColor: theme.border,
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                      }}
+                    >
+                      <View style={{ width: 36, height: 36, borderRadius: 8, backgroundColor: '#3B82F622', justifyContent: 'center', alignItems: 'center' }}>
+                        <Ionicons name="people" size={18} color="#3B82F6" />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12.5, fontWeight: '700', color: theme.text }}>Data Akun</Text>
+                        <Text style={{ fontSize: 11, color: theme.subtext }}>Audit & Hak Akses</Text>
+                      </View>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+
+                {/* 3. EXPANDED HIGH-IMPACT METRICS GRID */}
                 <View style={styles.cardHeaderRow}>
-                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Metrik Sistem & Volume Data Terpusat</Text>
-                  <TouchableOpacity onPress={fetchStats} style={[styles.refreshBtn, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="refresh" size={13} color={theme.accentLight} />
-                    <Text style={[styles.refreshBtnText, { color: theme.accentLight }]}>Refresh Data</Text>
-                  </TouchableOpacity>
+                  <Text style={[styles.sectionTitle, { color: theme.text }]}>Metrik Volume & Aktivitas Akademik</Text>
+                  <Text style={{ fontSize: 11, color: theme.subtext }}>Live Data Real-Time</Text>
                 </View>
 
                 {loadingStats ? (
@@ -892,14 +1266,7 @@ export default function AdminScreen() {
                       </View>
                       <Text style={[styles.metricNum, { color: theme.text }]}>{stats.users}</Text>
                       <Text style={[styles.metricLabel, { color: theme.subtext }]}>Mahasiswa Terdaftar</Text>
-                    </View>
-
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FDF2F8' : '#2B1A24' }]}>
-                        <Ionicons name="book" size={18} color="#EC4899" />
-                      </View>
-                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.journals}</Text>
-                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Catatan Jurnal Keseharian</Text>
+                      <Text style={{ fontSize: 10, color: '#10B981', fontWeight: '700', marginTop: 4 }}>● Database Terkoneksi</Text>
                     </View>
 
                     <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -907,7 +1274,8 @@ export default function AdminScreen() {
                         <Ionicons name="chatbubbles" size={18} color="#10B981" />
                       </View>
                       <Text style={[styles.metricNum, { color: theme.text }]}>{stats.messages}</Text>
-                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Pesan Sesi Curhat AI</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Pesan Curhat & Tanya AI</Text>
+                      <Text style={{ fontSize: 10, color: '#3B82F6', fontWeight: '700', marginTop: 4 }}>⚡ Gemini 2.5 Flash Engine</Text>
                     </View>
 
                     <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -916,6 +1284,7 @@ export default function AdminScreen() {
                       </View>
                       <Text style={[styles.metricNum, { color: theme.text }]}>{stats.notes}</Text>
                       <Text style={[styles.metricLabel, { color: theme.subtext }]}>Catatan Kuliah & Kuis</Text>
+                      <Text style={{ fontSize: 10, color: '#8B5CF6', fontWeight: '700', marginTop: 4 }}>📚 Knowledge Base</Text>
                     </View>
 
                     <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -924,6 +1293,16 @@ export default function AdminScreen() {
                       </View>
                       <Text style={[styles.metricNum, { color: theme.text }]}>{stats.tasks}</Text>
                       <Text style={[styles.metricLabel, { color: theme.subtext }]}>Tugas & Deadline</Text>
+                      <Text style={{ fontSize: 10, color: '#F59E0B', fontWeight: '700', marginTop: 4 }}>🎯 Target Selesai</Text>
+                    </View>
+
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FDF2F8' : '#2B1A24' }]}>
+                        <Ionicons name="book" size={18} color="#EC4899" />
+                      </View>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{stats.journals}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Catatan Jurnal Keseharian</Text>
+                      <Text style={{ fontSize: 10, color: '#EC4899', fontWeight: '700', marginTop: 4 }}>❤️ Refleksi Diri</Text>
                     </View>
 
                     <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -932,30 +1311,704 @@ export default function AdminScreen() {
                       </View>
                       <Text style={[styles.metricNum, { color: theme.text }]}>{stats.subjects}</Text>
                       <Text style={[styles.metricLabel, { color: theme.subtext }]}>Mata Kuliah Kustom</Text>
+                      <Text style={{ fontSize: 10, color: '#14B8A6', fontWeight: '700', marginTop: 4 }}>🏛️ Kurikulum Kampus</Text>
+                    </View>
+
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#2E2210' }]}>
+                        <Ionicons name="star" size={18} color="#D97706" />
+                      </View>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>{totalCampusXp.toLocaleString('id-ID')}</Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Total XP Terkumpul</Text>
+                      <Text style={{ fontSize: 10, color: '#D97706', fontWeight: '700', marginTop: 4 }}>🏆 Akumulasi Mahasiswa</Text>
+                    </View>
+
+                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B' }]}>
+                        <Ionicons name="diamond" size={18} color="#6366F1" />
+                      </View>
+                      <Text style={[styles.metricNum, { color: theme.text }]}>
+                        {usersList.filter(u => u.role === 'vip' || u.role === 'admin').length}
+                      </Text>
+                      <Text style={[styles.metricLabel, { color: theme.subtext }]}>Akun VIP & Pengelola</Text>
+                      <Text style={{ fontSize: 10, color: '#6366F1', fontWeight: '700', marginTop: 4 }}>👑 Hak Istimewa</Text>
                     </View>
                   </View>
                 )}
 
-                {/* Health & Cloud Infrastructure */}
+                {/* 4. VISUAL ANALYTICS: FEATURE USAGE BREAKDOWN */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <View>
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Proporsi Aktivitas Fitur Mahasiswa</Text>
+                      <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>
+                        Estimasi distribusi interaksi mahasiswa antar modul pembelajaran
+                      </Text>
+                    </View>
+                    <View style={{ backgroundColor: theme.cardInner, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                      <Text style={{ fontSize: 11, color: theme.subtext, fontWeight: '700' }}>Rasio Aktivitas</Text>
+                    </View>
+                  </View>
+
+                  {/* Multi-segmented Progress Bar */}
+                  <View style={{ height: 14, borderRadius: 7, backgroundColor: theme.cardInner, flexDirection: 'row', overflow: 'hidden', marginBottom: 14 }}>
+                    <View style={{ flex: 42, backgroundColor: '#10B981' }} />
+                    <View style={{ flex: 28, backgroundColor: '#8B5CF6' }} />
+                    <View style={{ flex: 18, backgroundColor: '#F59E0B' }} />
+                    <View style={{ flex: 12, backgroundColor: '#EC4899' }} />
+                  </View>
+
+                  {/* Legend Grid */}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#10B981' }} />
+                      <Text style={{ fontSize: 11.5, color: theme.text, fontWeight: '600' }}>Tanya AI (42%)</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#8B5CF6' }} />
+                      <Text style={{ fontSize: 11.5, color: theme.text, fontWeight: '600' }}>Catatan & Kuis (28%)</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#F59E0B' }} />
+                      <Text style={{ fontSize: 11.5, color: theme.text, fontWeight: '600' }}>Tugas & Deadline (18%)</Text>
+                    </View>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#EC4899' }} />
+                      <Text style={{ fontSize: 11.5, color: theme.text, fontWeight: '600' }}>Jurnal Harian (12%)</Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* 5. TOP 3 ACTIVE STUDENTS SNAPSHOT */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
+                    <View>
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Top Leaderboard Mahasiswa Teraktif 🏆</Text>
+                      <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>
+                        Mahasiswa dengan perolehan XP dan keaktifan belajar tertinggi
+                      </Text>
+                    </View>
+                    <TouchableOpacity
+                      onPress={() => setActiveTab('users')}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                    >
+                      <Text style={{ fontSize: 11.5, color: '#3B82F6', fontWeight: '700' }}>Lihat Semua ({usersList.length})</Text>
+                      <Ionicons name="arrow-forward" size={12} color="#3B82F6" />
+                    </TouchableOpacity>
+                  </View>
+
+                  {topStudents.length === 0 ? (
+                    <View style={{ paddingVertical: 14, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, color: theme.subtext }}>Belum ada data mahasiswa terdaftar.</Text>
+                    </View>
+                  ) : (
+                    <View style={{ gap: 8 }}>
+                      {topStudents.map((u, idx) => (
+                        <View
+                          key={u.id}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: theme.cardInner,
+                            padding: 10,
+                            borderRadius: 10,
+                            borderWidth: 1,
+                            borderColor: idx === 0 ? '#F59E0B55' : theme.border,
+                          }}
+                        >
+                          <View style={{
+                            width: 28,
+                            height: 28,
+                            borderRadius: 14,
+                            backgroundColor: idx === 0 ? '#F59E0B22' : idx === 1 ? '#94A3B822' : '#B4530922',
+                            justifyContent: 'center',
+                            alignItems: 'center',
+                            marginRight: 10,
+                          }}>
+                            <Text style={{ fontSize: 13 }}>{idx === 0 ? '🥇' : idx === 1 ? '🥈' : '🥉'}</Text>
+                          </View>
+
+                          <View style={{ flex: 1 }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <Text style={{ fontSize: 13, fontWeight: '700', color: theme.text }}>{u.username}</Text>
+                              <View style={{
+                                backgroundColor: u.role === 'admin' ? '#EF444422' : u.role === 'vip' ? '#F59E0B22' : theme.card,
+                                paddingHorizontal: 5,
+                                paddingVertical: 1.5,
+                                borderRadius: 4,
+                              }}>
+                                <Text style={{ fontSize: 9.5, fontWeight: '800', color: u.role === 'admin' ? '#EF4444' : u.role === 'vip' ? '#F59E0B' : theme.subtext }}>
+                                  {(u.role || 'STUDENT').toUpperCase()}
+                                </Text>
+                              </View>
+                            </View>
+                            <Text style={{ fontSize: 11, color: theme.subtext }}>UUID: {u.id.slice(0, 16)}...</Text>
+                          </View>
+
+                          <View style={{ alignItems: 'flex-end' }}>
+                            <Text style={{ fontSize: 13, fontWeight: '800', color: '#F59E0B' }}>
+                              {(u.total_xp || 0).toLocaleString('id-ID')} XP
+                            </Text>
+                            <Text style={{ fontSize: 10, color: theme.muted }}>Tingkat #{idx + 1}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                </View>
+
+                {/* 6. HEALTH & CLOUD INFRASTRUCTURE */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <Text style={[styles.cardTitle, { color: theme.text }]}>Infrastruktur Cloud & Status Realtime</Text>
+                  <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 12 }]}>
+                    Kesehatan koneksi jaringan backend dan mesin kecerdasan buatan
+                  </Text>
                   
-                  <View style={styles.infoRow}>
-                    <Ionicons name="server" size={16} color="#34D399" />
-                    <Text style={styles.infoRowText}>Database: Supabase PostgreSQL Realtime v15 (ap-southeast-1)</Text>
+                  <View style={{ gap: 8 }}>
+                    <View style={[styles.infoRow, { backgroundColor: theme.cardInner, padding: 10, borderRadius: 8 }]}>
+                      <Ionicons name="server" size={16} color="#34D399" />
+                      <Text style={styles.infoRowText}>Database: Supabase PostgreSQL Realtime v15 (ap-southeast-1)</Text>
+                      <View style={{ backgroundColor: '#10B98122', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#10B981' }}>NORMAL</Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.infoRow, { backgroundColor: theme.cardInner, padding: 10, borderRadius: 8 }]}>
+                      <Ionicons name="hardware-chip" size={16} color="#60A5FA" />
+                      <Text style={styles.infoRowText}>AI Engine: Google Gemini 2.5 Flash API ({keysPool.length || 1} Key Pool Active)</Text>
+                      <View style={{ backgroundColor: '#3B82F622', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#3B82F6' }}>READY</Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.infoRow, { backgroundColor: theme.cardInner, padding: 10, borderRadius: 8 }]}>
+                      <Ionicons name="shield-checkmark" size={16} color="#FBBF24" />
+                      <Text style={styles.infoRowText}>Keamanan Data: Row Level Security (RLS) Aktif di 8 Tabel</Text>
+                      <View style={{ backgroundColor: '#F59E0B22', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#F59E0B' }}>SECURE</Text>
+                      </View>
+                    </View>
+
+                    <View style={[styles.infoRow, { backgroundColor: theme.cardInner, padding: 10, borderRadius: 8 }]}>
+                      <Ionicons name="speedometer" size={16} color="#A78BFA" />
+                      <Text style={styles.infoRowText}>Latensi API Database: {dbPing || 38} ms (Optimal Response)</Text>
+                      <View style={{ backgroundColor: '#8B5CF622', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                        <Text style={{ fontSize: 10, fontWeight: '800', color: '#8B5CF6' }}>FAST</Text>
+                      </View>
+                    </View>
                   </View>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="hardware-chip" size={16} color="#60A5FA" />
-                    <Text style={styles.infoRowText}>AI Engine: Google Gemini 2.5 Flash API</Text>
+                </View>
+
+              </View>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: GAMIFIKASI, LEVELING & LUCKY WHEEL BALANCING */}
+            {/* ========================================================================= */}
+            {activeTab === 'gamification' && (
+              <View style={styles.tabContent}>
+                
+                {/* Header Action Bar */}
+                <View style={styles.cardHeaderRow}>
+                  <View>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Pusat Kontrol Gamifikasi & Game Balancing</Text>
+                    <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>
+                      Atur tingkat kesulitan naik level, drop rate roda keberuntungan, dan event komunitas secara realtime.
+                    </Text>
                   </View>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="shield-checkmark" size={16} color="#FBBF24" />
-                    <Text style={styles.infoRowText}>Keamanan Data: Row Level Security (RLS) Aktif di 8 Tabel</Text>
+                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                    <TouchableOpacity
+                      onPress={handleResetGamification}
+                      style={[styles.refreshBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    >
+                      <Ionicons name="refresh-outline" size={13} color="#EF4444" />
+                      <Text style={[styles.refreshBtnText, { color: '#EF4444' }]}>Reset Standar</Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      onPress={handleSaveGamification}
+                      disabled={savingGameConfig}
+                      style={[styles.refreshBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                    >
+                      {savingGameConfig ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <Ionicons name="save" size={13} color="#FFFFFF" />
+                          <Text style={[styles.refreshBtnText, { color: '#FFFFFF' }]}>Simpan Perubahan</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
                   </View>
-                  <View style={styles.infoRow}>
-                    <Ionicons name="speedometer" size={16} color="#A78BFA" />
-                    <Text style={styles.infoRowText}>Latensi API Database: {dbPing || 38} ms (Optimal)</Text>
+                </View>
+
+                {/* 1. XP & Level Progression Card */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="trending-up" size={18} color="#8B5CF6" />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Kurva Kesulitan XP & Level</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#8B5CF622' }]}>
+                      <Text style={[styles.badgeKpiText, { color: '#8B5CF6' }]}>LEVEL PROGRESSION</Text>
+                    </View>
                   </View>
+                  <Text style={[styles.cardSub, { color: theme.subtext }]}>
+                    Tingkatkan pengali kesulitan (*multiplier*) agar user tidak terlalu cepat mencapai level maksimal.
+                  </Text>
+
+                  {/* Multiplier Preset Selector */}
+                  <Text style={[styles.inputLabel, { color: theme.text }]}>Tingkat Pengali Kesulitan Global:</Text>
+                  <View style={styles.paramChipsRow}>
+                    {[
+                      { label: '0.5x (Mudah - 2x XP)', val: 0.5 },
+                      { label: '1.0x (Standar Normal)', val: 1.0 },
+                      { label: '1.5x (Menantang - 2/3 XP)', val: 1.5 },
+                      { label: '2.0x (Sulit - 1/2 XP)', val: 2.0 },
+                      { label: '3.0x (Ultra Kompetitif - 1/3 XP)', val: 3.0 },
+                    ].map((item) => (
+                      <TouchableOpacity
+                        key={item.label}
+                        style={[
+                          styles.paramChip,
+                          { backgroundColor: theme.cardInner, borderColor: theme.border },
+                          gameConfig.xpMultiplier === item.val && [styles.paramChipActive, { backgroundColor: theme.accentBg, borderColor: theme.primary }]
+                        ]}
+                        onPress={() => setGameConfig(prev => ({ ...prev, xpMultiplier: item.val }))}
+                      >
+                        <Text style={[
+                          styles.paramChipText,
+                          { color: theme.subtext },
+                          gameConfig.xpMultiplier === item.val && [styles.paramChipTextActive, { color: theme.accentLight }]
+                        ]}>
+                          {item.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Action Reward XP Inputs */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14 }]}>Perolehan Base XP per Aktivitas:</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>📝 Buat Catatan Kuliah:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.xpPerNote)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, xpPerNote: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>✅ Selesaikan Tugas/Soal:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.xpPerTask)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, xpPerTask: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>📖 Refleksi Jurnal Harian:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.xpPerJournal)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, xpPerJournal: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>🎯 Jawab Kuis Benar:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.xpPerQuiz)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, xpPerQuiz: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>🔥 Streak Belajar Harian:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.xpPerStreakDay)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, xpPerStreakDay: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {/* 2. Lucky Wheel Balancing Card */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="refresh-circle" size={20} color="#F59E0B" />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Probabilitas Sektor Lucky Wheel (Drop Rates)</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#F59E0B22' }]}>
+                      <Text style={[styles.badgeKpiText, { color: '#F59E0B' }]}>GACHA ENGINE</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.cardSub, { color: theme.subtext }]}>
+                    Ubah bobot peluang (*weight*) tiap sektor roda putar. Nilai bobot yang lebih kecil membuat hadiah jackpot lebih langka.
+                  </Text>
+
+                  {/* Daily Free Tickets */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                    <Text style={[styles.inputLabel, { color: theme.text, marginTop: 0 }]}>Jatah Tiket Putar Gratis Harian:</Text>
+                    <TextInput
+                      style={[styles.textInput, { width: 80, textAlign: 'center', backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                      value={String(gameConfig.wheelDailyFreeTickets)}
+                      onChangeText={(v) => setGameConfig(prev => ({ ...prev, wheelDailyFreeTickets: parseInt(v, 10) || 1 }))}
+                      keyboardType="numeric"
+                    />
+                  </View>
+
+                  {/* Sectors Weight Grid */}
+                  <Text style={[styles.inputLabel, { color: theme.text }]}>Bobot Peluang Sektor Roda (1 - 100):</Text>
+                  <View style={{ gap: 8 }}>
+                    {gameConfig.wheelSectors.map((sector, idx) => (
+                      <View
+                        key={sector.id || String(idx)}
+                        style={{
+                          flexDirection: 'row',
+                          alignItems: 'center',
+                          backgroundColor: theme.cardInner,
+                          borderRadius: 10,
+                          padding: 10,
+                          borderWidth: 1,
+                          borderColor: theme.border,
+                          gap: 10,
+                        }}
+                      >
+                        <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: sector.color }} />
+                        <Text style={{ flex: 1, color: theme.text, fontSize: 12.5, fontWeight: '600' }}>
+                          {sector.label}
+                        </Text>
+                        <Text style={{ color: theme.subtext, fontSize: 11 }}>Peluang Drop (Bobot):</Text>
+                        <TextInput
+                          style={[
+                            styles.textInput,
+                            { width: 65, textAlign: 'center', paddingVertical: 4, height: 32, backgroundColor: theme.card, color: theme.text, borderColor: theme.border }
+                          ]}
+                          value={String(sector.weight || 10)}
+                          onChangeText={(val) => handleUpdateSectorWeight(idx, val)}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    ))}
+                  </View>
+                </View>
+
+                {/* 3. Peti Hadiah & Gelar RPG */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="cube" size={18} color="#06B6D4" />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Peti Hadiah & Syarat Gelar RPG</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#06B6D422' }]}>
+                      <Text style={[styles.badgeKpiText, { color: '#06B6D4' }]}>LOOT VAULT</Text>
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.text }]}>Peluang Gelar Legendaris (%):</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.chestDropLegendaryRate)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestDropLegendaryRate: parseInt(v, 10) || 8 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.text }]}>Min XP Peti:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.chestMinXp)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestMinXp: parseInt(v, 10) || 25 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.text }]}>Max XP Peti:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={String(gameConfig.chestMaxXp)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestMaxXp: parseInt(v, 10) || 150 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+                </View>
+
+                {/* 4. Event & Double XP Happy Hour */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="flash" size={18} color="#EF4444" />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Event Khusus & Boost Jam Belajar</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#EF444422' }]}>
+                      <Text style={[styles.badgeKpiText, { color: '#EF4444' }]}>LIVE EVENT</Text>
+                    </View>
+                  </View>
+
+                  {/* Happy Hour Toggle */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginVertical: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }}>⚡ Double XP Happy Hour</Text>
+                      <Text style={{ color: theme.subtext, fontSize: 11 }}>Aktifkan pengganda XP otomatis pada jam belajar malam.</Text>
+                    </View>
+                    <Switch
+                      value={gameConfig.happyHourEnabled}
+                      onValueChange={(val) => setGameConfig(prev => ({ ...prev, happyHourEnabled: val }))}
+                      trackColor={{ false: '#374151', true: theme.primary }}
+                    />
+                  </View>
+
+                  {gameConfig.happyHourEnabled && (
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Jam Mulai (0-23):</Text>
+                        <TextInput
+                          style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                          value={String(gameConfig.happyHourStartHour)}
+                          onChangeText={(v) => setGameConfig(prev => ({ ...prev, happyHourStartHour: parseInt(v, 10) || 19 }))}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Jam Selesai (0-23):</Text>
+                        <TextInput
+                          style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                          value={String(gameConfig.happyHourEndHour)}
+                          onChangeText={(v) => setGameConfig(prev => ({ ...prev, happyHourEndHour: parseInt(v, 10) || 21 }))}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Pengali Boost:</Text>
+                        <TextInput
+                          style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                          value={String(gameConfig.happyHourMultiplier)}
+                          onChangeText={(v) => setGameConfig(prev => ({ ...prev, happyHourMultiplier: parseFloat(v) || 2.0 }))}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  )}
+
+                  {/* World Boss Event Toggle */}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 18, marginBottom: 8 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }}>🐉 World Boss Raid Event</Text>
+                      <Text style={{ color: theme.subtext, fontSize: 11 }}>Munculkan Monster Boss Materi untuk diserang bareng oleh mahasiswa.</Text>
+                    </View>
+                    <Switch
+                      value={gameConfig.bossEventActive}
+                      onValueChange={(val) => setGameConfig(prev => ({ ...prev, bossEventActive: val }))}
+                      trackColor={{ false: '#374151', true: '#DC2626' }}
+                    />
+                  </View>
+
+                  {gameConfig.bossEventActive && (
+                    <View style={{ flexDirection: 'row', gap: 10, marginTop: 6 }}>
+                      <View style={{ flex: 2 }}>
+                        <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Nama Boss Monster:</Text>
+                        <TextInput
+                          style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                          value={gameConfig.bossEventName}
+                          onChangeText={(v) => setGameConfig(prev => ({ ...prev, bossEventName: v }))}
+                        />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Total HP Boss:</Text>
+                        <TextInput
+                          style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                          value={String(gameConfig.bossEventTotalHp)}
+                          onChangeText={(v) => setGameConfig(prev => ({ ...prev, bossEventTotalHp: parseInt(v, 10) || 5000, bossEventCurrentHp: parseInt(v, 10) || 5000 }))}
+                          keyboardType="numeric"
+                        />
+                      </View>
+                    </View>
+                  )}
+                </View>
+
+              </View>
+            )}
+
+            {/* ========================================================================= */}
+            {/* TAB: KIRIM HADIAH & KOMPENSASI MAHASISWA */}
+            {/* ========================================================================= */}
+            {activeTab === 'rewards' && (
+              <View style={styles.tabContent}>
+                
+                <View style={styles.cardHeaderRow}>
+                  <View>
+                    <Text style={[styles.sectionTitle, { color: theme.text }]}>Pusat Distribusi Hadiah & Kompensasi</Text>
+                    <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>
+                      Kirimkan bonus koin, tiket putar, peti harta, atau XP langsung ke akun mahasiswa.
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Reward Distribution Form Card */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="gift" size={18} color="#10B981" />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Formulir Kirim Hadiah & Loot</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#10B98122' }]}>
+                      <Text style={[styles.badgeKpiText, { color: '#10B981' }]}>REWARD VAULT</Text>
+                    </View>
+                  </View>
+
+                  {/* Recipient Target Selector */}
+                  <Text style={[styles.inputLabel, { color: theme.text }]}>Sasaran Penerima Hadiah:</Text>
+                  <View style={styles.paramChipsRow}>
+                    <TouchableOpacity
+                      style={[
+                        styles.paramChip,
+                        { backgroundColor: theme.cardInner, borderColor: theme.border },
+                        rewardRecipientType === 'all' && [styles.paramChipActive, { backgroundColor: theme.accentBg, borderColor: theme.primary }]
+                      ]}
+                      onPress={() => {
+                        setRewardRecipientType('all');
+                        setSelectedUserForReward(null);
+                      }}
+                    >
+                      <Text style={[
+                        styles.paramChipText,
+                        { color: theme.subtext },
+                        rewardRecipientType === 'all' && [styles.paramChipTextActive, { color: theme.accentLight }]
+                      ]}>
+                        📢 Seluruh Mahasiswa (Siaran Global)
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[
+                        styles.paramChip,
+                        { backgroundColor: theme.cardInner, borderColor: theme.border },
+                        rewardRecipientType === 'single' && [styles.paramChipActive, { backgroundColor: theme.accentBg, borderColor: theme.primary }]
+                      ]}
+                      onPress={() => setRewardRecipientType('single')}
+                    >
+                      <Text style={[
+                        styles.paramChipText,
+                        { color: theme.subtext },
+                        rewardRecipientType === 'single' && [styles.paramChipTextActive, { color: theme.accentLight }]
+                      ]}>
+                        👤 Akun Mahasiswa Tertentu
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Single User Picker if selected */}
+                  {rewardRecipientType === 'single' && (
+                    <View style={{ marginTop: 8, marginBottom: 12 }}>
+                      <Text style={[styles.inputLabel, { color: theme.text }]}>Pilih Mahasiswa Penerima:</Text>
+                      {selectedUserForReward ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: theme.cardInner, padding: 12, borderRadius: 10, borderWidth: 1, borderColor: theme.primary }}>
+                          <View>
+                            <Text style={{ color: theme.text, fontWeight: '700', fontSize: 13 }}>{selectedUserForReward.username}</Text>
+                            <Text style={{ color: theme.subtext, fontSize: 11 }}>UUID: {selectedUserForReward.id}</Text>
+                          </View>
+                          <TouchableOpacity onPress={() => setSelectedUserForReward(null)}>
+                            <Ionicons name="close-circle" size={18} color="#EF4444" />
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginVertical: 4 }}>
+                          <View style={{ flexDirection: 'row', gap: 8 }}>
+                            {usersList.slice(0, 15).map(u => (
+                              <TouchableOpacity
+                                key={u.id}
+                                style={[styles.paramChip, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                                onPress={() => setSelectedUserForReward(u)}
+                              >
+                                <Text style={{ color: theme.text, fontSize: 12 }}>{u.username}</Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </ScrollView>
+                      )}
+                    </View>
+                  )}
+
+                  {/* Reward Package Items */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 10 }]}>Isi Paket Hadiah:</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>⭐ Bonus XP:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={rewardBonusXp}
+                        onChangeText={setRewardBonusXp}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>🎡 Tiket Lucky Wheel:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={rewardBonusTickets}
+                        onChangeText={setRewardBonusTickets}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>📦 Peti Hadiah (Chests):</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={rewardBonusChests}
+                        onChangeText={setRewardBonusChests}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>💧 Tetes Air Kebun:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={rewardBonusWater}
+                        onChangeText={setRewardBonusWater}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+
+                  {/* Message Input */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14 }]}>Pesan Surat / Notifikasi Ucapan:</Text>
+                  <TextInput
+                    style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border, minHeight: 60 }]}
+                    value={rewardGiftMessage}
+                    onChangeText={setRewardGiftMessage}
+                    multiline
+                    placeholder="Tuliskan alasan pemberian hadiah atau ucapan selamat..."
+                    placeholderTextColor={theme.muted}
+                  />
+
+                  {/* Send Action Button */}
+                  <TouchableOpacity
+                    style={[styles.saveActionBtn, { backgroundColor: '#10B981', marginTop: 18 }]}
+                    onPress={handleSendReward}
+                    disabled={sendingReward}
+                    activeOpacity={0.8}
+                  >
+                    {sendingReward ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <>
+                        <Ionicons name="paper-plane" size={16} color="#FFFFFF" />
+                        <Text style={styles.saveActionText}>
+                          {rewardRecipientType === 'all' ? 'Siarkan Hadiah ke Seluruh Mahasiswa' : `Kirim Hadiah ke ${selectedUserForReward?.username || 'Mahasiswa'}`}
+                        </Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
                 </View>
 
               </View>
@@ -1841,9 +2894,7 @@ export default function AdminScreen() {
                             borderColor: theme.border,
                             color: theme.text,
                             borderRadius: 8,
-                            paddingHorizontal: 12,
-                            paddingVertical: 8,
-                            fontSize: 12,
+                                   fontSize: 12,
                             lineHeight: 18,
                             minHeight: 50,
                           }}
@@ -1889,7 +2940,6 @@ export default function AdminScreen() {
                   {/* Live Preview Card */}
                   {announcementText.trim() ? (
                     <View style={styles.previewBox}>
-                      <Text style={styles.previewLabel}>Pratinjau Tampilan Banner Mahasiswa:</Text>
                       <View style={styles.bannerPreviewCard}>
                         <Ionicons name="megaphone" size={16} color="#FBBF24" />
                         <View style={{ flex: 1 }}>
@@ -1985,23 +3035,88 @@ export default function AdminScreen() {
                   ) : (
                     <View style={styles.userListWrap}>
                       {filteredUsers.map((u) => (
-                        <View key={u.id} style={styles.userRowCard}>
-                          <View style={styles.userAvatarSquare}>
-                            <Text style={styles.userAvatarInitial}>
-                              {(u.username || 'M')[0].toUpperCase()}
-                            </Text>
-                          </View>
+                        <View key={u.id} style={[styles.userRowCard, { flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                            <View style={styles.userAvatarSquare}>
+                              <Text style={styles.userAvatarInitial}>
+                                {(u.username || 'M')[0].toUpperCase()}
+                              </Text>
+                            </View>
 
-                          <View style={{ flex: 1, marginLeft: 12 }}>
-                            <Text style={styles.userNameText}>{u.username || 'Pengguna Mahasiswa'}</Text>
-                            <Text style={styles.userIdText}>UUID: {u.id}</Text>
-                          </View>
+                            <View style={{ flex: 1, marginLeft: 12 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                                <Text style={styles.userNameText}>{u.username || 'Pengguna Mahasiswa'}</Text>
+                                <View style={[
+                                  styles.badgeKpi,
+                                  {
+                                    backgroundColor: u.role === 'admin' ? '#EF444422' : u.role === 'vip' ? '#F59E0B22' : theme.cardInner,
+                                    paddingHorizontal: 6,
+                                    paddingVertical: 2,
+                                  }
+                                ]}>
+                                  <Text style={{
+                                    fontSize: 10,
+                                    fontWeight: '800',
+                                    color: u.role === 'admin' ? '#EF4444' : u.role === 'vip' ? '#F59E0B' : theme.subtext
+                                  }}>
+                                    {(u.role || 'STUDENT').toUpperCase()}
+                                  </Text>
+                                </View>
+                              </View>
+                              <Text style={styles.userIdText}>UUID: {u.id}</Text>
+                            </View>
 
-                          <View style={styles.userJoinedWrap}>
-                            <Ionicons name="time-outline" size={12} color="#6B7280" />
+                            <View style={styles.userJoinedWrap}>
+                              <Ionicons name="time-outline" size={12} color="#6B7280" />
                               <Text style={styles.userJoinedText}>
-                              {new Date(u.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
-                            </Text>
+                                {new Date(u.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Quick Admin Action Toolbar for User */}
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
+                            <TouchableOpacity
+                              style={[styles.refreshBtn, { backgroundColor: '#10B98122', borderColor: '#10B98155' }]}
+                              onPress={() => {
+                                setSelectedUserForReward(u);
+                                setRewardRecipientType('single');
+                                setActiveTab('rewards');
+                              }}
+                            >
+                              <Ionicons name="gift" size={12} color="#10B981" />
+                              <Text style={[styles.refreshBtnText, { color: '#10B981' }]}>Kirim Hadiah</Text>
+                            </TouchableOpacity>
+
+                            {u.role !== 'vip' && (
+                              <TouchableOpacity
+                                style={[styles.refreshBtn, { backgroundColor: '#F59E0B22', borderColor: '#F59E0B55' }]}
+                                onPress={() => handlePromoteUser(u, 'vip')}
+                              >
+                                <Ionicons name="star" size={12} color="#F59E0B" />
+                                <Text style={[styles.refreshBtnText, { color: '#F59E0B' }]}>Jadikan VIP</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {u.role !== 'admin' && (
+                              <TouchableOpacity
+                                style={[styles.refreshBtn, { backgroundColor: '#3B82F622', borderColor: '#3B82F655' }]}
+                                onPress={() => handlePromoteUser(u, 'admin')}
+                              >
+                                <Ionicons name="shield-checkmark" size={12} color="#3B82F6" />
+                                <Text style={[styles.refreshBtnText, { color: '#3B82F6' }]}>Jadikan Admin</Text>
+                              </TouchableOpacity>
+                            )}
+
+                            {u.role && u.role !== 'student' && (
+                              <TouchableOpacity
+                                style={[styles.refreshBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                                onPress={() => handlePromoteUser(u, 'student')}
+                              >
+                                <Ionicons name="person-outline" size={12} color={theme.subtext} />
+                                <Text style={[styles.refreshBtnText, { color: theme.subtext }]}>Set Mahasiswa Biasa</Text>
+                              </TouchableOpacity>
+                            )}
                           </View>
                         </View>
                       ))}

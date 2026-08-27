@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+﻿import React, { useEffect, useRef, useState } from "react";
 import {
   View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing
 } from "react-native";
@@ -105,7 +105,7 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
   const rarityColor = reward ? RARITY_COLORS[reward.rarity] : "#6B7280";
   const rarityLabel = reward ? RARITY_LABELS[reward.rarity] : "";
 
-  const chestEmoji = phase === "idle" ? "📦" : phase === "shake" ? "📦" : "🎁";
+  const chestEmoji = phase === "idle" ? "🎁" : phase === "shake" ? "🎁" : "✨";
 
   return (
     <Modal visible={visible} transparent animationType="fade">
@@ -115,10 +115,10 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
 
           {/* Header */}
           <View style={[styles.headerBanner, { backgroundColor: theme.cardInner }]}>
-            <Text style={[styles.headerTitle, { color: theme.text }]}>Peti Harta Misterius</Text>
+            <Text style={[styles.headerTitle, { color: theme.text }]}>Kotak Hadiah</Text>
             <View style={{ flexDirection: "row", alignItems: "center", gap: 6, backgroundColor: '#F59E0B20', paddingHorizontal: 8, paddingVertical: 3, borderRadius: 8 }}>
               <Ionicons name="gift" size={13} color="#F59E0B" />
-              <Text style={{ color: "#F59E0B", fontWeight: "800", fontSize: 11.5 }}>{chestCount} Peti Tersisa</Text>
+              <Text style={{ color: "#F59E0B", fontWeight: "800", fontSize: 11.5 }}>{chestCount} Hadiah Tersisa</Text>
             </View>
           </View>
 
@@ -182,7 +182,7 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
               >
                 <Ionicons name="gift" size={17} color={chestCount > 0 ? "#FFFFFF" : theme.subtext} />
                 <Text style={[styles.openBtnText, { color: chestCount > 0 ? "#FFFFFF" : theme.subtext }]}>
-                  {chestCount > 0 ? "Buka Peti Sekarang!" : "Peti Habis"}
+                  {chestCount > 0 ? "Buka Hadiah Sekarang!" : "Hadiah Habis"}
                 </Text>
               </TouchableOpacity>
               <TouchableOpacity
@@ -212,7 +212,7 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
             <View style={[styles.emptyHint, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
               <Ionicons name="information-circle" size={14} color={theme.accentLight} />
               <Text style={{ color: theme.subtext, fontSize: 10.5, flex: 1, lineHeight: 14 }}>
-                Dapatkan Peti 📦 dengan: Selesaikan Sesi Pomodoro (+1), Buat Catatan Kuliah Baru (+1), atau Kalahkan Bos Arena (+1).
+                Dapatkan Hadiah 🎁 dengan: Selesaikan Sesi Pomodoro (+1), Buat Catatan Kuliah Baru (+1), atau Kalahkan Bos Arena (+1).
               </Text>
             </View>
           )}

@@ -1,4 +1,4 @@
-﻿import AsyncStorage from "@react-native-async-storage/async-storage";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const KEY_CHEST_COUNT = "@loot_chest_count";
 const KEY_SPIN_TICKETS = "@loot_spin_tickets";
@@ -48,14 +48,18 @@ export async function addChest(amount = 1): Promise<number> {
   }
 }
 
+import { getInMemoryGamificationConfig, getGamificationConfig } from './gamificationConfig';
+
 export async function getSpinTickets(): Promise<number> {
   try {
+    const config = await getGamificationConfig();
     const today = new Date().toISOString().slice(0, 10);
     const lastDaily = await AsyncStorage.getItem(KEY_LAST_DAILY_SPIN);
     let tickets = parseInt(await AsyncStorage.getItem(KEY_SPIN_TICKETS) ?? "1", 10);
 
     if (lastDaily !== today) {
-      tickets += 1; // +1 Free daily spin ticket
+      const dailyBonus = config.wheelDailyFreeTickets ?? 1;
+      tickets += dailyBonus; // Configurable free daily spin tickets
       await AsyncStorage.setItem(KEY_LAST_DAILY_SPIN, today);
       await AsyncStorage.setItem(KEY_SPIN_TICKETS, String(tickets));
     }

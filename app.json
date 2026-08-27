@@ -43,7 +43,8 @@
           "icon": "./assets/icon.png",
           "color": "#2563EB"
         }
-      ]
+      ],
+      "expo-video"
     ],
     "web": {
       "favicon": "./assets/favicon.png"

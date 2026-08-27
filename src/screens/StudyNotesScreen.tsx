@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
+﻿import React, { useEffect, useState, useCallback, useRef, useMemo } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, ActivityIndicator, FlatList, Modal, Platform
@@ -10,7 +10,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
 import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
-import { StudyNote, StudentTask, TaskSubtask } from '../types';
+import { StudyNote, StudentTask, TaskSubtask, NoteAttachment, ChatAttachment } from '../types';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { RootStackParamList, TabParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
@@ -18,6 +18,10 @@ import { confirmAction, showAlert } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import DateTimePickerModal from '../components/DateTimePickerModal';
 import TaskWorkpadModal from '../components/TaskWorkpadModal';
+import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import { compressImage, uriToBase64 } from '../lib/imageCompressor';
+import { processPickedFile } from '../lib/fileReader';
 import { exportTaskToPdf, exportAllTasksSummaryToPdf, exportMultipleNotesToPdf } from '../lib/pdfExporter';
 import {
   XpPopup,
@@ -27,8 +31,10 @@ import {
   StreakFlamePulse,
 } from '../components/DuolingoAnimations';
 import VirtualGardenModal from '../components/VirtualGardenModal';
+import QuizBattleModal from '../components/QuizBattleModal';
 import { addGrowthPoints, addWaterDrops } from '../lib/gardenStorage';
-import { addChest, awardWheelTicketForActivity } from '../lib/lootChestStorage';
+import { addChest, awardWheelTicketForActivity, unlockTitle } from '../lib/lootChestStorage';
+import { BossEvent, getCurrentBossEvent, defeatBossEvent } from '../lib/bossEventStorage';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { parseDeadline, getDeadlinePresets } from '../lib/dateUtils';
 import {
@@ -196,7 +202,16 @@ export default function StudyNotesScreen() {
   const [newTaskPriority, setNewTaskPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [newTaskDueDate, setNewTaskDueDate] = useState('');
   const [newTaskNotes, setNewTaskNotes] = useState('');
+  const [newTaskAttachments, setNewTaskAttachments] = useState<NoteAttachment[]>([]);
   const [showTaskForm, setShowTaskForm] = useState(false);
+  const [extractingTaskNotes, setExtractingTaskNotes] = useState(false);
+  const aiGeneratedNotesRef = useRef<boolean>(false);
+
+  // Weekly Boss Event State
+  const [activeBossEvent, setActiveBossEvent] = useState<BossEvent | null>(null);
+  const [showBossBattleModal, setShowBossBattleModal] = useState(false);
+  const [bossQuizQuestions, setBossQuizQuestions] = useState<any[]>([]);
+  const [loadingBossBattle, setLoadingBossBattle] = useState(false);
 
   // Advanced Tasks state (AI Breakdown & Subtasks & Edit & Pomodoro & Workpad)
   const [breakingDownTaskId, setBreakingDownTaskId] = useState<string | null>(null);
@@ -212,6 +227,7 @@ export default function StudyNotesScreen() {
   const [editPriority, setEditPriority] = useState<'high' | 'medium' | 'low'>('medium');
   const [editDueDate, setEditDueDate] = useState('');
   const [editNotes, setEditNotes] = useState('');
+  const [editTaskAttachments, setEditTaskAttachments] = useState<NoteAttachment[]>([]);
 
   // Pomodoro state
   const [pomoTimeLeft, setPomoTimeLeft] = useState(25 * 60);
@@ -307,12 +323,20 @@ export default function StudyNotesScreen() {
     }
   };
 
-  const handleSaveTaskNotes = async (taskId: string, newNotes: string) => {
-    const updated = tasks.map(t => t.id === taskId ? { ...t, notes: newNotes } : t);
+  const handleSaveTaskNotes = async (taskId: string, newNotes: string, newAttachments?: NoteAttachment[]) => {
+    const updated = tasks.map(t => t.id === taskId ? {
+      ...t,
+      notes: newNotes,
+      attachments: newAttachments !== undefined ? newAttachments : t.attachments,
+    } : t);
     setTasks(updated);
     if (user) cacheTasksLocally(user.id, updated);
     if (activeWorkpadTask && activeWorkpadTask.id === taskId) {
-      setActiveWorkpadTask(prev => prev ? { ...prev, notes: newNotes } : null);
+      setActiveWorkpadTask(prev => prev ? {
+        ...prev,
+        notes: newNotes,
+        attachments: newAttachments !== undefined ? newAttachments : prev.attachments,
+      } : null);
     }
     if (!user) return;
     try {
@@ -328,22 +352,129 @@ export default function StudyNotesScreen() {
     }
   };
 
+  const checkBossEvent = useCallback(async () => {
+    try {
+      const bEvent = await getCurrentBossEvent();
+      if (bEvent && !bEvent.defeated) {
+        setActiveBossEvent(bEvent);
+      } else {
+        setActiveBossEvent(null);
+      }
+    } catch {}
+  }, []);
+
+  const handleChallengeBoss = async () => {
+    if (!activeBossEvent) return;
+
+    setLoadingBossBattle(true);
+    try {
+      // 1. Build summary of all available notes
+      let notesContext = '';
+      if (notes && notes.length > 0) {
+        notesContext = notes
+          .map((n, i) => `Catatan ${i + 1} [${n.subject || 'Umum'} - ${n.title}]:\n${(n.content || '').substring(0, 450)}`)
+          .join('\n\n');
+      } else {
+        notesContext = 'Materi umum sains, teknologi, matematika, logika, sejarah, dan wawasan akademik mahasiswa.';
+      }
+
+      // 2. Prompt AI to craft grand boss raid quiz
+      const prompt = `Kamu adalah Game Master RPG Akademik. Buatkan 5 soal kuis pilihan ganda yang seru, berkualitas tinggi, dan menantang untuk Event Boss Battle "${activeBossEvent.name}" (${activeBossEvent.title}) berdasarkan rangkuman seluruh catatan kuliah mahasiswa berikut:\n\n${notesContext}\n\nATURAN:\n1. Buat soal yang menguji pemahaman konsep dari catatan di atas.\n2. Berikan 4 pilihan jawaban untuk setiap soal.\n3. Berikan correctIndex (0, 1, 2, atau 3) yang tepat.\n4. Format jawaban WAJIB HANYA JSON array valid tanpa teks pengantar:\n[\n  {\n    "question": "Pertanyaan soal...",\n    "options": ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],\n    "correctIndex": 0,\n    "explanation": "Penjelasan singkat jawaban benar..."\n  }\n]`;
+
+      const aiReply = await sendMessageToGemini([], prompt);
+      const parsed: any = extractJsonFromText(aiReply);
+
+      let questions: any[] = [];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        questions = parsed;
+      } else if (parsed && Array.isArray(parsed.questions)) {
+        questions = parsed.questions;
+      } else {
+        questions = [
+          {
+            question: `Apa strategi belajar paling efektif untuk menaklukkan ${activeBossEvent.name}?`,
+            options: ['Active Recall & Spaced Repetition', 'Sistem Kebut Semalam', 'Hafalan tanpa paham', 'Membaca pasif tanpa latihan'],
+            correctIndex: 0,
+            explanation: 'Active Recall dan Spaced Repetition terbukti secara ilmiah paling efektif dalam retensi jangka panjang.',
+          },
+          {
+            question: 'Dalam manajemen waktu akademik, teknik fokus 25 menit diselingi 5 menit istirahat disebut teknik apa?',
+            options: ['Teknik Pomodoro', 'Teknik Feynman', 'Metode Pareto', 'Teknik Eisenhower'],
+            correctIndex: 0,
+            explanation: 'Teknik Pomodoro membagi waktu belajar menjadi interval 25 menit fokus dan 5 menit jeda.',
+          },
+          {
+            question: 'Manakah cara terbaik untuk memahami konsep materi yang rumit?',
+            options: ['Menjelaskannya dengan bahasa sederhana seolah mengajarkannya ke orang lain', 'Menghafal rumus di luar kepala tanpa tahu asal-usulnya', 'Membaca berulang kali tanpa mencatat', 'Menghindari materi tersebut'],
+            correctIndex: 0,
+            explanation: 'Teknik Feynman mengajarkan bahwa jika kamu bisa menjelaskan suatu konsep secara sederhana, berarti kamu benar-benar memahaminya.',
+          }
+        ];
+      }
+
+      setBossQuizQuestions(questions);
+      setShowBossBattleModal(true);
+    } catch (e: any) {
+      showAlert('Gagal Memulai Pertarungan', e?.message || 'Server AI sedang sibuk. Silakan coba sesaat lagi.');
+    } finally {
+      setLoadingBossBattle(false);
+    }
+  };
+
+  const handleBossBattleWon = async (earnedXp: number) => {
+    if (!activeBossEvent) return;
+
+    const currentEvent = activeBossEvent;
+    await defeatBossEvent();
+
+    // Rewards
+    await addGrowthPoints(currentEvent.rewards.xp);
+    await addWaterDrops(currentEvent.rewards.water);
+    await addChest(currentEvent.rewards.chests);
+    await awardWheelTicketForActivity();
+    await unlockTitle(currentEvent.rewards.titleId);
+
+    // Refresh UI states
+    setXpAmount(currentEvent.rewards.xp);
+    setShowXpPopup(false);
+    setTimeout(() => setShowXpPopup(true), 50);
+
+    setActiveBossEvent(null);
+    setShowBossBattleModal(false);
+
+    setTimeout(() => {
+      showAlert(
+        `🏆 Kemenangan Akbar! ${currentEvent.name} Berhasil Ditaklukkan!`,
+        `Luar biasa! Seluruh pengetahuan dari catatan kuliahmu telah menumbangkan ${currentEvent.name}!\n\n` +
+        `🎁 Hadiah Event Diterima:\n` +
+        `• +${currentEvent.rewards.xp} XP Tambahan ⚡\n` +
+        `• +${currentEvent.rewards.water} Tetes Air Taman 💧\n` +
+        `• +${currentEvent.rewards.chests} Kotak Hadiah 🎁\n` +
+        `• +1 Tiket Roda Keberuntungan 🎰\n` +
+        `• Gelar Eksklusif: "${currentEvent.rewards.titleLabel}" 🏅\n\n` +
+        `Event Bos Mingguan telah terselesaikan!`
+      );
+    }, 400);
+  };
+
   useEffect(() => {
     fetchNotes();
     fetchTasks();
     checkDraft();
+    checkBossEvent();
 
     if (Platform.OS !== 'web') {
       requestNotificationPermissions();
     }
-  }, [user, fetchNotes, fetchTasks, checkDraft]);
+  }, [user, fetchNotes, fetchTasks, checkDraft, checkBossEvent]);
 
   useFocusEffect(
     useCallback(() => {
       fetchNotes();
       fetchTasks();
       checkDraft();
-    }, [fetchNotes, fetchTasks, checkDraft])
+      checkBossEvent();
+    }, [fetchNotes, fetchTasks, checkDraft, checkBossEvent])
   );
 
   // Pomodoro Timer Controller (Timestamp-based for background tab persistence)
@@ -389,7 +520,7 @@ export default function StudyNotesScreen() {
           addChest(1).catch(() => {});
           awardWheelTicketForActivity().catch(() => {});
 
-          showAlert('Sesi Fokus Selesai! (+30 XP, +2 💧 & +1 📦)', 'Kerja luar biasa! Sesi fokus berhasil diselesaikan, tanaman disiram (+25 XP Pertumbuhan), kamu mendapatkan +30 XP, +2 Tetes Air, +1 Peti Misterius, dan +1 Tiket Roda Keberuntungan!');
+          showAlert('Sesi Fokus Selesai! (+30 XP, +2 💧 & +1 🎁)', 'Kerja luar biasa! Sesi fokus berhasil diselesaikan, tanaman disiram (+25 XP Pertumbuhan), kamu mendapatkan +30 XP, +2 Tetes Air, +1 Kotak Hadiah, dan +1 Tiket Roda Keberuntungan!');
         }
       }, 500);
     } else {
@@ -458,9 +589,10 @@ export default function StudyNotesScreen() {
       created_at: new Date().toISOString(),
       subtasks: [],
       notes: newTaskNotes.trim(),
+      attachments: newTaskAttachments.length > 0 ? newTaskAttachments : undefined,
     };
-    if (newTaskNotes.trim()) {
-      handleSaveTaskNotes(tempId, newTaskNotes.trim());
+    if (newTaskNotes.trim() || newTaskAttachments.length > 0) {
+      handleSaveTaskNotes(tempId, newTaskNotes.trim(), newTaskAttachments);
     }
     scheduleTaskDeadlineNotification(initialTask);
     const updated = [initialTask, ...tasks];
@@ -469,13 +601,171 @@ export default function StudyNotesScreen() {
     setNewTaskTitle('');
     setNewTaskDueDate('');
     setNewTaskNotes('');
+    setNewTaskAttachments([]);
     if (isMobile) setShowTaskForm(false);
+
+    // Reset AI extraction tracker
+    aiGeneratedNotesRef.current = false;
 
     // Reward for adding task
     addWaterDrops(1).catch(() => {});
     addChest(1).catch(() => {});
     awardWheelTicketForActivity().catch(() => {});
-    showAlert('Tugas Berhasil Ditambahkan! 🎉', 'Kamu mendapatkan +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda Keberuntungan 🎰!');
+    showAlert('Tugas Berhasil Ditambahkan! 🎉', 'Kamu mendapatkan +1 Tetes Air 💧, +1 Kotak Hadiah 🎁, dan +1 Tiket Roda Keberuntungan 🎰!');
+  };
+
+  // Direct AI Extraction without saving/storing bulky attachment files
+  const runDirectTaskAiExtraction = async (chatAttachments: ChatAttachment[]) => {
+    if (chatAttachments.length === 0) return;
+
+    setExtractingTaskNotes(true);
+    try {
+      const prompt = `Analisis seluruh dokumen dan foto soal tugas kuliah yang dilampirkan ini.
+Tugasmu adalah MENULISKAN ULANG isi soal menjadi Lembar Kerja Tugas Kuliah yang SANGAT JELAS, ENAK DIBACA, DAN MUDAH DICERNA MAHASISWA.
+
+${newTaskTitle.trim() ? `Judul Tugas: "${newTaskTitle.trim()}"\n` : ''}
+${newTaskSubject.trim() ? `Mata Kuliah: "${newTaskSubject.trim()}"\n` : ''}
+
+ATURAN FORMAT RAMAH PEMBACA (SANGAT PENTING):
+1. JANGAN PERNAH menampilkan kode LaTeX mentah (seperti \\frac, \\vec, \\int, \\begin{matrix}, \\sqrt, dll). Ubah semua rumus matematika dan fisika menjadi teks biasa dan simbol Unicode yang mudah dibaca (contoh: a = F / m, Vektor v = (x, y), x² + y² = r²).
+2. Tuliskan dalam struktur yang bersih dan enak dibaca:
+   - 📌 **Ringkasan Inti Soal / Tugas**: Jelaskan dalam 1-2 kalimat apa yang diminta oleh dosen.
+   - 📋 **Daftar Pertanyaan / Instruksi Soal**: Buat poin-poin bernomor (1, 2, 3...) yang jelas.
+   - 💡 **Petunjuk & Konsep Penting**: Rumus utama yang dipakai, definisi variabel, atau kriteria penilaian.
+   - 📝 **Langkah Pengerjaan / Panduan Penyelesaian**: Saran langkah logis untuk menjawabnya.
+3. JANGAN PERNAH membuat basa-basi ("Halo...", "Sebagai asisten AI...").
+4. Awali baris pertama dengan:
+JUDUL: [Tuliskan judul tugas yang singkat, spesifik, dan representatif]
+---
+[Langsung tuliskan isi lembar kerja tugas yang rapi di sini]`;
+
+      const reply = await sendMessageToGemini(
+        [],
+        prompt,
+        chatAttachments,
+        'Kamu adalah asisten akademik cerdas yang mengekstrak soal dokumen menjadi teks lembar kerja Markdown yang sangat rapi dan mudah dicerna tanpa basa-basi.'
+      );
+
+      let cleanReply = reply;
+      const titleMatch = reply.match(/^JUDUL\s*:\s*([^\n\r]+)/i);
+      if (titleMatch && titleMatch[1]) {
+        if (!newTaskTitle.trim()) {
+          setNewTaskTitle(titleMatch[1].trim());
+        }
+        cleanReply = cleanReply.replace(/^JUDUL\s*:[^\n\r]+\n*(?:---|===|\*\*\*)?\s*/i, '').trim();
+      }
+
+      setNewTaskNotes(cleanReply);
+      showAlert('Soal Berhasil Diekstrak! ✨', 'Isi soal dari dokumen/foto telah otomatis dituliskan ulang ke Lembar Tugas dalam format yang rapi dan mudah dipahami.');
+    } catch (e: any) {
+      showAlert('Gagal Mengekstrak Soal', e?.message || 'Terjadi kesalahan saat memproses dokumen tugas.');
+    } finally {
+      setExtractingTaskNotes(false);
+    }
+  };
+
+  const handlePickDocumentAndExtract = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const chatAttachments: ChatAttachment[] = [];
+        for (const file of res.assets) {
+          try {
+            const processed = await processPickedFile(file);
+            chatAttachments.push({
+              type: processed.type === 'image' ? 'image' : 'document',
+              uri: file.uri,
+              name: file.name || 'Dokumen_Soal',
+              base64: processed.base64,
+              textContent: processed.textContent,
+              mimeType: processed.mimeType,
+            });
+          } catch {
+            chatAttachments.push({
+              type: 'document',
+              uri: file.uri,
+              name: file.name || 'Dokumen_Soal',
+            });
+          }
+        }
+        await runDirectTaskAiExtraction(chatAttachments);
+      }
+    } catch (e: any) {
+      showAlert('Gagal Membuka Dokumen', e?.message || 'Terjadi kesalahan.');
+    }
+  };
+
+  const handlePickPhotosAndExtract = async () => {
+    try {
+      const res = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.85,
+        selectionLimit: 10,
+      });
+
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const chatAttachments: ChatAttachment[] = [];
+        for (const asset of res.assets) {
+          try {
+            const compressed = await compressImage(asset.uri, { maxWidth: 1200, quality: 0.7 });
+            const b64 = await uriToBase64(compressed);
+            chatAttachments.push({
+              type: 'image',
+              uri: compressed,
+              name: asset.fileName || 'Foto_Soal.jpg',
+              base64: b64,
+              mimeType: asset.mimeType || 'image/jpeg',
+            });
+          } catch {
+            chatAttachments.push({
+              type: 'image',
+              uri: asset.uri,
+              name: asset.fileName || 'Foto_Soal.jpg',
+              mimeType: 'image/jpeg',
+            });
+          }
+        }
+        await runDirectTaskAiExtraction(chatAttachments);
+      }
+    } catch (e: any) {
+      showAlert('Gagal Membuka Foto', e?.message || 'Terjadi kesalahan.');
+    }
+  };
+
+  const handleTakePhotoAndExtract = async () => {
+    try {
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        showAlert('Izin Kamera Ditolak', 'Aplikasi memerlukan izin kamera untuk memotret soal tugas.');
+        return;
+      }
+      const res = await ImagePicker.launchCameraAsync({
+        allowsEditing: false,
+        quality: 0.85,
+      });
+
+      if (!res.canceled && res.assets && res.assets[0]) {
+        const asset = res.assets[0];
+        const compressed = await compressImage(asset.uri, { maxWidth: 1200, quality: 0.7 });
+        const b64 = await uriToBase64(compressed);
+        const chatAttachments: ChatAttachment[] = [{
+          type: 'image',
+          uri: compressed,
+          name: 'Foto_Soal_Kamera.jpg',
+          base64: b64,
+          mimeType: 'image/jpeg',
+        }];
+        await runDirectTaskAiExtraction(chatAttachments);
+      }
+    } catch (e: any) {
+      showAlert('Gagal Membuka Kamera', e?.message || 'Terjadi kesalahan.');
+    }
   };
 
   // Toggle Task Completion
@@ -490,7 +780,7 @@ export default function StudyNotesScreen() {
       addWaterDrops(1).catch(() => {});
       addChest(1).catch(() => {});
       awardWheelTicketForActivity().catch(() => {});
-      showAlert('Tugas Selesai! 🎉', '+20 XP, +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda 🎰!');
+      showAlert('Tugas Selesai! 🎉', '+20 XP, +1 Tetes Air 💧, +1 Kotak Hadiah 🎁, dan +1 Tiket Roda 🎰!');
     } else {
       scheduleTaskDeadlineNotification({ ...task, is_completed: false });
     }
@@ -637,10 +927,24 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     setExpandedTaskIds(prev => ({ ...prev, [taskId]: !prev[taskId] }));
   };
 
-  // Discuss Task in AI Chat
+  // Discuss Task in AI Chat (Automatic Ask)
   const handleDiscussTaskWithAi = (task: StudentTask) => {
-    navigation.navigate('Main', { screen: 'Chat' });
-    showAlert('Bahas dengan Ara 💬', `Tanyakan di chat: "Ara, bantu aku beri ide & panduan pengerjaan tugas '${task.title}' untuk mata kuliah ${task.subject} ya!"`);
+    let taskContext = `Halo Ara, bantu aku beri ide konsep, penjelasan teori, dan panduan langkah pengerjaan untuk tugas kuliah berikut:\n\n` +
+      `📌 *Judul Tugas:* ${task.title}\n` +
+      `📚 *Mata Kuliah:* ${task.subject || 'Umum'}\n` +
+      `${task.due_date ? `⏰ *Tenggat:* ${task.due_date}\n` : ''}` +
+      `${task.subtasks && task.subtasks.length > 0 ? `\n📋 *Langkah/Subtasks:*\n${task.subtasks.map((st, i) => `${i + 1}. ${st.title}`).join('\n')}\n` : ''}` +
+      `${task.notes ? `\n📝 *Petunjuk & Catatan Soal:*\n${task.notes}\n` : ''}` +
+      `\nTolong berikan penjelasan yang mudah dipahami, sistematis, dan langsung bisa kupraktekkan ya!`;
+
+    navigation.navigate('Main', {
+      screen: 'Chat',
+      params: {
+        initialMessage: taskContext,
+        autoSend: true,
+        timestamp: Date.now(),
+      },
+    });
   };
 
   // Focus Task in Pomodoro Timer
@@ -659,6 +963,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
     setEditPriority(task.priority || 'medium');
     setEditDueDate(task.due_date || '');
     setEditNotes(task.notes || '');
+    setEditTaskAttachments(task.attachments || []);
   };
 
   // Save Edit Task
@@ -675,11 +980,12 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
       priority: editPriority,
       due_date: editDueDate.trim() || null,
       notes: editNotes.trim(),
+      attachments: editTaskAttachments.length > 0 ? editTaskAttachments : undefined,
     };
 
     const updated = tasks.map(t => (t.id === editingTask.id ? updatedTask : t));
     setTasks(updated);
-    handleSaveTaskNotes(editingTask.id, editNotes.trim());
+    handleSaveTaskNotes(editingTask.id, editNotes.trim(), editTaskAttachments);
     if (updatedTask.due_date && !updatedTask.is_completed) {
       scheduleTaskDeadlineNotification(updatedTask);
     } else {
@@ -939,6 +1245,39 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
 
           {/* Controls Area (Clean Search Bar + Filter Pills) */}
           <View style={styles.controlsArea}>
+
+            {/* Active Boss Raid Banner in Study Notes */}
+            {activeBossEvent && (
+              <TouchableOpacity
+                style={[
+                  styles.notesBossRaidBanner,
+                  { backgroundColor: (activeBossEvent.color || '#DC2626') + '15', borderColor: activeBossEvent.color || '#DC2626' }
+                ]}
+                onPress={handleChallengeBoss}
+                activeOpacity={0.85}
+              >
+                <View style={[styles.notesBossRaidIcon, { backgroundColor: (activeBossEvent.color || '#DC2626') + '25' }]}>
+                  <Text style={{ fontSize: 20 }}>{activeBossEvent.emoji || '⚔️'}</Text>
+                </View>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={[styles.notesBossRaidTitle, { color: activeBossEvent.color || '#DC2626' }]}>
+                      Tantangan Event: {activeBossEvent.name}
+                    </Text>
+                    <View style={[styles.notesBossRaidBadge, { backgroundColor: activeBossEvent.color || '#DC2626' }]}>
+                      <Text style={styles.notesBossRaidBadgeText}>RAID</Text>
+                    </View>
+                  </View>
+                  <Text style={[styles.notesBossRaidSub, { color: theme.subtext }]} numberOfLines={1}>
+                    Lawan Boss dengan kuis AI dari seluruh catatanmu! (+{activeBossEvent.rewards.xp} XP)
+                  </Text>
+                </View>
+                <View style={[styles.notesBossRaidPlayBtn, { backgroundColor: activeBossEvent.color || '#DC2626' }]}>
+                  <Ionicons name="flash" size={12} color="#FFFFFF" />
+                  <Text style={styles.notesBossRaidPlayBtnText}>Lawan!</Text>
+                </View>
+              </TouchableOpacity>
+            )}
 
             {/* Dedicated Search Input Bar */}
             <View style={[styles.searchBar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
@@ -1340,8 +1679,78 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                     ))}
                   </View>
 
+                  {/* AI Quick Soal Importer Action Bar */}
+                  <View style={{ marginTop: 8, marginBottom: 4 }}>
+                    <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>
+                      Ekstrak Soal Otomatis dengan AI:
+                    </Text>
+                    <View style={styles.aiImportActionRow}>
+                      <TouchableOpacity
+                        style={[
+                          styles.aiImportBtn,
+                          { backgroundColor: isLightMode ? '#EFF6FF' : '#172554', borderColor: isLightMode ? '#BFDBFE' : '#1E40AF' },
+                          extractingTaskNotes && { opacity: 0.6 }
+                        ]}
+                        onPress={handlePickDocumentAndExtract}
+                        disabled={extractingTaskNotes}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="document-text" size={13} color={isLightMode ? '#2563EB' : '#60A5FA'} />
+                        <Text style={[styles.aiImportBtnText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>
+                          Impor Dokumen (PDF/Word/TXT)
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.aiImportBtn,
+                          { backgroundColor: isLightMode ? '#FEF3C7' : '#2D2006', borderColor: isLightMode ? '#FDE68A' : '#78350F' },
+                          extractingTaskNotes && { opacity: 0.6 }
+                        ]}
+                        onPress={handlePickPhotosAndExtract}
+                        disabled={extractingTaskNotes}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="images" size={13} color={isLightMode ? '#D97706' : '#FBBF24'} />
+                        <Text style={[styles.aiImportBtnText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>
+                          Impor Foto Soal
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.aiImportBtnSmall,
+                          { backgroundColor: theme.cardInner, borderColor: theme.border },
+                          extractingTaskNotes && { opacity: 0.6 }
+                        ]}
+                        onPress={handleTakePhotoAndExtract}
+                        disabled={extractingTaskNotes}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name="camera" size={13} color={theme.accentLight} />
+                        <Text style={[styles.aiImportBtnSmallText, { color: theme.text }]}>Kamera</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {extractingTaskNotes && (
+                      <View style={[styles.aiExtractingBanner, { backgroundColor: isLightMode ? '#FEF3C7' : '#451A03', borderColor: isLightMode ? '#FDE68A' : '#78350F' }]}>
+                        <ActivityIndicator size="small" color={isLightMode ? '#D97706' : '#FBBF24'} />
+                        <Text style={[styles.aiExtractingBannerText, { color: isLightMode ? '#92400E' : '#FEF3C7' }]}>
+                          AI sedang membaca & menuliskan ulang soal ke format rapi...
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+
                   {/* Task Notes / Lembar Kerja */}
-                  <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Catatan / Lembar Tugas (Opsional):</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 4 }}>
+                    <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>Catatan / Lembar Tugas (Opsional):</Text>
+                    {newTaskNotes.trim().length > 0 && (
+                      <TouchableOpacity onPress={() => setNewTaskNotes('')} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                        <Text style={{ fontSize: 10.5, color: '#EF4444', fontWeight: '600' }}>Hapus Lembar</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
                   <TextInput
                     style={[styles.taskNotesFormInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
                     placeholder="Tulis instruksi soal dosen, draft jawaban, atau catatan referensi..."
@@ -1349,7 +1758,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                     value={newTaskNotes}
                     onChangeText={setNewTaskNotes}
                     multiline
-                    numberOfLines={3}
+                    numberOfLines={4}
                   />
 
                   <TouchableOpacity style={[styles.saveTaskBtn, { backgroundColor: theme.primary }]} onPress={handleAddTask}>
@@ -2009,7 +2418,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                 value={editNotes}
                 onChangeText={setEditNotes}
                 multiline
-                numberOfLines={3}
+                numberOfLines={4}
               />
 
               <View style={styles.modalActionsRow}>
@@ -2060,6 +2469,34 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
         onClose={() => setActiveWorkpadTask(null)}
         onSaveNotes={handleSaveTaskNotes}
       />
+
+      {/* Grand Boss Raid Battle Modal */}
+      <QuizBattleModal
+        visible={showBossBattleModal}
+        onClose={() => setShowBossBattleModal(false)}
+        noteTitle={activeBossEvent?.name || 'Sphinx Pengetahuan'}
+        subject={activeBossEvent?.title || 'Boss Event Mingguan'}
+        quizQuestions={bossQuizQuestions}
+        onBattleWon={handleBossBattleWon}
+      />
+
+      {/* Loading Boss Raid Quiz Modal */}
+      <Modal visible={loadingBossBattle} transparent animationType="fade">
+        <View style={styles.bossLoadingOverlay}>
+          <View style={[styles.bossLoadingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+            <View style={[styles.bossLoadingIconCircle, { backgroundColor: (activeBossEvent?.color || '#DC2626') + '25' }]}>
+              <Text style={{ fontSize: 32 }}>{activeBossEvent?.emoji || '⚔️'}</Text>
+            </View>
+            <Text style={[styles.bossLoadingTitle, { color: theme.text }]}>
+              Mempersiapkan Arena Boss!
+            </Text>
+            <Text style={[styles.bossLoadingSub, { color: theme.subtext }]}>
+              AI sedang meramu soal pertarungan dari seluruh catatan kuliahmu untuk menantang {activeBossEvent?.name || 'Boss Event'}...
+            </Text>
+            <ActivityIndicator size="large" color={activeBossEvent?.color || theme.accentLight} style={{ marginTop: 6 }} />
+          </View>
+        </View>
+      </Modal>
 
       </View>
     </SafeAreaView>
@@ -3332,5 +3769,137 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     lineHeight: 17,
     flex: 1,
+  },
+  aiImportActionRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginBottom: 6,
+  },
+  aiImportBtn: {
+    flex: 1,
+    minWidth: 140,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  aiImportBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  aiImportBtnSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  aiImportBtnSmallText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  aiExtractingBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginTop: 4,
+  },
+  aiExtractingBannerText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+    flex: 1,
+  },
+  notesBossRaidBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 12,
+    borderRadius: 14,
+    borderWidth: 1.5,
+    gap: 10,
+    marginBottom: 10,
+  },
+  notesBossRaidIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notesBossRaidTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  notesBossRaidBadge: {
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  notesBossRaidBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '900',
+  },
+  notesBossRaidSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  notesBossRaidPlayBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  notesBossRaidPlayBtnText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '800',
+  },
+  bossLoadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.78)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  bossLoadingCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 24,
+    alignItems: 'center',
+    maxWidth: 360,
+    width: '100%',
+    gap: 12,
+  },
+  bossLoadingIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  bossLoadingTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  bossLoadingSub: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

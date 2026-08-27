@@ -1,4 +1,4 @@
-import { Platform } from 'react-native';
+﻿import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { StudentTask, DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
 
@@ -529,8 +529,8 @@ export function notifyLuckyHourActivated() {
 export function notifyLootChestsWaiting(chestCount: number) {
   if (chestCount <= 0) return;
   sendImmediateNotification(
-    '📦 Peti Misterius Menunggumu!',
-    `Kamu punya ${chestCount} peti belum dibuka! Buka sekarang untuk kesempatan dapat Gelar RPG & Tetes Air.`
+    '📦 Kotak Hadiah Menunggumu!',
+    `Kamu punya ${chestCount} Hadiah belum dibuka! Buka sekarang untuk kesempatan dapat Gelar RPG & Tetes Air.`
   );
 }
 

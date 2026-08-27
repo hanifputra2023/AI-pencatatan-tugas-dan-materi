@@ -1,19 +1,32 @@
 import React, { useState } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity,
-  ScrollView, StyleSheet, ActivityIndicator, Image
+  ScrollView, StyleSheet, ActivityIndicator, Image, Platform
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import { useTheme } from '../contexts/ThemeContext';
 import { useResponsive } from '../hooks/useResponsive';
 import { sendMessageToGemini } from '../lib/gemini';
 import { compressImage, uriToBase64 } from '../lib/imageCompressor';
+import { processPickedFile } from '../lib/fileReader';
 import { showAlert } from '../lib/alert';
 import { ChatAttachment } from '../types';
 import MarkdownRenderer from './MarkdownRenderer';
 
-export type ScanRewriteMode = 'smart_rewrite' | 'ocr_exact' | 'summary';
+export type ScanRewriteMode = 'smart_rewrite' | 'ocr_exact' | 'summary' | 'qa_breakdown';
+
+export interface ScannedSourceItem {
+  id: string;
+  name: string;
+  type: 'image' | 'document';
+  uri: string;
+  mimeType?: string;
+  base64?: string;
+  textContent?: string;
+  size?: number;
+}
 
 interface ScanNoteModalProps {
   visible: boolean;
@@ -39,10 +52,7 @@ export default function ScanNoteModal({
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
 
-  const [imageUri, setImageUri] = useState<string | null>(null);
-  const [imageBase64, setImageBase64] = useState<string | null>(null);
-  const [imageMime, setImageMime] = useState<string>('image/jpeg');
-
+  const [sourceItems, setSourceItems] = useState<ScannedSourceItem[]>([]);
   const [scanMode, setScanMode] = useState<ScanRewriteMode>('smart_rewrite');
   const [customInstruction, setCustomInstruction] = useState('');
   const [loading, setLoading] = useState(false);
@@ -54,9 +64,7 @@ export default function ScanNoteModal({
   const [resultTab, setResultTab] = useState<'preview' | 'raw'>('preview');
 
   const resetAll = () => {
-    setImageUri(null);
-    setImageBase64(null);
-    setImageMime('image/jpeg');
+    setSourceItems([]);
     setAiResultText(null);
     setSuggestedTitle('');
     setSuggestedSubject('');
@@ -69,22 +77,42 @@ export default function ScanNoteModal({
     onClose();
   };
 
-  const pickFromGallery = async () => {
+  const pickImagesFromGallery = async () => {
     try {
       const res = await ImagePicker.launchImageLibraryAsync({
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsEditing: false,
+        allowsMultipleSelection: true,
         quality: 0.85,
+        selectionLimit: 10,
       });
 
-      if (!res.canceled && res.assets && res.assets[0]) {
-        const asset = res.assets[0];
-        const compressedUri = await compressImage(asset.uri, { maxWidth: 1200, quality: 0.7 });
-        const b64 = await uriToBase64(compressedUri);
-        setImageUri(compressedUri);
-        setImageBase64(b64);
-        setImageMime(asset.mimeType || 'image/jpeg');
-        setAiResultText(null);
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const newItems: ScannedSourceItem[] = [];
+        for (const asset of res.assets) {
+          try {
+            const compressedUri = await compressImage(asset.uri, { maxWidth: 1200, quality: 0.7 });
+            const b64 = await uriToBase64(compressedUri);
+            newItems.push({
+              id: 'img_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+              name: asset.fileName || `Foto_${newItems.length + 1}.jpg`,
+              type: 'image',
+              uri: compressedUri,
+              base64: b64,
+              mimeType: asset.mimeType || 'image/jpeg',
+              size: asset.fileSize,
+            });
+          } catch (err) {
+            newItems.push({
+              id: 'img_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+              name: asset.fileName || 'Foto.jpg',
+              type: 'image',
+              uri: asset.uri,
+              mimeType: asset.mimeType || 'image/jpeg',
+              size: asset.fileSize,
+            });
+          }
+        }
+        setSourceItems(prev => [...prev, ...newItems]);
       }
     } catch (e: any) {
       showAlert('Gagal Membuka Galeri', e.message || 'Terjadi kesalahan saat memilih foto.');
@@ -107,19 +135,70 @@ export default function ScanNoteModal({
         const asset = res.assets[0];
         const compressedUri = await compressImage(asset.uri, { maxWidth: 1200, quality: 0.7 });
         const b64 = await uriToBase64(compressedUri);
-        setImageUri(compressedUri);
-        setImageBase64(b64);
-        setImageMime('image/jpeg');
-        setAiResultText(null);
+        const newItem: ScannedSourceItem = {
+          id: 'cam_' + Date.now(),
+          name: `Foto Kamera (${new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })})`,
+          type: 'image',
+          uri: compressedUri,
+          base64: b64,
+          mimeType: 'image/jpeg',
+          size: asset.fileSize,
+        };
+        setSourceItems(prev => [...prev, newItem]);
       }
     } catch (e: any) {
       showAlert('Gagal Membuka Kamera', e.message || 'Terjadi kesalahan saat mengaktifkan kamera.');
     }
   };
 
+  const pickDocuments = async () => {
+    try {
+      const res = await DocumentPicker.getDocumentAsync({
+        type: '*/*',
+        multiple: true,
+        copyToCacheDirectory: true,
+      });
+
+      if (!res.canceled && res.assets && res.assets.length > 0) {
+        const newItems: ScannedSourceItem[] = [];
+        for (const file of res.assets) {
+          try {
+            const processed = await processPickedFile(file);
+            newItems.push({
+              id: 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+              name: file.name || 'Dokumen',
+              type: processed.type === 'image' ? 'image' : 'document',
+              uri: file.uri,
+              base64: processed.base64,
+              textContent: processed.textContent,
+              mimeType: processed.mimeType,
+              size: file.size,
+            });
+          } catch (err) {
+            newItems.push({
+              id: 'doc_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6),
+              name: file.name || 'Dokumen',
+              type: 'document',
+              uri: file.uri,
+              mimeType: file.mimeType,
+              size: file.size,
+            });
+          }
+        }
+        setSourceItems(prev => [...prev, ...newItems]);
+      }
+    } catch (e: any) {
+      showAlert('Gagal Memilih Dokumen', e.message || 'Terjadi kesalahan saat memilih dokumen.');
+    }
+  };
+
+  const removeSourceItem = (id: string) => {
+    setSourceItems(prev => prev.filter(item => item.id !== id));
+  };
+
   const handleAnalyzeWithAI = async () => {
-    if (!imageBase64) {
-      showAlert('Pilih Foto Dulu', 'Silakan ambil foto atau pilih gambar materi terlebih dahulu.');
+    if (sourceItems.length === 0) {
+      showAlert('Pilih Dokumen / Foto', 'Silakan unggah dokumen (PDF, Word, TXT, dll) atau foto materi terlebih dahulu.');
       return;
     }
 
@@ -127,43 +206,51 @@ export default function ScanNoteModal({
     try {
       let promptTask = '';
       if (scanMode === 'smart_rewrite') {
-        promptTask = `Tugasmu adalah menganalisis foto materi pelajaran/kuliah ini dan menuliskan ulang (Smart Rewrite) menjadi catatan belajar yang SANGAT RAPI, terstruktur, lengkap, dan berformat Markdown indah.
-- Gunakan Judul & Subjudul (#, ##, ###) yang jelas.
-- Rombak poin-poin panjang menjadi bullet points (-) yang mudah dihafal.
-- Tebalkan (**kata kunci**) istilah atau definisi penting.
-- Tuliskan rumus matematika atau potongan kode jika ada dengan format blok yang rapi.
-- Perbaiki tulisan yang tidak rapi, typo, atau kalimat terpotong dari foto aslinya agar enak dibaca.`;
+        promptTask = `Tugasmu adalah menganalisis seluruh dokumen dan foto materi pelajaran/kuliah ini, lalu MENULISKAN ULANG (Smart Rewrite) menjadi catatan belajar yang SANGAT RAPI, terstruktur, komprehensif, dan berformat Markdown yang indah.
+- Gunakan Hierarki Judul & Subjudul (#, ##, ###) yang jelas.
+- Rombak paragraf panjang menjadi poin-poin penjelasan (-) yang terstruktur dan mudah dipahami.
+- Tebalkan (**istilah penting / definisi**) agar mencolok.
+- Tuliskan rumus matematika, persamaan, atau kode pemrograman dalam blok format yang rapi.
+- Perbaiki typo, kalimat terpotong, atau bahasa yang sulit dimengerti dari file aslinya agar enak dibaca.`;
       } else if (scanMode === 'ocr_exact') {
-        promptTask = `Tugasmu adalah melakukan OCR Transkripsi Persis dari foto ini.
-- Salin seluruh teks yang terbaca pada foto secara lengkap dan akurat apa adanya.
-- Jangan kurangi informasi atau merubah kata aslinya.`;
+        promptTask = `Tugasmu adalah melakukan ekstraksi teks persis (Transkripsi Lengkap) dari seluruh materi dokumen dan foto ini.
+- Salin seluruh teks yang terbaca secara lengkap, sistematis, dan akurat apa adanya tanpa memotong informasi penting.`;
+      } else if (scanMode === 'qa_breakdown') {
+        promptTask = `Tugasmu adalah menganalisis dokumen dan materi ini, lalu menyusunnya menjadi format "Tanya Jawab & Penjelasan Konsep" (Q&A Study Guide) yang sangat efektif untuk belajar persiapan ujian.`;
       } else {
-        promptTask = `Tugasmu adalah membaca materi pada foto ini lalu membuatkan RANGKUMAN INTISARI konsep utama dan poin-poin paling penting/esensial dalam format Markdown ringkas, padat, dan jelas.`;
+        promptTask = `Tugasmu adalah membaca seluruh materi dokumen dan foto ini lalu membuatkan RANGKUMAN INTISARI konsep utama dan poin-poin paling esensial dalam format Markdown ringkas, padat, dan jelas.`;
       }
 
       if (customInstruction.trim()) {
-        promptTask += `\n\nInstruksi Khusus Tambahan dari Siswa: "${customInstruction.trim()}"`;
+        promptTask += `\n\nInstruksi Khusus Tambahan dari Mahasiswa: "${customInstruction.trim()}"`;
       }
 
-      promptTask += `\n\nFormat output WAJIB diawali dengan 2 baris metadata persis seperti ini (tanpa tanda kutip):
-JUDUL_DISARANKAN: [Tuliskan judul catatan yang singkat dan representatif]
+      promptTask += `\n\nATURAN MUTLAK & FORMAT JAWABAN:
+1. JANGAN PERNAH menuliskan pendahuluan tentang dirimu sebagai AI ("Sebagai asisten AI...", "Tugas utama saya..."), jangan menyalin ulang instruksi sistem, dan jangan membuat basa-basi.
+2. ANALISIS VISUAL GAMBAR & DIAGRAM: Jika di dalam dokumen atau foto terdapat GAMBAR, DIAGRAM, GRAFIK, FLOWCHART, SKEMA RANGKAIAN, atau TABEL, baca dan jelaskan makna konsep visual tersebut secara mendalam ke dalam catatan.
+3. LANGSUNG tuliskan isi materi catatan belajar dari dokumen/foto yang dilampirkan.
+4. Jawabanmu WAJIB diawali dengan 2 baris metadata persis seperti ini:
+JUDUL_DISARANKAN: [Tuliskan judul catatan yang singkat, jelas, dan representatif]
 MATA_KULIAH_DISARANKAN: [Tuliskan nama mata pelajaran atau mata kuliah yang paling sesuai]
 ---
-[Di bawah garis pemisah ini, langsung tuliskan seluruh isi materi catatan sesuai instruksi di atas tanpa basa-basi pembuka ataupun penutup]`;
+[Langsung tuliskan seluruh isi materi catatan kuliah sesuai topik dokumen di sini dalam format Markdown]`;
 
-      const academicSystemInstruction = `Kamu adalah Asisten AI Vision Akademik handal. Kamu sangat mahir membaca papan tulis, buku teks, tulisan tangan, serta slide perkuliahan dan mengubahnya menjadi catatan belajar mahasiswa/siswa yang berkualitas tinggi.`;
+      const academicSystemInstruction = `Kamu adalah Asisten AI Pencatat Materi Kuliah & Vision Specialist. Tugasmu adalah membaca seluruh teks, gambar, diagram, dan formula pada dokumen atau foto yang dilampirkan dan menuliskannya kembali menjadi catatan Markdown berkualitas tinggi. JANGAN PERNAH memperkenalkan diri atau mengulang instruksi.`;
 
-      const attachment: ChatAttachment = {
-        type: 'image',
-        uri: imageUri || '',
-        mimeType: imageMime,
-        base64: imageBase64,
-      };
+      // Map all source items to chat attachments
+      const chatAttachments: ChatAttachment[] = sourceItems.map(item => ({
+        type: item.type,
+        uri: item.uri,
+        name: item.name,
+        mimeType: item.mimeType || (item.type === 'image' ? 'image/jpeg' : 'application/pdf'),
+        base64: item.base64,
+        textContent: item.textContent,
+      }));
 
       const aiReply = await sendMessageToGemini(
         [],
         promptTask,
-        attachment,
+        chatAttachments,
         academicSystemInstruction,
         { maxTokens: 4096 }
       );
@@ -206,11 +293,11 @@ MATA_KULIAH_DISARANKAN: [Tuliskan nama mata pelajaran atau mata kuliah yang pali
         }
       }
 
-      setSuggestedTitle(parsedTitle);
+      setSuggestedTitle(parsedTitle || (sourceItems[0] ? sourceItems[0].name.replace(/\.[^/.]+$/, '') : 'Catatan Kuliah'));
       setSuggestedSubject(matchedSubject || parsedSubject);
       setAiResultText(cleanMarkdown);
     } catch (e: any) {
-      showAlert('Gagal Menganalisis Foto', e.message || 'Terjadi kesalahan saat AI memproses gambar.');
+      showAlert('Gagal Menganalisis Dokumen', e.message || 'Terjadi kesalahan saat AI memproses dokumen.');
     } finally {
       setLoading(false);
     }
@@ -234,278 +321,316 @@ MATA_KULIAH_DISARANKAN: [Tuliskan nama mata pelajaran atau mata kuliah yang pali
       animationType="slide"
       onRequestClose={handleClose}
     >
-      <View style={styles.backdrop}>
-        <View
-          style={[
-            styles.modalContainer,
-            isWide && styles.modalContainerWide,
-            { backgroundColor: theme.card, borderColor: theme.border }
-          ]}
-        >
+      <View style={styles.overlay}>
+        <View style={[styles.modalCard, { backgroundColor: theme.card, borderColor: theme.border }, isWide && styles.modalCardWide]}>
+          
           {/* Header */}
-          <View style={[styles.modalHeader, { borderBottomColor: theme.border }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-              <View style={[styles.iconWrap, { backgroundColor: theme.accentBg }]}>
-                <Ionicons name="camera" size={18} color={theme.accentLight} />
+          <View style={[styles.headerRow, { borderBottomColor: theme.border }]}>
+            <View style={styles.headerTitleWrap}>
+              <View style={[styles.headerIconBox, { backgroundColor: isLightMode ? '#EFF6FF' : '#172554' }]}>
+                <Ionicons name="sparkles" size={18} color={isLightMode ? '#2563EB' : '#60A5FA'} />
               </View>
               <View>
-                <Text style={[styles.modalTitle, { color: theme.text }]}>Scan Foto Materi AI</Text>
-                <Text style={[styles.modalSub, { color: theme.muted }]}>
-                  Analisis gambar & rewrite otomatis ke catatan
+                <Text style={[styles.headerTitle, { color: theme.text }]}>
+                  {aiResultText ? 'Hasil Tulis Ulang Catatan AI' : 'AI Scan & Tulis Ulang Materi'}
+                </Text>
+                <Text style={[styles.headerSubtitle, { color: theme.subtext }]}>
+                  {aiResultText ? 'Periksa materi hasil analisis AI sebelum diterapkan ke catatan' : 'Upload dokumen atau foto materi untuk dianalisis & ditulis rapi oleh AI'}
                 </Text>
               </View>
             </View>
-            <TouchableOpacity onPress={handleClose} style={[styles.closeBtn, { backgroundColor: theme.cardInner }]}>
+
+            <TouchableOpacity
+              onPress={handleClose}
+              style={[styles.closeBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            >
               <Ionicons name="close" size={18} color={theme.subtext} />
             </TouchableOpacity>
           </View>
 
-          <ScrollView style={styles.modalBody} showsVerticalScrollIndicator={false} keyboardShouldPersistTaps="handled">
-            {!aiResultText ? (
-              <>
-                {/* Step 1: Image Selector / Preview */}
-                <Text style={[styles.sectionLabel, { color: theme.text }]}>1. Foto Materi Catatan / Buku / Papan Tulis:</Text>
-                {imageUri ? (
-                  <View style={[styles.previewCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                    <Image source={{ uri: imageUri }} style={styles.imageThumbnail} resizeMode="contain" />
-                    <View style={styles.previewActions}>
-                      <TouchableOpacity style={[styles.smallBtn, { backgroundColor: theme.card, borderColor: theme.border }]} onPress={pickFromGallery}>
-                        <Ionicons name="images-outline" size={13} color={theme.accentLight} />
-                        <Text style={[styles.smallBtnText, { color: theme.accentLight }]}>Ganti Foto</Text>
-                      </TouchableOpacity>
-                      <TouchableOpacity style={[styles.smallBtnDanger, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1215', borderColor: isLightMode ? '#FECACA' : '#5A1B22' }]} onPress={() => setImageUri(null)}>
-                        <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                        <Text style={[styles.smallBtnDangerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                ) : (
-                  <View style={styles.pickBtnRow}>
-                    <TouchableOpacity
-                      style={[styles.pickChoiceBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                      onPress={takePhoto}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.pickIconCircle, { backgroundColor: isLightMode ? '#E0E7FF' : '#1E293B' }]}>
-                        <Ionicons name="camera" size={22} color={theme.accentLight} />
-                      </View>
-                      <Text style={[styles.pickChoiceTitle, { color: theme.text }]}>Kamera Langsung</Text>
-                      <Text style={[styles.pickChoiceSub, { color: theme.muted }]}>Foto papan tulis / buku sekarang</Text>
-                    </TouchableOpacity>
+          {/* PHASE 1: Upload & Configuration Screen */}
+          {!aiResultText ? (
+            <ScrollView
+              style={styles.modalBodyScroll}
+              contentContainerStyle={styles.modalBodyContent}
+              showsVerticalScrollIndicator={false}
+            >
+              {/* Step 1: Upload Source Buttons */}
+              <View style={styles.sectionWrap}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                  1. Pilih Dokumen atau Foto Materi:
+                </Text>
 
-                    <TouchableOpacity
-                      style={[styles.pickChoiceBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                      onPress={pickFromGallery}
-                      activeOpacity={0.7}
-                    >
-                      <View style={[styles.pickIconCircle, { backgroundColor: isLightMode ? '#ECFDF5' : '#132A22' }]}>
-                        <Ionicons name="images" size={22} color="#10B981" />
-                      </View>
-                      <Text style={[styles.pickChoiceTitle, { color: theme.text }]}>Pilih dari Galeri</Text>
-                      <Text style={[styles.pickChoiceSub, { color: theme.muted }]}>Upload foto / screenshot materi</Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
-                {/* Step 2: Mode Selection */}
-                <Text style={[styles.sectionLabel, { color: theme.text, marginTop: 18 }]}>2. Pilih Mode Analisis AI:</Text>
-                <View style={styles.modeContainer}>
+                <View style={styles.uploadButtonsRow}>
                   <TouchableOpacity
-                    style={[
-                      styles.modeCard,
-                      { backgroundColor: theme.cardInner, borderColor: theme.border },
-                      scanMode === 'smart_rewrite' && [styles.modeCardActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                    ]}
-                    onPress={() => setScanMode('smart_rewrite')}
+                    style={[styles.uploadActionBtn, { backgroundColor: isLightMode ? '#F0F9FF' : '#082F49', borderColor: isLightMode ? '#BAE6FD' : '#0369A1' }]}
+                    onPress={pickDocuments}
+                    disabled={loading}
+                    activeOpacity={0.7}
                   >
-                    <View style={styles.modeHeader}>
-                      <Ionicons name="sparkles" size={16} color={scanMode === 'smart_rewrite' ? theme.accentLight : theme.muted} />
-                      <Text style={[styles.modeTitle, { color: theme.text }, scanMode === 'smart_rewrite' && { color: theme.accentLight, fontWeight: '700' }]}>
-                        Smart Note Rewrite ✨
+                    <Ionicons name="document-text" size={20} color={isLightMode ? '#0284C7' : '#38BDF8'} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.uploadActionBtnTitle, { color: isLightMode ? '#0369A1' : '#E0F2FE' }]}>
+                        Upload Dokumen / PDF
                       </Text>
-                      <View style={[styles.badgeRec, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618' }]}>
-                        <Text style={[styles.badgeRecText, { color: isLightMode ? '#15803D' : '#34D399' }]}>Disarankan</Text>
-                      </View>
+                      <Text style={[styles.uploadActionBtnSub, { color: isLightMode ? '#0284C7' : '#7DD3FC' }]}>
+                        PDF, Word, TXT, Excel, Code, dll
+                      </Text>
                     </View>
-                    <Text style={[styles.modeDesc, { color: theme.subtext }]}>
-                      Menyusun ulang materi menjadi catatan Markdown yang terstruktur, lengkap, rapi, dan mudah dipahami.
-                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[
-                      styles.modeCard,
-                      { backgroundColor: theme.cardInner, borderColor: theme.border },
-                      scanMode === 'ocr_exact' && [styles.modeCardActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                    ]}
-                    onPress={() => setScanMode('ocr_exact')}
+                    style={[styles.uploadActionBtn, { backgroundColor: isLightMode ? '#FDF4FF' : '#3B0764', borderColor: isLightMode ? '#F5D0FE' : '#7E22CE' }]}
+                    onPress={pickImagesFromGallery}
+                    disabled={loading}
+                    activeOpacity={0.7}
                   >
-                    <View style={styles.modeHeader}>
-                      <Ionicons name="document-text-outline" size={16} color={scanMode === 'ocr_exact' ? theme.accentLight : theme.muted} />
-                      <Text style={[styles.modeTitle, { color: theme.text }, scanMode === 'ocr_exact' && { color: theme.accentLight, fontWeight: '700' }]}>
-                        OCR Transkripsi Persis 📋
+                    <Ionicons name="images" size={20} color={isLightMode ? '#A855F7' : '#C084FC'} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.uploadActionBtnTitle, { color: isLightMode ? '#7E22CE' : '#FAF5FF' }]}>
+                        Pilih Banyak Foto
+                      </Text>
+                      <Text style={[styles.uploadActionBtnSub, { color: isLightMode ? '#A855F7' : '#E9D5FF' }]}>
+                        Slide kuliah, papan tulis, buku
                       </Text>
                     </View>
-                    <Text style={[styles.modeDesc, { color: theme.subtext }]}>
-                      Menyalin seluruh teks di gambar secara kata-per-kata apa adanya tanpa pengubahan.
-                    </Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={[
-                      styles.modeCard,
-                      { backgroundColor: theme.cardInner, borderColor: theme.border },
-                      scanMode === 'summary' && [styles.modeCardActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                    ]}
-                    onPress={() => setScanMode('summary')}
+                    style={[styles.uploadActionBtnSmall, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={takePhoto}
+                    disabled={loading}
+                    activeOpacity={0.7}
                   >
-                    <View style={styles.modeHeader}>
-                      <Ionicons name="flash-outline" size={16} color={scanMode === 'summary' ? theme.accentLight : theme.muted} />
-                      <Text style={[styles.modeTitle, { color: theme.text }, scanMode === 'summary' && { color: theme.accentLight, fontWeight: '700' }]}>
-                        Rangkum Intisari Kilat ⚡
-                      </Text>
-                    </View>
-                    <Text style={[styles.modeDesc, { color: theme.subtext }]}>
-                      Meringkas poin-poin paling penting dan konsep esensial dari gambar secara cepat.
-                    </Text>
+                    <Ionicons name="camera" size={18} color={theme.accentLight} />
+                    <Text style={[styles.uploadActionBtnSmallText, { color: theme.text }]}>Kamera</Text>
                   </TouchableOpacity>
                 </View>
 
-                {/* Step 3: Optional Instruction */}
-                <Text style={[styles.sectionLabel, { color: theme.text, marginTop: 16 }]}>
-                  3. Instruksi Tambahan (Opsional):
+                {/* Source Items Selected List */}
+                {sourceItems.length > 0 && (
+                  <View style={[styles.selectedItemsCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                    <View style={styles.selectedItemsHeader}>
+                      <Text style={[styles.selectedItemsHeaderText, { color: theme.subtext }]}>
+                        {sourceItems.length} File / Foto Terpilih:
+                      </Text>
+                      <TouchableOpacity onPress={() => setSourceItems([])}>
+                        <Text style={[styles.clearAllText, { color: '#EF4444' }]}>Hapus Semua</Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.selectedItemsScroll}>
+                      {sourceItems.map(item => (
+                        <View key={item.id} style={[styles.itemPill, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                          {item.type === 'image' && item.uri ? (
+                            <Image source={{ uri: item.uri }} style={styles.itemPillThumb} />
+                          ) : (
+                            <Ionicons name="document-text" size={16} color={theme.accentLight} />
+                          )}
+                          <Text style={[styles.itemPillName, { color: theme.text }]} numberOfLines={1}>
+                            {item.name}
+                          </Text>
+                          <TouchableOpacity onPress={() => removeSourceItem(item.id)} hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}>
+                            <Ionicons name="close-circle" size={16} color={theme.muted} />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+              </View>
+
+              {/* Step 2: Choose AI Rewrite Style */}
+              <View style={styles.sectionWrap}>
+                <Text style={[styles.sectionTitle, { color: theme.text }]}>
+                  2. Pilih Gaya Penulisan Ulang AI:
+                </Text>
+
+                <View style={styles.modeGrid}>
+                  {[
+                    {
+                      key: 'smart_rewrite' as ScanRewriteMode,
+                      title: '✨ Smart Rewrite (Rapi & Lengkap)',
+                      desc: 'Merombak materi menjadi catatan kuliah Markdown yang sangat terstruktur, jelas, dan berbobot.',
+                    },
+                    {
+                      key: 'summary' as ScanRewriteMode,
+                      title: '⚡ Rangkuman Intisari Ujian',
+                      desc: 'Meringkas materi hanya pada konsep kunci dan poin-poin paling sering keluar di ujian.',
+                    },
+                    {
+                      key: 'qa_breakdown' as ScanRewriteMode,
+                      title: '🎯 Tanya Jawab & Panduan Ujian',
+                      desc: 'Mengubah materi menjadi format Q&A interaktif untuk menguji pemahaman konsep.',
+                    },
+                    {
+                      key: 'ocr_exact' as ScanRewriteMode,
+                      title: '📄 Transkripsi Lengkap (Persis)',
+                      desc: 'Menyalin seluruh isi teks dokumen/foto secara akurat apa adanya tanpa pengurangan.',
+                    },
+                  ].map(m => {
+                    const isSel = scanMode === m.key;
+                    return (
+                      <TouchableOpacity
+                        key={m.key}
+                        style={[
+                          styles.modeOptionCard,
+                          { backgroundColor: theme.cardInner, borderColor: theme.border },
+                          isSel && [styles.modeOptionCardActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                        ]}
+                        onPress={() => setScanMode(m.key)}
+                        activeOpacity={0.7}
+                      >
+                        <View style={styles.modeOptionHeader}>
+                          <Text style={[styles.modeOptionTitle, { color: theme.text }, isSel && { color: theme.accentLight, fontWeight: '700' }]}>
+                            {m.title}
+                          </Text>
+                          {isSel && <Ionicons name="checkmark-circle" size={16} color={theme.accentLight} />}
+                        </View>
+                        <Text style={[styles.modeOptionDesc, { color: theme.subtext }]}>{m.desc}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Step 3: Optional Instruction & Trigger Button */}
+              <View style={styles.sectionWrap}>
+                <Text style={[styles.sectionTitle, { color: theme.subtext }]}>
+                  Instruksi Tambahan (Opsional):
                 </Text>
                 <TextInput
-                  style={[styles.customInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
-                  placeholder="Misal: 'Fokuskan ke rumus Bab 3' atau 'Jelaskan istilah asingnya'..."
+                  style={[styles.instructionInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text }]}
+                  placeholder="Contoh: Fokuskan pada rumus fisika bab 2, gunakan bahasa yang sangat santai..."
                   placeholderTextColor={theme.muted}
                   value={customInstruction}
                   onChangeText={setCustomInstruction}
                 />
 
-                {/* Action Trigger */}
                 <TouchableOpacity
                   style={[
-                    styles.processBtn,
+                    styles.analyzeBtn,
                     { backgroundColor: theme.primary },
-                    (!imageUri || loading) && { opacity: 0.6 }
+                    (sourceItems.length === 0 || loading) && { opacity: 0.6 }
                   ]}
                   onPress={handleAnalyzeWithAI}
-                  disabled={!imageUri || loading}
+                  disabled={sourceItems.length === 0 || loading}
+                  activeOpacity={0.8}
                 >
                   {loading ? (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                      <Text style={styles.processBtnText}>Sedang Menganalisis & Rewrite Materi...</Text>
+                      <ActivityIndicator color="#FFFFFF" size="small" />
+                      <Text style={styles.analyzeBtnText}>AI Sedang Membaca & Menulis Ulang Materi...</Text>
                     </View>
                   ) : (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                      <Ionicons name="sparkles" size={17} color="#FFFFFF" />
-                      <Text style={styles.processBtnText}>Mulai Analisis & Tulis Catatan</Text>
+                      <Ionicons name="sparkles" size={18} color="#FFFFFF" />
+                      <Text style={styles.analyzeBtnText}>
+                        Analisis & Tulis Ulang Catatan ({sourceItems.length} File)
+                      </Text>
                     </View>
                   )}
                 </TouchableOpacity>
-              </>
-            ) : (
-              /* Step 4: Review & Apply Result */
-              <View style={styles.resultContainer}>
-                {/* Result Meta Banner */}
-                <View style={[styles.resultMetaCard, { backgroundColor: isLightMode ? '#EFF6FF' : '#101B2E', borderColor: isLightMode ? '#BFDBFE' : '#1E355B' }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                    <Ionicons name="checkmark-circle" size={18} color="#3B82F6" />
-                    <Text style={[styles.resultMetaTitle, { color: isLightMode ? '#1D4ED8' : theme.text }]}>
-                      Hasil Analisis AI Selesai!
-                    </Text>
-                  </View>
-                  {suggestedTitle ? (
-                    <Text style={[styles.resultMetaSub, { color: theme.subtext, marginTop: 4 }]}>
-                      💡 Usulan Judul: <Text style={{ fontWeight: '700', color: isLightMode ? '#1E40AF' : theme.accentLight }}>{suggestedTitle}</Text>
-                    </Text>
-                  ) : null}
+              </View>
+            </ScrollView>
+          ) : (
+            /* PHASE 2: Clean Result Screen */
+            <View style={styles.resultContainer}>
+              {/* Result Meta Bar */}
+              <View style={[styles.resultMetaBar, { backgroundColor: theme.cardInner, borderBottomColor: theme.border }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.resultMetaLabel, { color: theme.muted }]}>Judul Disarankan:</Text>
+                  <Text style={[styles.resultSuggestedTitle, { color: theme.text }]} numberOfLines={1}>
+                    {suggestedTitle || 'Catatan Baru'}
+                  </Text>
                   {suggestedSubject ? (
-                    <Text style={[styles.resultMetaSub, { color: theme.subtext, marginTop: 2 }]}>
-                      📚 Usulan Matkul: <Text style={{ fontWeight: '600', color: theme.text }}>{suggestedSubject}</Text>
-                    </Text>
+                    <View style={[styles.subjectTag, { backgroundColor: theme.accentBg }]}>
+                      <Text style={[styles.subjectTagText, { color: theme.accentLight }]}>
+                        Matkul: {suggestedSubject}
+                      </Text>
+                    </View>
                   ) : null}
                 </View>
 
-                {/* Switch between Markdown View & Raw Text */}
-                <View style={styles.previewToggleRow}>
-                  <Text style={[styles.sectionLabel, { color: theme.text, marginBottom: 0 }]}>Pratinjau Hasil Catatan:</Text>
-                  <View style={[styles.tabMiniWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                    <TouchableOpacity
-                      style={[styles.tabMiniBtn, resultTab === 'preview' && [styles.tabMiniBtnActive, { backgroundColor: theme.card }]]}
-                      onPress={() => setResultTab('preview')}
-                    >
-                      <Text style={[styles.tabMiniText, { color: theme.subtext }, resultTab === 'preview' && { color: theme.accentLight, fontWeight: '700' }]}>
-                        Pratinjau
-                      </Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity
-                      style={[styles.tabMiniBtn, resultTab === 'raw' && [styles.tabMiniBtnActive, { backgroundColor: theme.card }]]}
-                      onPress={() => setResultTab('raw')}
-                    >
-                      <Text style={[styles.tabMiniText, { color: theme.subtext }, resultTab === 'raw' && { color: theme.accentLight, fontWeight: '700' }]}>
-                        Teks Mentah
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                </View>
-
-                <ScrollView
-                  style={[styles.resultContentCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                  contentContainerStyle={styles.resultContentScroll}
-                  nestedScrollEnabled={true}
-                  showsVerticalScrollIndicator={true}
-                >
-                  {resultTab === 'preview' ? (
-                    <MarkdownRenderer content={aiResultText} fontSize={14} textColor={theme.text} />
-                  ) : (
-                    <Text style={[styles.rawTextDisplay, { color: theme.text }]}>{aiResultText}</Text>
-                  )}
-                </ScrollView>
-
-                {/* Apply Buttons */}
-                <View style={styles.applyBtnGroup}>
-                  {hasExistingContent ? (
-                    <>
-                      <TouchableOpacity
-                        style={[styles.applyBtn, { backgroundColor: theme.primary }]}
-                        onPress={() => handleApply('append')}
-                      >
-                        <Ionicons name="add-circle-outline" size={17} color="#FFFFFF" />
-                        <Text style={styles.applyBtnText}>Tambahkan ke Bawah Catatan (Append)</Text>
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        style={[styles.applyBtnOutline, { borderColor: theme.border, backgroundColor: theme.cardInner }]}
-                        onPress={() => handleApply('replace')}
-                      >
-                        <Ionicons name="swap-horizontal-outline" size={17} color={theme.text} />
-                        <Text style={[styles.applyBtnOutlineText, { color: theme.text }]}>Ganti Seluruh Catatan</Text>
-                      </TouchableOpacity>
-                    </>
-                  ) : (
-                    <TouchableOpacity
-                      style={[styles.applyBtn, { backgroundColor: theme.primary }]}
-                      onPress={() => handleApply('replace')}
-                    >
-                      <Ionicons name="checkmark-circle-outline" size={17} color="#FFFFFF" />
-                      <Text style={styles.applyBtnText}>Terapkan ke Catatan Saya</Text>
-                    </TouchableOpacity>
-                  )}
-
+                {/* Tab Switcher */}
+                <View style={styles.tabToggleRow}>
                   <TouchableOpacity
-                    style={[styles.rescanBtn, { borderColor: theme.border }]}
-                    onPress={() => setAiResultText(null)}
+                    style={[styles.tabBtn, resultTab === 'preview' && [styles.tabBtnActive, { backgroundColor: theme.card }]]}
+                    onPress={() => setResultTab('preview')}
                   >
-                    <Ionicons name="refresh-outline" size={15} color={theme.subtext} />
-                    <Text style={[styles.rescanBtnText, { color: theme.subtext }]}>Scan Ulang / Ubah Mode</Text>
+                    <Text style={[styles.tabBtnText, { color: theme.subtext }, resultTab === 'preview' && { color: theme.text, fontWeight: '700' }]}>
+                      Pratinjau
+                    </Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.tabBtn, resultTab === 'raw' && [styles.tabBtnActive, { backgroundColor: theme.card }]]}
+                    onPress={() => setResultTab('raw')}
+                  >
+                    <Text style={[styles.tabBtnText, { color: theme.subtext }, resultTab === 'raw' && { color: theme.text, fontWeight: '700' }]}>
+                      Teks Mentah
+                    </Text>
                   </TouchableOpacity>
                 </View>
               </View>
-            )}
-          </ScrollView>
+
+              {/* Full-Height Scrollable Markdown Preview */}
+              <ScrollView
+                style={styles.previewScroll}
+                contentContainerStyle={styles.previewScrollContent}
+                showsVerticalScrollIndicator={true}
+              >
+                {resultTab === 'preview' ? (
+                  <MarkdownRenderer content={aiResultText} fontSize={14} textColor={theme.text} />
+                ) : (
+                  <Text style={[styles.rawText, { color: theme.text }]} selectable>
+                    {aiResultText}
+                  </Text>
+                )}
+              </ScrollView>
+
+              {/* Bottom Sticky Action Footer */}
+              <View style={[styles.resultFooter, { backgroundColor: theme.cardInner, borderTopColor: theme.border }]}>
+                <TouchableOpacity
+                  style={[styles.reScanBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={() => setAiResultText(null)}
+                >
+                  <Ionicons name="refresh" size={16} color={theme.subtext} />
+                  <Text style={[styles.reScanBtnText, { color: theme.subtext }]}>Atur Ulang</Text>
+                </TouchableOpacity>
+
+                {hasExistingContent ? (
+                  <View style={styles.applyActionsRow}>
+                    <TouchableOpacity
+                      style={[styles.applyBtnSecondary, { backgroundColor: theme.card, borderColor: theme.border }]}
+                      onPress={() => handleApply('append')}
+                    >
+                      <Ionicons name="add-circle-outline" size={16} color={theme.accentLight} />
+                      <Text style={[styles.applyBtnSecondaryText, { color: theme.accentLight }]}>
+                        Tambah di Akhir
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.applyBtnPrimary, { backgroundColor: theme.primary }]}
+                      onPress={() => handleApply('replace')}
+                    >
+                      <Ionicons name="checkmark-done" size={16} color="#FFFFFF" />
+                      <Text style={styles.applyBtnPrimaryText}>Ganti Isi Catatan</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity
+                    style={[styles.applyBtnFull, { backgroundColor: theme.primary }]}
+                    onPress={() => handleApply('replace')}
+                  >
+                    <Ionicons name="checkmark-circle" size={18} color="#FFFFFF" />
+                    <Text style={styles.applyBtnFullText}>Terapkan ke Catatan Kuliah</Text>
+                  </TouchableOpacity>
+                )}
+              </View>
+            </View>
+          )}
         </View>
       </View>
     </Modal>
@@ -513,26 +638,27 @@ MATA_KULIAH_DISARANKAN: [Tuliskan nama mata pelajaran atau mata kuliah yang pali
 }
 
 const styles = StyleSheet.create({
-  backdrop: {
+  overlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 16,
+    padding: 14,
   },
-  modalContainer: {
+  modalCard: {
     width: '100%',
-    maxHeight: '90%',
-    borderRadius: 16,
+    height: '90%',
+    maxHeight: 740,
+    borderRadius: 18,
     borderWidth: 1,
     overflow: 'hidden',
     display: 'flex',
     flexDirection: 'column',
   },
-  modalContainerWide: {
-    maxWidth: 680,
+  modalCardWide: {
+    maxWidth: 720,
   },
-  modalHeader: {
+  headerRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -540,260 +666,297 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     borderBottomWidth: 1,
   },
-  iconWrap: {
-    width: 34,
-    height: 34,
-    borderRadius: 10,
-    justifyContent: 'center',
+  headerTitleWrap: {
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 12,
+    flex: 1,
   },
-  modalTitle: {
-    fontSize: 16,
+  headerIconBox: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerTitle: {
+    fontSize: 15,
     fontWeight: '700',
   },
-  modalSub: {
-    fontSize: 11.5,
-    marginTop: 1,
+  headerSubtitle: {
+    fontSize: 11,
+    marginTop: 2,
   },
   closeBtn: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    justifyContent: 'center',
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  modalBody: {
-    padding: 18,
-  },
-  sectionLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 8,
-  },
-  pickBtnRow: {
-    flexDirection: 'row',
-    gap: 12,
-  },
-  pickChoiceBtn: {
+  modalBodyScroll: {
     flex: 1,
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
-  pickIconCircle: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 8,
+  modalBodyContent: {
+    padding: 18,
+    gap: 16,
   },
-  pickChoiceTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: 3,
-  },
-  pickChoiceSub: {
-    fontSize: 12,
-    textAlign: 'center',
-  },
-  previewCard: {
-    borderRadius: 12,
-    borderWidth: 1,
-    padding: 10,
-    alignItems: 'center',
-  },
-  imageThumbnail: {
-    width: '100%',
-    height: 180,
-    borderRadius: 8,
-  },
-  previewActions: {
-    flexDirection: 'row',
-    gap: 10,
-    marginTop: 10,
-  },
-  smallBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  smallBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  smallBtnDanger: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  smallBtnDangerText: {
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  modeContainer: {
+  sectionWrap: {
     gap: 8,
   },
-  modeCard: {
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1.5,
+  sectionTitle: {
+    fontSize: 13,
+    fontWeight: '700',
   },
-  modeCardActive: {
-    borderColor: '#3B82F6',
+  uploadButtonsRow: {
+    gap: 8,
   },
-  modeHeader: {
+  uploadActionBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    marginBottom: 4,
+    gap: 12,
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
   },
-  modeTitle: {
+  uploadActionBtnTitle: {
     fontSize: 13,
+    fontWeight: '700',
+  },
+  uploadActionBtnSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  uploadActionBtnSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  uploadActionBtnSmallText: {
+    fontSize: 12.5,
     fontWeight: '600',
   },
-  badgeRec: {
-    marginLeft: 'auto',
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
+  selectedItemsCard: {
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginTop: 6,
   },
-  badgeRecText: {
+  selectedItemsHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  selectedItemsHeaderText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  clearAllText: {
     fontSize: 11,
     fontWeight: '700',
   },
-  modeDesc: {
-    fontSize: 11.5,
-    lineHeight: 16,
-    marginLeft: 22,
+  selectedItemsScroll: {
+    flexDirection: 'row',
+    gap: 8,
   },
-  customInput: {
+  itemPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
     borderWidth: 1,
-    borderRadius: 10,
+    maxWidth: 180,
+  },
+  itemPillThumb: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+  },
+  itemPillName: {
+    fontSize: 11,
+    flex: 1,
+  },
+  modeGrid: {
+    gap: 8,
+  },
+  modeOptionCard: {
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  modeOptionCardActive: {
+    borderWidth: 1.5,
+  },
+  modeOptionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  modeOptionTitle: {
+    fontSize: 12.5,
+    fontWeight: '600',
+  },
+  modeOptionDesc: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  instructionInput: {
     paddingHorizontal: 12,
-    paddingVertical: 10,
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
     fontSize: 12.5,
   },
-  processBtn: {
-    marginTop: 20,
-    marginBottom: 10,
+  analyzeBtn: {
     paddingVertical: 13,
     borderRadius: 12,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  processBtnText: {
-    color: '#FFFFFF',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  resultContainer: {
-    gap: 12,
-    paddingBottom: 20,
-  },
-  resultMetaCard: {
-    borderRadius: 10,
-    borderWidth: 1,
-    padding: 12,
-  },
-  resultMetaTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  resultMetaSub: {
-    fontSize: 12,
-  },
-  previewToggleRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
     marginTop: 4,
   },
-  tabMiniWrap: {
-    flexDirection: 'row',
-    padding: 2,
-    borderRadius: 8,
-    borderWidth: 1,
-    gap: 2,
-  },
-  tabMiniBtn: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  tabMiniBtnActive: {
-    shadowOpacity: 0.1,
-  },
-  tabMiniText: {
-    fontSize: 11,
-  },
-  resultContentCard: {
-    borderRadius: 10,
-    borderWidth: 1,
-    maxHeight: 340,
-    minHeight: 120,
-  },
-  resultContentScroll: {
-    padding: 14,
-    paddingBottom: 20,
-  },
-  rawTextDisplay: {
-    fontSize: 12.5,
-    lineHeight: 18,
-  },
-  applyBtnGroup: {
-    gap: 8,
-    marginTop: 6,
-  },
-  applyBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 12,
-    borderRadius: 10,
-  },
-  applyBtnText: {
+  analyzeBtnText: {
     color: '#FFFFFF',
     fontSize: 13.5,
     fontWeight: '700',
   },
-  applyBtnOutline: {
+  resultContainer: {
+    flex: 1,
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  resultMetaBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    gap: 10,
+  },
+  resultMetaLabel: {
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  resultSuggestedTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginTop: 2,
+  },
+  subjectTag: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 6,
+    marginTop: 4,
+  },
+  subjectTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  tabToggleRow: {
+    flexDirection: 'row',
+    backgroundColor: 'rgba(150,150,150,0.1)',
+    borderRadius: 8,
+    padding: 2,
+  },
+  tabBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 6,
+  },
+  tabBtnActive: {
+    shadowColor: '#000',
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+  },
+  tabBtnText: {
+    fontSize: 11.5,
+  },
+  previewScroll: {
+    flex: 1,
+  },
+  previewScrollContent: {
+    padding: 18,
+  },
+  rawText: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  resultFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderTopWidth: 1,
+  },
+  reScanBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  reScanBtnText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  applyActionsRow: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 8,
+  },
+  applyBtnSecondary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  applyBtnSecondaryText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  applyBtnPrimary: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    borderRadius: 10,
+  },
+  applyBtnPrimaryText: {
+    color: '#FFFFFF',
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  applyBtnFull: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
     paddingVertical: 11,
     borderRadius: 10,
-    borderWidth: 1,
   },
-  applyBtnOutlineText: {
+  applyBtnFullText: {
+    color: '#FFFFFF',
     fontSize: 13,
-    fontWeight: '600',
-  },
-  rescanBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 5,
-    paddingVertical: 8,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderStyle: 'dashed',
-    marginTop: 4,
-  },
-  rescanBtnText: {
-    fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
   },
 });

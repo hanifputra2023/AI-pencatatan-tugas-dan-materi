@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+﻿import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, SafeAreaView, ActivityIndicator, Platform, AppState
@@ -11,13 +11,14 @@ import { useSubjects } from '../contexts/SubjectContext';
 import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
-import { StudyNote, QuizQuestion, FlashcardItem } from '../types';
+import { StudyNote, QuizQuestion, FlashcardItem, NoteAttachment } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import { copyToClipboard } from '../lib/clipboard';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import MarkdownRenderer from '../components/MarkdownRenderer';
+import AttachmentManager from '../components/AttachmentManager';
 import ScanNoteModal from '../components/ScanNoteModal';
 import Flashcard3DModal from '../components/Flashcard3DModal';
 import AudioLecturePlayer from '../components/AudioLecturePlayer';
@@ -38,6 +39,7 @@ import {
 } from '../lib/offlineSync';
 import { addWaterDrops, addGrowthPoints } from '../lib/gardenStorage';
 import { addChest, awardWheelTicketForActivity } from '../lib/lootChestStorage';
+import { defeatBossEvent } from '../lib/bossEventStorage';
 
 type StudyNoteRouteProp = RouteProp<RootStackParamList, 'StudyNoteDetail'>;
 
@@ -66,6 +68,7 @@ export default function StudyNoteDetailScreen() {
   const [summary, setSummary] = useState<string | null>(null);
   const [quizData, setQuizData] = useState<QuizQuestion[]>([]);
   const [flashcards, setFlashcards] = useState<FlashcardItem[]>([]);
+  const [attachments, setAttachments] = useState<NoteAttachment[]>([]);
   const [createdAt, setCreatedAt] = useState<string>('');
 
   // Subject Manager Modal
@@ -504,6 +507,7 @@ export default function StudyNoteDetailScreen() {
         setSummary(found.summary || null);
         setQuizData(found.quiz_data || []);
         setFlashcards(found.flashcards || []);
+        setAttachments(found.attachments || []);
         setCreatedAt(found.created_at);
       }
     } catch (e) {
@@ -527,6 +531,10 @@ export default function StudyNoteDetailScreen() {
     }
     setGeneratingSummary(true);
     try {
+      const attachmentsCtx = attachments.length > 0
+        ? `\nLampiran Dokumen/File: ` + attachments.map(a => `${a.name}${a.textContent ? ` (Isi: ${a.textContent.substring(0, 500)})` : ''}`).join(', ')
+        : '';
+
       const prompt = `Kamu adalah Ara, asisten pintar profesor akademik dan tutor belajar terbaik untuk mahasiswa.
 Rangkum materi kuliah berikut menjadi intisari yang sangat terstruktur, jelas, komprehensif, dan mudah dihafal untuk persiapan ujian kuliah.
 
@@ -538,6 +546,7 @@ Format ringkasan harus memuat:
 
 Judul: ${title || 'Catatan Kuliah'}
 Mata Kuliah: ${subject || 'Kuliah'}
+${attachmentsCtx}
 Isi Catatan:
 ${content}`;
 
@@ -550,7 +559,8 @@ ${content}`;
       }
       showAlert('Rangkuman Selesai', 'Intisari materi telah dibuat dan otomatis tersimpan ke catatan.');
     } catch (e: any) {
-      showAlert('Gagal Merangkum', e.message || 'Terjadi kesalahan pada AI.');
+      console.log('AI Summary error:', e);
+      showAlert('Gagal Merangkum', e?.message || 'Server AI sedang sibuk.');
     } finally {
       setGeneratingSummary(false);
     }
@@ -853,6 +863,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
         summary,
         quiz_data: quizData,
         flashcards: flashcards.length > 0 ? flashcards : undefined,
+        attachments: attachments.length > 0 ? attachments : undefined,
         created_at: createdAt || new Date().toISOString(),
         updated_at: new Date().toISOString(),
       };
@@ -879,7 +890,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
       addChest(1).catch(() => {});
       awardWheelTicketForActivity().catch(() => {});
       addGrowthPoints(25).catch(() => {});
-      showAlert('Catatan Berhasil Disimpan! 🎉', 'Kamu mendapatkan +1 Tetes Air 💧 untuk Taman, +1 Peti Misterius 📦, dan +1 Tiket Roda Keberuntungan 🎰!');
+      showAlert('Catatan Berhasil Disimpan! 🎉', 'Kamu mendapatkan +1 Tetes Air 💧 untuk Taman, +1 Kotak Hadiah 🎁, dan +1 Tiket Roda Keberuntungan 🎰!');
     } else {
       showAlert('Tersimpan', 'Catatan kuliah berhasil diperbarui.');
     }
@@ -1138,6 +1149,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     {/* Main Content Article Body */}
                     <View style={styles.documentBody}>
                       <MarkdownRenderer content={content || 'Belum ada isi materi catatan.'} fontSize={16} textColor={theme.text} />
+                      {attachments.length > 0 && (
+                        <View style={{ marginTop: 20 }}>
+                          <AttachmentManager
+                            attachments={attachments}
+                            isEditable={false}
+                            title="Lampiran Dokumen & Foto Materi"
+                          />
+                        </View>
+                      )}
                     </View>
                   </View>
 
@@ -1706,6 +1726,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                   {/* Main Content Article Body */}
                   <View style={styles.documentBody}>
                     <MarkdownRenderer content={content || 'Belum ada isi materi catatan.'} fontSize={15.5} textColor={theme.text} />
+                    {attachments.length > 0 && (
+                      <View style={{ marginTop: 20 }}>
+                        <AttachmentManager
+                          attachments={attachments}
+                          isEditable={false}
+                          title="Lampiran Dokumen & Foto Materi"
+                        />
+                      </View>
+                    )}
                   </View>
                 </View>
 
@@ -2122,6 +2151,17 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                       </View>
                     )}
 
+                    {/* Attachments Section in Desktop Edit Mode */}
+                    <View style={{ marginTop: 16 }}>
+                      <AttachmentManager
+                        attachments={attachments}
+                        onAddAttachments={newItems => setAttachments(prev => [...prev, ...newItems])}
+                        onRemoveAttachment={id => setAttachments(prev => prev.filter(a => a.id !== id))}
+                        isEditable={true}
+                        title="Lampiran Dokumen & Foto Materi"
+                      />
+                    </View>
+
                   </View>
                 </View>
 
@@ -2196,6 +2236,27 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                             <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#15803D' : '#34D399' }]}>Buat Kuis AI</Text>
                           </>
                         )}
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[styles.sideStudioBtn, { backgroundColor: isLightMode ? '#EFF6FF' : '#172554', borderColor: isLightMode ? '#BFDBFE' : '#1E40AF' }]}
+                        onPress={() => {
+                          if (!content.trim()) {
+                            showAlert('Catatan Masih Kosong', 'Tulis materi terlebih dahulu sebelum membahasnya di chat.');
+                            return;
+                          }
+                          navigation.navigate('Main', {
+                            screen: 'Chat',
+                            params: {
+                              initialMessage: `Halo Ara, bantu aku bedah materi dan diskusikan catatan kuliah '${title || 'Catatan'}' untuk mata kuliah '${subject || 'Kuliah'}' ini ya!\n\nIsi Catatan:\n${content}`,
+                              autoSend: true,
+                              timestamp: Date.now(),
+                            },
+                          });
+                        }}
+                      >
+                        <Ionicons name="chatbubbles" size={14} color="#3B82F6" />
+                        <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#1D4ED8' : '#60A5FA' }]}>Bahas di Chat AI</Text>
                       </TouchableOpacity>
                     </View>
                   </View>
@@ -2453,6 +2514,16 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     </View>
                   )}
 
+                  {/* Attachments Section in Mobile Edit Mode */}
+                  <View style={{ marginTop: 14 }}>
+                    <AttachmentManager
+                      attachments={attachments}
+                      onAddAttachments={newItems => setAttachments(prev => [...prev, ...newItems])}
+                      onRemoveAttachment={id => setAttachments(prev => prev.filter(a => a.id !== id))}
+                      isEditable={true}
+                      title="Lampiran Dokumen & Foto Materi"
+                    />
+                  </View>
                 </View>
 
                 {/* Word & Char Count */}
@@ -2604,6 +2675,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
           addWaterDrops(1).catch(() => {});
           addChest(1).catch(() => {});
           awardWheelTicketForActivity().catch(() => {});
+          defeatBossEvent().catch(() => {});
         }}
       />
     </SafeAreaView>

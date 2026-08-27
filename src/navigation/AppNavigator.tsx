@@ -9,6 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from '../contexts/AuthContext';
 
 import OnboardingScreen, { ONBOARDING_STORAGE_KEY } from '../screens/auth/OnboardingScreen';
+import IntroVideoLoading from '../components/IntroVideoLoading';
 import LoginScreen from '../screens/auth/LoginScreen';
 import RegisterScreen from '../screens/auth/RegisterScreen';
 import HomeScreen from '../screens/HomeScreen';
@@ -39,7 +40,7 @@ declare global {
 
 export type TabParamList = {
   Home: undefined;
-  Chat: undefined;
+  Chat: { initialMessage?: string; autoSend?: boolean; timestamp?: number } | undefined;
   Study: { initialTab?: 'notes' | 'tasks' | 'pomodoro' } | undefined;
   Journal: undefined;
   Calendar: undefined;
@@ -51,6 +52,8 @@ export type TabParamList = {
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 const Tab = createBottomTabNavigator<TabParamList>();
+
+const INTRO_VIDEO_STORAGE_KEY = '@has_seen_intro_video';
 
 import { useResponsive } from '../hooks/useResponsive';
 import { useTheme } from '../contexts/ThemeContext';
@@ -166,14 +169,20 @@ export default function AppNavigator() {
   const { theme } = useTheme();
   const [checkingOnboarding, setCheckingOnboarding] = useState(true);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(false);
+  const [showIntroVideo, setShowIntroVideo] = useState(false);
 
   useEffect(() => {
     const checkOnboardingStatus = async () => {
       try {
-        const seen = await AsyncStorage.getItem(ONBOARDING_STORAGE_KEY);
+        const [seen, introSeen] = await Promise.all([
+          AsyncStorage.getItem(ONBOARDING_STORAGE_KEY),
+          AsyncStorage.getItem(INTRO_VIDEO_STORAGE_KEY),
+        ]);
         setHasSeenOnboarding(seen === 'true');
+        setShowIntroVideo(introSeen !== 'true');
       } catch (e) {
         setHasSeenOnboarding(false);
+        setShowIntroVideo(true);
       } finally {
         setCheckingOnboarding(false);
       }
@@ -181,16 +190,23 @@ export default function AppNavigator() {
     checkOnboardingStatus();
   }, []);
 
+  const handleIntroFinish = () => {
+    setShowIntroVideo(false);
+    AsyncStorage.setItem(INTRO_VIDEO_STORAGE_KEY, 'true').catch(() => {});
+  };
+
   if (authLoading || checkingOnboarding) {
     return (
       <View style={[styles.loader, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="small" color={theme.accentLight} />
+        <IntroVideoLoading visible={showIntroVideo} onFinish={handleIntroFinish} />
       </View>
     );
   }
 
   return (
-    <NavigationContainer theme={transparentNavTheme}>
+    <View style={styles.root}>
+      <NavigationContainer theme={transparentNavTheme}>
       <Stack.Navigator
         screenOptions={{
           headerShown: false,
@@ -217,11 +233,16 @@ export default function AppNavigator() {
           </Stack.Group>
         )}
       </Stack.Navigator>
-    </NavigationContainer>
+      </NavigationContainer>
+      <IntroVideoLoading visible={showIntroVideo} onFinish={handleIntroFinish} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
+  root: {
+    flex: 1,
+  },
   loader: {
     flex: 1,
     justifyContent: 'center',

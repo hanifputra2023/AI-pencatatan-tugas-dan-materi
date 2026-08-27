@@ -154,9 +154,11 @@ export default function LuckyWheelModal({ visible, onClose, onRewardClaimed }: P
 
     const { segment, angleIndex } = pickWheelResult();
     const targetSegAngle = angleIndex * SEG_ANGLE + SEG_ANGLE / 2;
+    const targetEnd = (360 - targetSegAngle) % 360;
+    let delta = targetEnd - (totalRotation.current % 360);
+    if (delta <= 0) delta += 360;
     const spins = 5 + Math.floor(Math.random() * 3);
-    const destination = spins * 360 + (360 - targetSegAngle);
-    totalRotation.current += destination;
+    totalRotation.current += spins * 360 + delta;
 
     Animated.timing(spinAnim, {
       toValue: totalRotation.current,

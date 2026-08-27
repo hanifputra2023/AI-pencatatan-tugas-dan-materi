@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+﻿import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, ActivityIndicator, Animated, Easing, Platform, Modal
@@ -11,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
 import { useTheme, getSemanticColors } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
-import { sendMessageToGemini } from '../lib/gemini';
+import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { JournalEntry, StudyNote, StudentTask, MoodOption } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
@@ -49,6 +49,7 @@ import {
   AnimatedProgressBar,
 } from '../components/DuolingoAnimations';
 import { calculateUserXp } from '../lib/xpCalculator';
+import { getGamificationConfig, GamificationConfig } from '../lib/gamificationConfig';
 import VirtualGardenModal from '../components/VirtualGardenModal';
 import { getExtraUserXp, addExtraUserXp } from '../lib/rpgStorage';
 import DailyRewardModal from '../components/DailyRewardModal';
@@ -69,6 +70,7 @@ import { addWaterDrops } from '../lib/gardenStorage';
 import BossEventBanner from '../components/BossEventBanner';
 import BattlePassModal from '../components/BattlePassModal';
 import LuckyHourBanner from '../components/LuckyHourBanner';
+import QuizBattleModal from '../components/QuizBattleModal';
 import { BossEvent, trySpawnBossEvent, defeatBossEvent } from '../lib/bossEventStorage';
 import { LuckyHourStatus, getLuckyHourStatus, tryTriggerLuckyHour, LUCKY_HOUR_MULTIPLIER } from '../lib/luckyHourStorage';
 import { getBattlePassProgress, addBattlePassXp } from '../lib/battlePassStorage';
@@ -159,6 +161,7 @@ export default function HomeScreen() {
   const [showLevelModal, setShowLevelModal] = useState(false);
   const [showGardenModal, setShowGardenModal] = useState(false);
   const [extraXp, setExtraXp] = useState(0);
+  const [gameConfig, setGameConfig] = useState<GamificationConfig | null>(null);
   const [streakJustIncreased] = useState(false);
 
   // Daily Reward Modal State
@@ -176,6 +179,9 @@ export default function HomeScreen() {
   // Boss Event State
   const [activeBossEvent, setActiveBossEvent] = useState<BossEvent | null>(null);
   const [showBossEventDismissed, setShowBossEventDismissed] = useState(false);
+  const [showBossBattleModal, setShowBossBattleModal] = useState(false);
+  const [bossQuizQuestions, setBossQuizQuestions] = useState<any[]>([]);
+  const [loadingBossBattle, setLoadingBossBattle] = useState(false);
 
   // Battle Pass State
   const [showBattlePassModal, setShowBattlePassModal] = useState(false);
@@ -248,7 +254,7 @@ export default function HomeScreen() {
   };
 
   const fetchData = useCallback(async () => {
-    // Always load local gamification resources (Peti, Tiket Roda, Gelar)
+    // Always load local gamification resources (Hadiah, Tiket Roda, Gelar)
     try {
       const [chests, tickets, title] = await Promise.all([
         getChestCount(),
@@ -260,6 +266,14 @@ export default function HomeScreen() {
       setActiveTitle(title);
     } catch (e) {
       console.log('Error loading gamification storage:', e);
+    }
+
+    // Sync admin gamification config (XP difficulty multiplier, dsb.)
+    try {
+      const cfg = await getGamificationConfig();
+      setGameConfig(cfg);
+    } catch (e) {
+      console.log('Error loading gamification config:', e);
     }
 
     if (!user) {
@@ -357,7 +371,11 @@ export default function HomeScreen() {
         setWheelTickets(tickets);
         setActiveTitle(title);
         if (bp) setBattlePassTier(bp.currentTier);
-        if (bEvent && !bEvent.defeated) setActiveBossEvent(bEvent);
+        if (bEvent && !bEvent.defeated) {
+          setActiveBossEvent(bEvent);
+        } else {
+          setActiveBossEvent(null);
+        }
 
         if (lhStatus.active) {
           setLuckyHour(lhStatus);
@@ -478,7 +496,7 @@ export default function HomeScreen() {
     getWheelTickets().then(setWheelTickets);
     showAlert(
       isLh ? '⚡ LUCKY HOUR BONUS! Tugas Selesai! 🎉' : 'Tugas Selesai! 🎉',
-      `+${finalXp} XP ${isLh ? '(2X XP Aktif! 🔥)' : ''}, +1 Tetes Air 💧, +1 Peti Misterius 📦, dan +1 Tiket Roda 🎰!`
+      `+${finalXp} XP ${isLh ? '(2X XP Aktif! 🔥)' : ''}, +1 Tetes Air 💧, +1 Kotak Hadiah 🎁, dan +1 Tiket Roda 🎰!`
     );
   };
 
@@ -524,8 +542,137 @@ export default function HomeScreen() {
     setGratitudeText('');
     setSavingGratitude(false);
     showAlert('Tersimpan', 'Catatan rasa syukur berhasil disimpan ke Jurnal.');
-    const updated = quests.map(q => q.id === '4' ? { ...q, completed: true } : q);
-    saveDailyQuests(updated);
+  };
+
+  // Grand Boss Raid Battle from all Study Notes
+  const handleChallengeBoss = async () => {
+    if (!activeBossEvent) return;
+
+    setLoadingBossBattle(true);
+    try {
+      // 1. Fetch user's study notes across all subjects
+      let notesData: StudyNote[] = [];
+      if (user) {
+        try {
+          const { data } = await supabase
+            .from('study_notes')
+            .select('title, subject, content')
+            .eq('user_id', user.id)
+            .limit(12);
+          if (data && data.length > 0) {
+            notesData = data as any;
+          } else {
+            notesData = await getCachedNotes(user.id);
+          }
+        } catch {
+          notesData = await getCachedNotes(user.id);
+        }
+      }
+
+      // 2. Build comprehensive summary across all notes
+      let notesContext = '';
+      if (notesData && notesData.length > 0) {
+        notesContext = notesData
+          .map((n, i) => `Catatan ${i + 1} [${n.subject || 'Umum'} - ${n.title}]:\n${(n.content || '').substring(0, 450)}`)
+          .join('\n\n');
+      } else {
+        notesContext = 'Materi umum sains, teknologi, matematika, logika, sejarah, dan wawasan akademik mahasiswa.';
+      }
+
+      // 3. Prompt AI to craft grand boss raid quiz
+      const prompt = `Kamu adalah Game Master RPG Akademik. Buatkan 5 soal kuis pilihan ganda yang seru, berkualitas tinggi, dan menantang untuk Event Boss Battle "${activeBossEvent.name}" (${activeBossEvent.title}) berdasarkan rangkuman seluruh catatan kuliah mahasiswa berikut:\n\n${notesContext}\n\nATURAN:\n1. Buat soal yang menguji pemahaman konsep dari catatan di atas.\n2. Berikan 4 pilihan jawaban untuk setiap soal.\n3. Berikan correctIndex (0, 1, 2, atau 3) yang tepat.\n4. Format jawaban WAJIB HANYA JSON array valid tanpa teks pengantar:\n[\n  {\n    "question": "Pertanyaan soal...",\n    "options": ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],\n    "correctIndex": 0,\n    "explanation": "Penjelasan singkat jawaban benar..."\n  }\n]`;
+
+      const aiReply = await sendMessageToGemini([], prompt);
+      const parsed: any = extractJsonFromText(aiReply);
+
+      let questions: any[] = [];
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        questions = parsed;
+      } else if (parsed && Array.isArray(parsed.questions)) {
+        questions = parsed.questions;
+      } else {
+        questions = [
+          {
+            question: `Apa strategi belajar paling efektif untuk menaklukkan ${activeBossEvent.name}?`,
+            options: ['Active Recall & Spaced Repetition', 'Sistem Kebut Semalam', 'Hafalan tanpa paham', 'Membaca pasif tanpa latihan'],
+            correctIndex: 0,
+            explanation: 'Active Recall dan Spaced Repetition terbukti secara ilmiah paling efektif dalam retensi jangka panjang.',
+          },
+          {
+            question: 'Dalam manajemen waktu akademik, teknik fokus 25 menit diselingi 5 menit istirahat disebut teknik apa?',
+            options: ['Teknik Pomodoro', 'Teknik Feynman', 'Metode Pareto', 'Teknik Eisenhower'],
+            correctIndex: 0,
+            explanation: 'Teknik Pomodoro membagi waktu belajar menjadi interval 25 menit fokus dan 5 menit jeda.',
+          },
+          {
+            question: 'Manakah cara terbaik untuk memahami konsep materi yang rumit?',
+            options: ['Menjelaskannya dengan bahasa sederhana seolah mengajarkannya ke orang lain', 'Menghafal rumus di luar kepala tanpa tahu asal-usulnya', 'Membaca berulang kali tanpa mencatat', 'Menghindari materi tersebut'],
+            correctIndex: 0,
+            explanation: 'Teknik Feynman mengajarkan bahwa jika kamu bisa menjelaskan suatu konsep secara sederhana, berarti kamu benar-benar memahaminya.',
+          },
+          {
+            question: 'Mengapa membuat catatan dalam bentuk poin terstruktur lebih baik daripada menyalin satu buku?',
+            options: ['Memaksa otak memproses dan menyaring informasi penting', 'Agar tulisan terlihat lebih sedikit saja', 'Supaya tidak menghabiskan tinta pulpen', 'Tidak ada bedanya dengan menyalin buku'],
+            correctIndex: 0,
+            explanation: 'Menyusun poin terstruktur melatih otak memilah konsep esensial dari materi.',
+          },
+          {
+            question: 'Apa kunci utama konsistensi belajar jangka panjang?',
+            options: ['Ritme harian yang realistis dan istirahat teratur', 'Belajar 18 jam sehari tanpa tidur', 'Hanya belajar saat mood sedang sangat bagus', 'Menunggu sehari sebelum ujian'],
+            correctIndex: 0,
+            explanation: 'Kebiasaan kecil yang konsisten setiap hari jauh lebih berdampak daripada ledakan belajar yang sporadis.',
+          }
+        ];
+      }
+
+      setBossQuizQuestions(questions);
+      setShowBossBattleModal(true);
+    } catch (e: any) {
+      showAlert('Gagal Memulai Pertarungan', e?.message || 'Server AI sedang sibuk. Silakan coba sesaat lagi.');
+    } finally {
+      setLoadingBossBattle(false);
+    }
+  };
+
+  const handleBossBattleWon = async (earnedXp: number) => {
+    if (!activeBossEvent) return;
+
+    const currentEvent = activeBossEvent;
+    await defeatBossEvent();
+
+    // Rewards
+    await addExtraUserXp(currentEvent.rewards.xp);
+    await addWaterDrops(currentEvent.rewards.water);
+    await addChest(currentEvent.rewards.chests);
+    await awardWheelTicketForActivity();
+    await unlockTitle(currentEvent.rewards.titleId);
+
+    // Refresh UI states
+    setXpAmount(currentEvent.rewards.xp);
+    setShowXpPopup(false);
+    setTimeout(() => setShowXpPopup(true), 50);
+
+    setActiveBossEvent(null);
+    setShowBossBattleModal(false);
+
+    // Refresh user gamification counts
+    getChestCount().then(setChestCount);
+    getWheelTickets().then(setWheelTickets);
+    getActiveTitle().then(setActiveTitle);
+
+    setTimeout(() => {
+      showAlert(
+        `🏆 Kemenangan Akbar! ${currentEvent.name} Berhasil Ditaklukkan!`,
+        `Luar biasa! Seluruh pengetahuan dari catatan kuliahmu telah menumbangkan ${currentEvent.name}!\n\n` +
+        `🎁 Hadiah Event Diterima:\n` +
+        `• +${currentEvent.rewards.xp} XP Tambahan ⚡\n` +
+        `• +${currentEvent.rewards.water} Tetes Air Taman 💧\n` +
+        `• +${currentEvent.rewards.chests} Kotak Hadiah 🎁\n` +
+        `• +1 Tiket Roda Keberuntungan 🎰\n` +
+        `• Gelar Eksklusif: "${currentEvent.rewards.titleLabel}" 🏅\n\n` +
+        `Event Bos Mingguan telah terselesaikan!`
+      );
+    }, 400);
   };
 
   const startBreathwork = () => {
@@ -612,7 +759,7 @@ export default function HomeScreen() {
   const questPercentage = Math.round((completedQuestsCount / quests.length) * 100);
   const currentMoodOption = moods.find(m => m.type === todayMood);
   const isFirstTimeUser = totalNotesCount === 0 && pendingTasksCount === 0 && recentEntries.length === 0;
-  const userLevel = calculateUserXp(totalNotesCount, 0, recentEntries.length, streak, 0, extraXp);
+  const userLevel = calculateUserXp(totalNotesCount, 0, recentEntries.length, streak, 0, extraXp, gameConfig || undefined);
 
   if (loading) {
     return <DashboardSkeleton />;
@@ -1228,6 +1375,34 @@ export default function HomeScreen() {
           currentXp={userLevel.totalXp}
         />
 
+        {/* Grand Boss Raid Battle Modal */}
+        <QuizBattleModal
+          visible={showBossBattleModal}
+          onClose={() => setShowBossBattleModal(false)}
+          noteTitle={activeBossEvent?.name || 'Sphinx Pengetahuan'}
+          subject={activeBossEvent?.title || 'Boss Event Mingguan'}
+          quizQuestions={bossQuizQuestions}
+          onBattleWon={handleBossBattleWon}
+        />
+
+        {/* Loading Boss Raid Quiz Modal */}
+        <Modal visible={loadingBossBattle} transparent animationType="fade">
+          <View style={styles.bossLoadingOverlay}>
+            <View style={[styles.bossLoadingCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={[styles.bossLoadingIconCircle, { backgroundColor: (activeBossEvent?.color || '#D97706') + '25' }]}>
+                <Text style={{ fontSize: 32 }}>{activeBossEvent?.emoji || '⚔️'}</Text>
+              </View>
+              <Text style={[styles.bossLoadingTitle, { color: theme.text }]}>
+                Mempersiapkan Arena Boss!
+              </Text>
+              <Text style={[styles.bossLoadingSub, { color: theme.subtext }]}>
+                AI sedang meramu soal pertarungan dari seluruh catatan kuliahmu untuk menantang {activeBossEvent?.name || 'Boss Event'}...
+              </Text>
+              <ActivityIndicator size="large" color={activeBossEvent?.color || theme.accentLight} style={{ marginTop: 6 }} />
+            </View>
+          </View>
+        </Modal>
+
         <ScrollView
         style={styles.scroll}
         showsVerticalScrollIndicator={false}
@@ -1291,16 +1466,7 @@ export default function HomeScreen() {
           {activeBossEvent && !activeBossEvent.defeated && !showBossEventDismissed && (
             <BossEventBanner
               event={activeBossEvent}
-              onChallenge={() => {
-                // Navigate to Study tab → Notes tab where Boss Battle button exists
-                (navigation.getParent() as any)?.navigate('Study', { initialTab: 'notes' });
-                setTimeout(() => {
-                  showAlert(
-                    `⚔️ Menantang ${activeBossEvent.name}!`,
-                    `Bos Event Mingguan sedang menunggumu!\n\nBuka salah satu catatan kuliah di bawah, lalu tekan tombol "Mode RPG Boss Battle" untuk melancarkan serangan!`
-                  );
-                }, 400);
-              }}
+              onChallenge={handleChallengeBoss}
               onDismiss={() => setShowBossEventDismissed(true)}
             />
           )}
@@ -1345,7 +1511,7 @@ export default function HomeScreen() {
 
           {/* Mini-Games / Zona Hadiah 3-Card Row */}
           <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
-            {/* Peti Misterius Card */}
+            {/* Kotak Hadiah Card */}
             <TouchableOpacity
               style={{
                 flex: 1,
@@ -1368,9 +1534,9 @@ export default function HomeScreen() {
                 <Ionicons name="gift" size={16} color="#F59E0B" />
               </View>
               <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Peti</Text>
+                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Hadiah</Text>
                 <Text style={{ fontSize: 10, fontWeight: '700', color: chestCount > 0 ? '#F59E0B' : theme.subtext }} numberOfLines={1}>
-                  {chestCount > 0 ? `${chestCount} 📦` : 'Habis'}
+                  {chestCount > 0 ? `${chestCount} 🎁` : 'Habis'}
                 </Text>
               </View>
             </TouchableOpacity>
@@ -2547,5 +2713,39 @@ const styles = StyleSheet.create({
   recentDate: {
     fontSize: 10.5,
     marginTop: 2,
+  },
+  bossLoadingOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.78)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  bossLoadingCard: {
+    borderWidth: 1,
+    borderRadius: 18,
+    padding: 24,
+    alignItems: 'center',
+    maxWidth: 360,
+    width: '100%',
+    gap: 12,
+  },
+  bossLoadingIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  bossLoadingTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    textAlign: 'center',
+  },
+  bossLoadingSub: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 18,
   },
 });

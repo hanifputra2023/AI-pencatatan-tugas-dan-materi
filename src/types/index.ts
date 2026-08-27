@@ -16,6 +16,7 @@ export interface ChatAttachment {
   size?: number;
   mimeType?: string;
   base64?: string;
+  textContent?: string;
 }
 
 export interface ChatSession {
@@ -66,6 +67,16 @@ export interface FlashcardItem {
   difficulty?: 'easy' | 'medium' | 'hard';
 }
 
+export interface NoteAttachment {
+  id: string;
+  name: string;
+  type: 'image' | 'document' | 'file';
+  uri: string;
+  size?: number;
+  mimeType?: string;
+  textContent?: string;
+}
+
 export interface StudyNote {
   id: string;
   user_id: string;
@@ -75,6 +86,7 @@ export interface StudyNote {
   summary?: string | null;
   quiz_data?: QuizQuestion[] | null;
   flashcards?: FlashcardItem[] | null;
+  attachments?: NoteAttachment[] | null;
   color?: string;
   created_at: string;
   updated_at?: string;
@@ -89,13 +101,14 @@ export interface TaskSubtask {
 export interface StudentTask {
   id: string;
   user_id: string;
-  title: string;
   subject: string;
+  title: string;
   due_date: string | null;
   priority: 'high' | 'medium' | 'low';
   is_completed: boolean;
   subtasks?: TaskSubtask[] | null;
   notes?: string | null;
+  attachments?: NoteAttachment[] | null;
   created_at: string;
 }
 

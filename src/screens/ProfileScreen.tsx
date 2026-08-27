@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+﻿import React, { useEffect, useState, useCallback } from 'react';
 import {
   View, Text, TouchableOpacity, StyleSheet, SafeAreaView,
   Image, ActivityIndicator, ScrollView, TextInput, Modal, Platform,
@@ -1218,7 +1218,7 @@ export default function ProfileScreen() {
                           if (isUnlocked) {
                             handleToggleEquipTitle(title);
                           } else {
-                            showAlert('Gelar Terkunci', `${title.description}\n\nKelangkaan: ${rarityLabel}\nDapatkan gelar ini dari Peti Misterius 📦, Roda Putar 🎰, atau mengalahkan Bos Arena!`);
+                            showAlert('Gelar Terkunci', `${title.description}\n\nKelangkaan: ${rarityLabel}\nDapatkan gelar ini dari Kotak Hadiah 📦, Roda Putar 🎰, atau mengalahkan Bos Arena!`);
                           }
                         }}
                         activeOpacity={0.75}

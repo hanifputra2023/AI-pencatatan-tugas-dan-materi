@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, Platform, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, Platform, TouchableOpacity, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme, AppTheme } from '../contexts/ThemeContext';
 import { copyToClipboard } from '../lib/clipboard';
@@ -10,6 +10,9 @@ interface MarkdownRendererProps {
   textColor?: string;
   style?: any;
 }
+
+import { cleanRawTextEntities, formatMathLatexToReadable } from '../lib/latexFormatter';
+
 
 function MarkdownCodeBlock({
   code,
@@ -87,6 +90,166 @@ function MarkdownCodeBlock({
         selectable
       >
         {code}
+      </Text>
+    </View>
+  );
+}
+
+/**
+ * Visual Markdown Table Component
+ */
+function MarkdownTable({
+  headers,
+  rows,
+  theme,
+  isLightMode,
+}: {
+  headers: string[];
+  rows: string[][];
+  theme: AppTheme;
+  isLightMode: boolean;
+}) {
+  return (
+    <View style={[styles.tableWrapper, { borderColor: isLightMode ? '#E2E8F0' : '#334155' }]}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={true} nestedScrollEnabled={true}>
+        <View style={styles.tableInner}>
+          {/* Header Row */}
+          <View
+            style={[
+              styles.tableHeaderRow,
+              {
+                backgroundColor: isLightMode ? '#F1F5F9' : '#1E293B',
+                borderBottomColor: isLightMode ? '#CBD5E1' : '#334155',
+              },
+            ]}
+          >
+            {headers.map((h, idx) => (
+              <View key={`th-${idx}`} style={[styles.tableCell, { minWidth: 100 }]}>
+                <Text
+                  style={[
+                    styles.tableHeaderText,
+                    { color: isLightMode ? '#0F172A' : '#F8FAFC' },
+                  ]}
+                >
+                  {h}
+                </Text>
+              </View>
+            ))}
+          </View>
+
+          {/* Data Rows */}
+          {rows.map((row, rIdx) => {
+            const isEven = rIdx % 2 === 0;
+            return (
+              <View
+                key={`tr-${rIdx}`}
+                style={[
+                  styles.tableDataRow,
+                  {
+                    backgroundColor: isEven
+                      ? isLightMode
+                        ? '#FFFFFF'
+                        : '#0F172A'
+                      : isLightMode
+                      ? '#F8FAFC'
+                      : '#131D31',
+                    borderBottomColor: isLightMode ? '#E2E8F0' : '#233044',
+                  },
+                ]}
+              >
+                {row.map((cell, cIdx) => (
+                  <View key={`td-${rIdx}-${cIdx}`} style={[styles.tableCell, { minWidth: 100 }]}>
+                    <Text
+                      style={[
+                        styles.tableCellText,
+                        { color: isLightMode ? '#334155' : '#E2E8F0' },
+                      ]}
+                    >
+                      {cell}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+            );
+          })}
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
+
+/**
+ * Callout / Alert Box Component
+ */
+function MarkdownCallout({
+  type,
+  content,
+  theme,
+  isLightMode,
+  renderInline,
+}: {
+  type: 'NOTE' | 'TIP' | 'IMPORTANT' | 'WARNING' | 'CAUTION';
+  content: string;
+  theme: AppTheme;
+  isLightMode: boolean;
+  renderInline: (text: string, style?: any) => React.ReactNode;
+}) {
+  const configs = {
+    NOTE: {
+      icon: 'information-circle' as const,
+      color: '#3B82F6',
+      bgLight: '#EFF6FF',
+      bgDark: '#172554',
+      title: 'Catatan',
+    },
+    TIP: {
+      icon: 'bulb' as const,
+      color: '#10B981',
+      bgLight: '#ECFDF5',
+      bgDark: '#064E3B',
+      title: 'Tips',
+    },
+    IMPORTANT: {
+      icon: 'star' as const,
+      color: '#8B5CF6',
+      bgLight: '#F5F3FF',
+      bgDark: '#2E1065',
+      title: 'Penting',
+    },
+    WARNING: {
+      icon: 'warning' as const,
+      color: '#F59E0B',
+      bgLight: '#FFFBEB',
+      bgDark: '#451A03',
+      title: 'Peringatan',
+    },
+    CAUTION: {
+      icon: 'alert-circle' as const,
+      color: '#EF4444',
+      bgLight: '#FEF2F2',
+      bgDark: '#450A0A',
+      title: 'Perhatian Khusus',
+    },
+  };
+
+  const current = configs[type] || configs.NOTE;
+
+  return (
+    <View
+      style={[
+        styles.calloutBox,
+        {
+          backgroundColor: isLightMode ? current.bgLight : current.bgDark,
+          borderColor: current.color,
+        },
+      ]}
+    >
+      <View style={styles.calloutHeader}>
+        <Ionicons name={current.icon} size={16} color={current.color} />
+        <Text style={[styles.calloutTitle, { color: current.color }]}>{current.title}</Text>
+      </View>
+      <Text style={[styles.calloutBody, { color: isLightMode ? '#1E293B' : '#F1F5F9' }]}>
+        {renderInline(content)}
       </Text>
     </View>
   );
@@ -210,8 +373,10 @@ export default function MarkdownRenderer({
   const { theme, isLightMode } = useTheme();
   if (!content) return null;
 
+  // Clean raw entities and format math LaTeX to Unicode
+  const cleanedContent = formatMathLatexToReadable(cleanRawTextEntities(content));
   const effectiveTextColor = textColor || theme.text;
-  const lines = content.split('\n');
+  const lines = cleanedContent.split('\n');
   const renderedElements: React.ReactNode[] = [];
 
   let inCodeBlock = false;
@@ -226,7 +391,8 @@ export default function MarkdownRenderer({
     );
   };
 
-  for (let i = 0; i < lines.length; i++) {
+  let i = 0;
+  while (i < lines.length) {
     const rawLine = lines[i];
     const trimmedLine = rawLine.trim();
 
@@ -250,23 +416,91 @@ export default function MarkdownRenderer({
         inCodeBlock = true;
         codeBlockLang = trimmedLine.replace(/```/g, '').trim();
       }
+      i++;
       continue;
     }
 
     if (inCodeBlock) {
       codeBlockBuffer.push(rawLine);
+      i++;
       continue;
     }
 
-    // 2. Horizontal rule (--- or *** or ___)
-    if (/^[-*_]{3,}$/.test(trimmedLine)) {
+    // 2. Table Parser: checks if current line and next line form a markdown table
+    if (
+      trimmedLine.startsWith('|') &&
+      trimmedLine.endsWith('|') &&
+      i + 1 < lines.length &&
+      lines[i + 1].trim().startsWith('|') &&
+      /^[|\s-:]+$/.test(lines[i + 1].trim())
+    ) {
+      // Parse Table Header
+      const headerCells = trimmedLine
+        .split('|')
+        .slice(1, -1)
+        .map(c => c.trim());
+
+      i += 2; // skip header and delimiter lines
+      const tableRows: string[][] = [];
+
+      while (i < lines.length && lines[i].trim().startsWith('|') && lines[i].trim().endsWith('|')) {
+        const rowCells = lines[i]
+          .trim()
+          .split('|')
+          .slice(1, -1)
+          .map(c => c.trim());
+        tableRows.push(rowCells);
+        i++;
+      }
+
       renderedElements.push(
-        <View key={`hr-${i}`} style={[styles.hr, { backgroundColor: theme.border }]} />
+        <MarkdownTable
+          key={`table-${i}`}
+          headers={headerCells}
+          rows={tableRows}
+          theme={theme}
+          isLightMode={isLightMode}
+        />
       );
       continue;
     }
 
-    // 3. Headings (# H1, ## H2, ### H3, #### H4)
+    // 3. GitHub-style Alert Callouts (> [!NOTE], > [!TIP], > [!IMPORTANT], > [!WARNING], > [!CAUTION])
+    const calloutMatch = trimmedLine.match(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(.*)$/i);
+    if (calloutMatch) {
+      const type = calloutMatch[1].toUpperCase() as 'NOTE' | 'TIP' | 'IMPORTANT' | 'WARNING' | 'CAUTION';
+      let calloutText = calloutMatch[2] || '';
+      i++;
+      // Collect succeeding quote lines
+      while (i < lines.length && lines[i].trim().startsWith('>')) {
+        const nextQuote = lines[i].trim().replace(/^>\s*/, '');
+        calloutText += (calloutText ? '\n' : '') + nextQuote;
+        i++;
+      }
+
+      renderedElements.push(
+        <MarkdownCallout
+          key={`callout-${i}`}
+          type={type}
+          content={calloutText}
+          theme={theme}
+          isLightMode={isLightMode}
+          renderInline={renderInline}
+        />
+      );
+      continue;
+    }
+
+    // 4. Horizontal rule (--- or *** or ___)
+    if (/^[-*_]{3,}$/.test(trimmedLine)) {
+      renderedElements.push(
+        <View key={`hr-${i}`} style={[styles.hr, { backgroundColor: theme.border }]} />
+      );
+      i++;
+      continue;
+    }
+
+    // 5. Headings (# H1, ## H2, ### H3, #### H4)
     if (/^#\s+/.test(trimmedLine)) {
       const headingText = trimmedLine.replace(/^#\s+/, '');
       renderedElements.push(
@@ -274,6 +508,7 @@ export default function MarkdownRenderer({
           {renderInline(headingText)}
         </Text>
       );
+      i++;
       continue;
     }
     if (/^##\s+/.test(trimmedLine)) {
@@ -286,6 +521,7 @@ export default function MarkdownRenderer({
           {renderInline(headingText)}
         </Text>
       );
+      i++;
       continue;
     }
     if (/^###\s+/.test(trimmedLine)) {
@@ -298,6 +534,7 @@ export default function MarkdownRenderer({
           {renderInline(headingText)}
         </Text>
       );
+      i++;
       continue;
     }
     if (/^####\s+/.test(trimmedLine)) {
@@ -310,10 +547,11 @@ export default function MarkdownRenderer({
           {renderInline(headingText)}
         </Text>
       );
+      i++;
       continue;
     }
 
-    // 4. Blockquotes (> ...)
+    // 6. Regular Blockquotes (> ...)
     if (trimmedLine.startsWith('>')) {
       const quoteText = trimmedLine.replace(/^>\s*/, '');
       renderedElements.push(
@@ -337,54 +575,62 @@ export default function MarkdownRenderer({
           </Text>
         </View>
       );
+      i++;
       continue;
     }
 
-    // 5. Unordered list (- or * or •)
-    const ulMatch = trimmedLine.match(/^[-*•]\s+(.*)$/);
+    // 7. Unordered list (- or * or •) with indent detection
+    const ulMatch = rawLine.match(/^(\s*)([-*•])\s+(.*)$/);
     if (ulMatch) {
+      const indentLevel = Math.min(Math.floor(ulMatch[1].length / 2), 3);
       renderedElements.push(
-        <View key={`ul-${i}`} style={styles.listItemRow}>
-          <Text style={[styles.bulletDot, { color: theme.accentLight }]}>•</Text>
+        <View key={`ul-${i}`} style={[styles.listItemRow, { paddingLeft: 4 + indentLevel * 14 }]}>
+          <Text style={[styles.bulletDot, { color: indentLevel > 0 ? theme.subtext : theme.accentLight }]}>
+            {indentLevel > 0 ? '◦' : '•'}
+          </Text>
           <Text
             style={[
               styles.listText,
               { fontSize, lineHeight: fontSize + 8, color: effectiveTextColor },
             ]}
           >
-            {renderInline(ulMatch[1])}
+            {renderInline(ulMatch[3])}
           </Text>
         </View>
       );
+      i++;
       continue;
     }
 
-    // 6. Ordered list (1. , 2. )
-    const olMatch = trimmedLine.match(/^(\d+)\.\s+(.*)$/);
+    // 8. Ordered list (1. , 2. )
+    const olMatch = rawLine.match(/^(\s*)(\d+)\.\s+(.*)$/);
     if (olMatch) {
+      const indentLevel = Math.min(Math.floor(olMatch[1].length / 2), 3);
       renderedElements.push(
-        <View key={`ol-${i}`} style={styles.listItemRow}>
-          <Text style={[styles.orderedNum, { color: theme.accentLight }]}>{olMatch[1]}.</Text>
+        <View key={`ol-${i}`} style={[styles.listItemRow, { paddingLeft: 4 + indentLevel * 14 }]}>
+          <Text style={[styles.orderedNum, { color: theme.accentLight }]}>{olMatch[2]}.</Text>
           <Text
             style={[
               styles.listText,
               { fontSize, lineHeight: fontSize + 8, color: effectiveTextColor },
             ]}
           >
-            {renderInline(olMatch[2])}
+            {renderInline(olMatch[3])}
           </Text>
         </View>
       );
+      i++;
       continue;
     }
 
-    // 7. Empty line spacing
+    // 9. Empty line spacing
     if (!trimmedLine) {
       renderedElements.push(<View key={`empty-${i}`} style={{ height: 10 }} />);
+      i++;
       continue;
     }
 
-    // 8. Normal paragraph
+    // 10. Normal paragraph
     renderedElements.push(
       <Text
         key={`p-${i}`}
@@ -393,6 +639,7 @@ export default function MarkdownRenderer({
         {renderInline(rawLine)}
       </Text>
     );
+    i++;
   }
 
   // Handle unclosed code block at end of content
@@ -536,5 +783,56 @@ const styles = StyleSheet.create({
   hr: {
     height: 1,
     marginVertical: 16,
+  },
+  tableWrapper: {
+    borderWidth: 1,
+    borderRadius: 8,
+    marginVertical: 10,
+    overflow: 'hidden',
+  },
+  tableInner: {
+    minWidth: '100%',
+  },
+  tableHeaderRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1.5,
+  },
+  tableDataRow: {
+    flexDirection: 'row',
+    borderBottomWidth: 1,
+  },
+  tableCell: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    justifyContent: 'center',
+  },
+  tableHeaderText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  tableCellText: {
+    fontSize: 13,
+    lineHeight: 18,
+  },
+  calloutBox: {
+    borderLeftWidth: 4,
+    borderRadius: 8,
+    padding: 12,
+    marginVertical: 10,
+  },
+  calloutHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginBottom: 6,
+  },
+  calloutTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    letterSpacing: 0.2,
+  },
+  calloutBody: {
+    fontSize: 14,
+    lineHeight: 22,
   },
 });

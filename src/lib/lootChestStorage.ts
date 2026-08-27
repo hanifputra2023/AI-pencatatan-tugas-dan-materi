@@ -1,4 +1,4 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
+﻿import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addWaterDrops } from './gardenStorage';
 
 const KEY_CHESTS = '@loot_chest_inventory';
@@ -60,13 +60,13 @@ export const ALL_RPG_TITLES: RpgTitle[] = [
   { id: 'legenda_arena', label: 'Gladiator Kuis', icon: 'trophy', color: '#8B5CF6', description: 'Taklukkan 5 bos materi berbeda di Arena Kuis', rarity: 'epic' },
   { id: 'wali_ujian', label: 'Wali Penguasa Ujian', icon: 'shield-checkmark', color: '#8B5CF6', description: 'Raih total perolehan di atas 2,500 XP', rarity: 'epic' },
   { id: 'pemimpin_forum', label: 'Sang Orator Ilmiah', icon: 'people', color: '#8B5CF6', description: 'Diperoleh dari putaran keberuntungan Lucky Wheel', rarity: 'epic' },
-  { id: 'sang_alchemist', label: 'Sang Alchemist Pengetahuan', icon: 'flask', color: '#8B5CF6', description: 'Buka 3 Peti Misterius dalam satu hari', rarity: 'epic' },
+  { id: 'sang_alchemist', label: 'Sang Alchemist Pengetahuan', icon: 'flask', color: '#8B5CF6', description: 'Buka 3 Kotak Hadiah dalam satu hari', rarity: 'epic' },
   { id: 'penguasa_roda', label: 'Penguasa Roda Nasib', icon: 'refresh-circle', color: '#8B5CF6', description: 'Menangkan Hadiah JACKPOT di Lucky Wheel', rarity: 'epic' },
   { id: 'dewa_koin_emas', label: 'Kolektor XP Sejati', icon: 'cash', color: '#8B5CF6', description: 'Kumpulkan lebih dari 5,000 XP total', rarity: 'epic' },
   { id: 'pembelah_materi', label: 'Pembelah Rumus Rumit', icon: 'hardware-chip', color: '#8B5CF6', description: 'Taklukkan Boss Fase 2 tanpa HP tersisa di bawah 50%', rarity: 'epic' },
 
   // ── LEGENDARY (Legendaris - Tier 3) ──
-  { id: 'shadow_of_wisdom', label: 'Shadow of Wisdom', icon: 'eye', color: '#F59E0B', description: 'Diperoleh hanya dari drop Peti Misterius Langka', rarity: 'legendary' },
+  { id: 'shadow_of_wisdom', label: 'Shadow of Wisdom', icon: 'eye', color: '#F59E0B', description: 'Diperoleh hanya dari drop Kotak Hadiah Langka', rarity: 'legendary' },
   { id: 'naga_api_belajar', label: 'Naga Api Belajar', icon: 'flame', color: '#F59E0B', description: 'Pertahankan Streak Belajar 30 hari berturut-turut', rarity: 'legendary' },
   { id: 'penakluk_event_boss', label: 'Penakluk Boss 24 Jam', icon: 'bonfire', color: '#F59E0B', description: 'Kalahkan Boss Event Terbatas sebelum waktunya habis', rarity: 'legendary' },
   { id: 'tuan_kebun_abadi', label: 'Tuan Kebun Abadi', icon: 'leaf', color: '#F59E0B', description: 'Panen 5 varietas tanaman langka di Taman Fokus', rarity: 'legendary' },
@@ -101,8 +101,8 @@ export const WHEEL_SEGMENTS: WheelSegment[] = [
     reward: { type: 'water', rarity: 'rare', label: '+3 Tetes Air 💧', value: 3, icon: 'water', color: '#38BDF8', waterAmount: 3 } },
   { id: 'xp_medium', label: '+80 XP', subLabel: 'Bonus Epik', color: '#6D28D9', textColor: '#FFFFFF', icon: 'flash', weight: 18,
     reward: { type: 'xp', rarity: 'epic', label: '+80 XP Epik!', value: 80, icon: 'flash', color: '#A78BFA', xpAmount: 80 } },
-  { id: 'chest_free', label: 'Peti Misterius', subLabel: 'Gratis!', color: '#B45309', textColor: '#FFFFFF', icon: 'gift', weight: 12,
-    reward: { type: 'xp', rarity: 'epic', label: '1 Peti Misterius Gratis! 📦', value: 1, icon: 'gift', color: '#F59E0B', xpAmount: 0 } },
+  { id: 'chest_free', label: 'Kotak Hadiah', subLabel: 'Gratis!', color: '#B45309', textColor: '#FFFFFF', icon: 'gift', weight: 12,
+    reward: { type: 'xp', rarity: 'epic', label: '1 Kotak Hadiah Gratis! 📦', value: 1, icon: 'gift', color: '#F59E0B', xpAmount: 0 } },
   { id: 'xp_big', label: '+150 XP', subLabel: '+ 3 Tetes Air', color: '#047857', textColor: '#FFFFFF', icon: 'trending-up', weight: 9,
     reward: { type: 'xp', rarity: 'legendary', label: '+150 XP + 3 Tetes Air!', value: 150, icon: 'trending-up', color: '#34D399', xpAmount: 150, waterAmount: 3 } },
   { id: 'title_random', label: 'Gelar RPG!', subLabel: 'Rare/Epic', color: '#BE185D', textColor: '#FFFFFF', icon: 'ribbon', weight: 7,

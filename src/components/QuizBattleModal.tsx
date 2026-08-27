@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+﻿import React, { useState, useEffect, useRef } from 'react';
 import {
   View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing
 } from 'react-native';
@@ -711,7 +711,7 @@ export default function QuizBattleModal({
                 </View>
                 <View style={styles.rewardRow}>
                   <Ionicons name="gift" size={16} color="#F59E0B" />
-                  <Text style={[styles.rewardText, { color: theme.text }]}>Peti Misterius: <Text style={{ color: '#F59E0B', fontWeight: '800' }}>+1 Peti 📦</Text></Text>
+                  <Text style={[styles.rewardText, { color: theme.text }]}>Kotak Hadiah: <Text style={{ color: '#F59E0B', fontWeight: '800' }}>+1 Hadiah 🎁</Text></Text>
                 </View>
                 <View style={styles.rewardRow}>
                   <Ionicons name="shield-checkmark" size={16} color="#10B981" />

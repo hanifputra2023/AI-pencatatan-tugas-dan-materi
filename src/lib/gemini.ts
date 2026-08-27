@@ -40,14 +40,13 @@ export const getGeminiApiKeysPool = (): string[] => {
   return pool.filter(k => k && k.trim() !== '');
 };
 
-// Candidate models in order of instant speed & JSON reliability
+// Candidate models in order of instant vision intelligence & reliability
 const ACTIVE_MODELS = [
-  'gemini-flash-lite-latest', // Lightning fast, verified 200 OK
-  'gemini-2.5-flash-lite',    // Lightweight fast tier (200 OK)
-  'gemini-2.5-flash',         // Intelligence tier
-  'gemini-1.5-flash',         // Standard stable legacy fallback
+  'gemini-2.5-flash',         // Intelligence & Vision tier (Diagrams, charts, images in docs)
+  'gemini-1.5-flash',         // Standard stable multimodal fallback
+  'gemini-flash-lite-latest', // Fast backup
+  'gemini-2.5-flash-lite',    // Lightweight fast tier
   'gemini-3.6-flash',         // Backup tier
-  'gemma-4-31b-it',           // Open-weights Gemma model
 ];
 
 export const testGeminiApiKey = async (key: string): Promise<{ success: boolean; message: string; latency?: number }> => {
@@ -86,15 +85,20 @@ export const testGeminiApiKey = async (key: string): Promise<{ success: boolean;
   return { success: false, message: `Koneksi Gagal (${lastErr})`, latency };
 };
 
-const DEFAULT_SYSTEM_INSTRUCTION = `Kamu adalah "Ara", seorang sahabat dan teman curhat AI yang sangat hangat, empatik, pengertian, dan penuh perhatian.
+const DEFAULT_SYSTEM_INSTRUCTION = `Kamu adalah "Ara", seorang asisten & sahabat AI cerdas yang sangat hangat, empatik, pengertian, dan solutif.
 Bahasa yang kamu gunakan adalah Bahasa Indonesia yang luwes, santai, dan akrab layaknya sahabat dekat seumuran.
 Prinsip utamamu:
-1. Dengarkan setiap keluh kesah dan cerita pengguna tanpa pernah menghakimi atau menyalahkan.
-2. Selalu validasi perasaan mereka terlebih dahulu.
-3. Berikan kata-kata penyemangat, pelukan hangat virtual, atau sudut pandang positif yang menenangkan.
-4. Jika pengguna melampirkan foto/file/suara, beri tanggapan yang relevan dan penuh perhatian.
-5. Jawabanmu ringkas, nyaman dibaca (2-4 kalimat), natural, dan gunakan emoji yang manis & relevan (💜, ✨, 🥺, 🤗, 🌸).
-6. Jangan berikan jawaban kaku seperti robot/asisten formal. Kamu adalah sahabat sejatinya.`;
+1. Dengarkan setiap keluh kesah, pertanyaan, dan cerita pengguna tanpa menghakimi.
+2. FORMATTING TEKS MENTAH & RUMUS / DOKUMEN:
+   - Jika menulis rumus matematika / fisika / sains, HINDARI kode LaTeX mentah yang membingungkan (seperti $\\mathbf{A}$, $\\vec{A}$, atau \\frac{a}{b}). Selalu gunakan format Unicode teks yang bersih dan langsung terbaca (misal: "Vektor A (A⃗)", "sin θ = (sisi depan / sisi miring)", "|A| = √(Ax² + Ay²)").
+   - Jika pengguna mengirimkan teks mentah, data acak, log, kodingan, OCR catatan, tabel mentah, atau dokumen:
+     * Secara OTOMATIS ubah dan rapikan teks mentah tersebut menjadi bentuk yang sangat mudah dibaca, terstruktur, dan indah (gunakan Heading, Bullet points, Tabel Markdown yang rapi, dan penekanan tebal pada poin penting).
+     * Terjemahkan / jelaskan istilah sulit atau singkatan rumit agar mudah dipahami siapa saja.
+3. ANALISIS VISUAL GAMBAR & DIAGRAM DALAM DOKUMEN / FOTO:
+   - Jika pengguna melampirkan foto, dokumen PDF, slide kuliah, atau file yang memuat GAMBAR, DIAGRAM, GRAFIK, BAGAN, FLOWCHART, TABEL, atau SKEMA:
+   - Analisis dan jelaskan secara detail informasi visual dari gambar atau diagram tersebut. Jangan lewatkan detail penting yang tertera pada visual.
+4. Selalu validasi perasaan mereka dan berikan dorongan semangat atau saran solutif yang jelas.
+5. Gunakan format Markdown yang indah (bold, italic, list, tabel, code block jika perlu) dan emoji yang ramah & relevan (✨, 💡, 📋, 🌸, 💜).`;
 
 export interface GeminiMessage {
   role: 'user' | 'model';
@@ -209,7 +213,7 @@ export function extractJsonFromText<T>(text: string): T {
 export async function sendMessageToGemini(
   history: GeminiMessage[],
   newMessage: string,
-  attachment?: ChatAttachment | null,
+  attachment?: ChatAttachment | ChatAttachment[] | null,
   customSystemInstruction?: string,
   options?: SendMessageOptions
 ): Promise<string> {
@@ -221,23 +225,37 @@ export async function sendMessageToGemini(
   const userParts: Array<{ text?: string; inlineData?: { mimeType: string; data: string } }> = [];
 
   const MULTIMODAL_TYPES = ['image', 'audio', 'document'];
-  const isPdf = attachment && ((attachment.mimeType === 'application/pdf') || (attachment.name?.toLowerCase().endsWith('.pdf')));
+  const attachmentsList: ChatAttachment[] = Array.isArray(attachment)
+    ? attachment
+    : (attachment ? [attachment] : []);
 
-  if (attachment && attachment.base64 && MULTIMODAL_TYPES.includes(attachment.type)) {
-    const finalMime = isPdf ? 'application/pdf' : (attachment.mimeType || 'application/octet-stream');
-    userParts.push({
-      inlineData: {
-        mimeType: finalMime,
-        data: attachment.base64,
-      },
-    });
+  let accumulatedDocText = '';
+
+  for (const att of attachmentsList) {
+    const isPdf = (att.mimeType === 'application/pdf') || (att.name?.toLowerCase().endsWith('.pdf'));
+
+    if (att.base64 && MULTIMODAL_TYPES.includes(att.type)) {
+      const finalMime = isPdf ? 'application/pdf' : (att.mimeType || 'image/jpeg');
+      userParts.push({
+        inlineData: {
+          mimeType: finalMime,
+          data: att.base64,
+        },
+      });
+    }
+
+    if (att.textContent && att.textContent.trim()) {
+      const fileSizeKb = ((att.size || att.textContent.length) / 1024).toFixed(1);
+      accumulatedDocText += `\n\n[Lampiran Dokumen: "${att.name || 'Dokumen'}" (${fileSizeKb} KB)]\n` +
+        `--- AWAL ISI DOKUMEN ---\n` +
+        `${att.textContent.trim()}\n` +
+        `--- AKHIR ISI DOKUMEN ---\n`;
+    }
   }
 
   let fullPrompt = newMessage;
-  if (attachment && isPdf) {
-    fullPrompt = `[Lampiran Dokumen PDF: "${attachment.name || 'Dokumen'}" (${((attachment.size || 0) / 1024).toFixed(1)} KB)]\nTolong baca dan analisis isi seluruh halaman dokumen ini secara lengkap dan akurat.\n\n${newMessage || 'Tolong jelaskan dan rangkum isi dokumen ini secara terstruktur.'}`;
-  } else if (attachment && !attachment.base64) {
-    fullPrompt = `[Pengguna melampirkan file ${attachment.type}: ${attachment.name || 'Dokumen'}]\n${newMessage || 'Tolong perhatikan lampiran ini ya'}`;
+  if (accumulatedDocText) {
+    fullPrompt = `${accumulatedDocText}\n\n${newMessage}`;
   }
 
   userParts.push({ text: fullPrompt || 'Halo Ara' });

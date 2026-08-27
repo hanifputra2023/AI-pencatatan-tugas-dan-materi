@@ -1,4 +1,4 @@
-﻿import React, { useState, useEffect, useRef } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import {
   View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing
 } from "react-native";
@@ -6,6 +6,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
 import { getSpinTickets, consumeSpinTicket, addChest } from "../lib/lootStorage";
 import { addWaterDrops } from "../lib/gardenStorage";
+import { getGamificationConfig, GamificationConfig, DEFAULT_GAMIFICATION_CONFIG } from "../lib/gamificationConfig";
 import { ConfettiBurst } from "./DuolingoAnimations";
 
 interface LuckySpinWheelModalProps {
@@ -13,17 +14,6 @@ interface LuckySpinWheelModalProps {
   onClose: () => void;
   onRewardWon?: (xp: number) => void;
 }
-
-const WHEEL_SECTORS = [
-  { label: "+30 XP", xp: 30, water: 0, chest: 0, color: "#3B82F6", icon: "star" },
-  { label: "+1 💧 Air", xp: 0, water: 1, chest: 0, color: "#06B6D4", icon: "water" },
-  { label: "+50 XP", xp: 50, water: 0, chest: 0, color: "#8B5CF6", icon: "sparkles" },
-  { label: "1 Peti 📦", xp: 0, water: 0, chest: 1, color: "#F59E0B", icon: "cube" },
-  { label: "+20 XP", xp: 20, water: 0, chest: 0, color: "#10B981", icon: "flash" },
-  { label: "+3 💧 Air", xp: 0, water: 3, chest: 0, color: "#0284C7", icon: "water" },
-  { label: "JACKPOT 150 XP", xp: 150, water: 2, chest: 0, color: "#EF4444", icon: "trophy" },
-  { label: "+75 XP", xp: 75, water: 0, chest: 0, color: "#EC4899", icon: "flame" },
-];
 
 export default function LuckySpinWheelModal({
   visible,
@@ -33,7 +23,8 @@ export default function LuckySpinWheelModal({
   const { theme, isLightMode } = useTheme();
   const [tickets, setTickets] = useState(1);
   const [isSpinning, setIsSpinning] = useState(false);
-  const [wonSector, setWonSector] = useState<typeof WHEEL_SECTORS[0] | null>(null);
+  const [wheelSectors, setWheelSectors] = useState(DEFAULT_GAMIFICATION_CONFIG.wheelSectors);
+  const [wonSector, setWonSector] = useState<typeof DEFAULT_GAMIFICATION_CONFIG.wheelSectors[0] | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
 
   const spinAngle = useRef(new Animated.Value(0)).current;
@@ -42,6 +33,11 @@ export default function LuckySpinWheelModal({
   useEffect(() => {
     if (visible) {
       getSpinTickets().then(setTickets);
+      getGamificationConfig().then((cfg) => {
+        if (cfg.wheelSectors && cfg.wheelSectors.length > 0) {
+          setWheelSectors(cfg.wheelSectors);
+        }
+      });
       setIsSpinning(false);
       setWonSector(null);
       setShowConfetti(false);
@@ -58,13 +54,28 @@ export default function LuckySpinWheelModal({
     setWonSector(null);
     setTickets((prev) => Math.max(0, prev - 1));
 
-    // Random sector picked (0-7)
-    const targetSectorIndex = Math.floor(Math.random() * WHEEL_SECTORS.length);
-    const sectorAngle = 360 / WHEEL_SECTORS.length;
+    // Weighted random sector selection based on admin-defined weights
+    const totalWeight = wheelSectors.reduce((sum, s) => sum + (s.weight || 10), 0);
+    let rand = Math.random() * totalWeight;
+    let targetSectorIndex = 0;
+    for (let i = 0; i < wheelSectors.length; i++) {
+      const weight = wheelSectors[i].weight || 10;
+      if (rand < weight) {
+        targetSectorIndex = i;
+        break;
+      }
+      rand -= weight;
+    }
+
+    const sectorAngle = 360 / wheelSectors.length;
+    const targetSegAngle = targetSectorIndex * sectorAngle + sectorAngle / 2;
+    const targetEnd = (360 - targetSegAngle) % 360;
+    let delta = targetEnd - (currentRotation.current % 360);
+    if (delta <= 0) delta += 360;
     
     // Multiple full spins (5 to 8 rotations) + target sector offset
     const fullSpins = 5 + Math.floor(Math.random() * 3);
-    const targetDeg = currentRotation.current + (fullSpins * 360) + (targetSectorIndex * sectorAngle) + (sectorAngle / 2);
+    const targetDeg = currentRotation.current + (fullSpins * 360) + delta;
 
     Animated.timing(spinAngle, {
       toValue: targetDeg,
@@ -73,7 +84,7 @@ export default function LuckySpinWheelModal({
       useNativeDriver: true,
     }).start(async () => {
       currentRotation.current = targetDeg % 360;
-      const picked = WHEEL_SECTORS[targetSectorIndex];
+      const picked = wheelSectors[targetSectorIndex];
       setWonSector(picked);
       setIsSpinning(false);
       setShowConfetti(true);
@@ -136,8 +147,8 @@ export default function LuckySpinWheelModal({
                 },
               ]}
             >
-              {WHEEL_SECTORS.map((s, idx) => {
-                const angle = (idx * 360) / WHEEL_SECTORS.length;
+              {wheelSectors.map((s, idx) => {
+                const angle = (idx * 360) / wheelSectors.length;
                 return (
                   <View
                     key={idx}
