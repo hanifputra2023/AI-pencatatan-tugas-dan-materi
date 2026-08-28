@@ -166,6 +166,7 @@ export default function HomeScreen() {
 
   // Daily Reward Modal State
   const [showDailyRewardModal, setShowDailyRewardModal] = useState(false);
+  const [pendingDailyReward, setPendingDailyReward] = useState(false);
   const [dailyRewardData, setDailyRewardData] = useState<DailyReward>(DAILY_REWARD_SCHEDULE[0]);
   const [dailyRewardStreak, setDailyRewardStreak] = useState(1);
 
@@ -351,7 +352,8 @@ export default function HomeScreen() {
         if (rewardCheck.shouldShow) {
           setDailyRewardData(rewardCheck.reward);
           setDailyRewardStreak(rewardCheck.streak);
-          setShowDailyRewardModal(true);
+          // Tunda tampilan modal sampai loading utama selesai
+          setPendingDailyReward(true);
         }
       } catch (e) {
         console.log('Daily reward check error:', e);
@@ -434,6 +436,14 @@ export default function HomeScreen() {
       supabase.removeChannel(channel);
     };
   }, [user, fetchData]);
+
+  // Tampilkan modal Daily Reward hanya setelah loading utama selesai
+  useEffect(() => {
+    if (!loading && pendingDailyReward) {
+      setPendingDailyReward(false);
+      setShowDailyRewardModal(true);
+    }
+  }, [loading, pendingDailyReward]);
 
   useFocusEffect(
     useCallback(() => {
