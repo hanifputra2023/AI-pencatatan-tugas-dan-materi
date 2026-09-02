@@ -9,15 +9,12 @@ import {
   Easing,
   Platform,
   SafeAreaView,
-  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
-import { Audio } from 'expo-av';
-import * as FileSystem from 'expo-file-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
-import { ChatAttachment, ChatMessage } from '../types';
+import { ChatMessage } from '../types';
 
 interface GeminiLiveVoiceModalProps {
   visible: boolean;
@@ -106,8 +103,6 @@ export default function GeminiLiveVoiceModal({
 
   // Lifecycle Refs
   const recognitionRef = useRef<any>(null);
-  const mobileRecordingRef = useRef<Audio.Recording | null>(null);
-  const hasPermissionRef = useRef<boolean>(false);
   const isComponentMounted = useRef(true);
   const isListeningRef = useRef(false);
   const isAiSpeakingRef = useRef(false);
@@ -119,86 +114,10 @@ export default function GeminiLiveVoiceModal({
   const activeUtteranceRef = useRef<any>(null);
   const fullAiTextRef = useRef<string>('');
 
-  // Hands-free voice activity detection (mobile recording)
-  const meterPollRef = useRef<any>(null);
-  const lastSoundRef = useRef<number>(0);
-  const lastMeterRef = useRef<number>(-120);
-  const isSilenceDetectedRef = useRef<boolean>(false);
-  const pendingMobileVoiceRef = useRef<{ handled: boolean }>({ handled: false });
-
   // Sync mic mute ref
   useEffect(() => {
     isMicMutedRef.current = isMicMuted;
   }, [isMicMuted]);
-
-  // Request runtime microphone permission on mobile
-  const requestMicPermission = useCallback(async (): Promise<boolean> => {
-    if (Platform.OS !== 'web') {
-      try {
-        const perm = await Audio.requestPermissionsAsync();
-        if (perm.status === 'granted') {
-          hasPermissionRef.current = true;
-          await Audio.setAudioModeAsync({
-            allowsRecordingIOS: true,
-            playsInSilentModeIOS: true,
-            shouldDuckAndroid: true,
-            playThroughEarpieceAndroid: false,
-          });
-          setErrorMessage(null);
-          return true;
-        } else {
-          hasPermissionRef.current = false;
-          setErrorMessage('Izin mikrofon dibutuhkan untuk berbicara dengan AI. Buka pengaturan HP dan izinkan akses mikrofon.');
-          setLiveState('idle');
-          return false;
-        }
-      } catch (e: any) {
-        console.log('Permission error:', e);
-        setErrorMessage('Gagal meminta izin mikrofon: ' + e.message);
-        return false;
-      }
-    }
-    return true;
-  }, []);
-
-  // Clean stop of all audio & recognition
-  const stopAllAudio = useCallback(async () => {
-    isListeningRef.current = false;
-    isAiSpeakingRef.current = false;
-
-    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
-    if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
-    if (streamTimerRef.current) clearInterval(streamTimerRef.current);
-    if (meterPollRef.current) clearInterval(meterPollRef.current);
-    meterPollRef.current = null;
-
-    if (mobileRecordingRef.current) {
-      try {
-        await mobileRecordingRef.current.stopAndUnloadAsync();
-      } catch (e) {}
-      mobileRecordingRef.current = null;
-    }
-
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-      } catch (e) {}
-      recognitionRef.current = null;
-    }
-
-    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.speechSynthesis) {
-      try {
-        window.speechSynthesis.cancel();
-      } catch (e) {}
-    }
-
-    try {
-      Speech.stop();
-    } catch (e) {}
-  }, []);
 
   // Init session when modal opens
   useEffect(() => {
@@ -216,16 +135,7 @@ export default function GeminiLiveVoiceModal({
       setUserTranscript('');
       const greeting = `Halo! Ada yang lagi kamu pikirin? Cerita aja, aku dengerin.`;
       setDisplayedAiSpeech(greeting);
-      
-      if (Platform.OS !== 'web') {
-        requestMicPermission().then((granted) => {
-          if (granted) {
-            startListeningSession();
-          }
-        });
-      } else {
-        startListeningSession();
-      }
+      startListeningSession();
     } else {
       stopAllAudio();
     }
@@ -235,6 +145,36 @@ export default function GeminiLiveVoiceModal({
       stopAllAudio();
     };
   }, [visible]);
+
+  // Clean stop of all audio & recognition
+  const stopAllAudio = useCallback(() => {
+    isListeningRef.current = false;
+    isAiSpeakingRef.current = false;
+
+    if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
+    if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
+    if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.abort();
+      } catch (e) { }
+      recognitionRef.current = null;
+    }
+
+    if (Platform.OS === 'web' && typeof window !== 'undefined' && window.speechSynthesis) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch (e) { }
+    }
+
+    try {
+      Speech.stop();
+    } catch (e) { }
+  }, []);
 
   // -------------------------------------------------------------
   // AURORA WAVE VISUALIZER ANIMATIONS
@@ -317,98 +257,23 @@ export default function GeminiLiveVoiceModal({
   }, [liveState]);
 
   // -------------------------------------------------------------
-  // SPEECH RECOGNITION / AUDIO RECORDING ENGINE
+  // SPEECH RECOGNITION (Multi-Turn Resilient Instance Creator)
   // -------------------------------------------------------------
-  const startListeningSession = useCallback(async () => {
+  const startListeningSession = useCallback(() => {
     if (!isComponentMounted.current || isAiSpeakingRef.current || isMicMutedRef.current) return;
 
-    // 1. Mobile Native Engine (expo-av) - HANDS-FREE via voice activity detection
-    if (Platform.OS !== 'web') {
-      try {
-        const granted = hasPermissionRef.current || (await requestMicPermission());
-        if (!granted) return;
-
-        if (mobileRecordingRef.current) {
-          try {
-            await mobileRecordingRef.current.stopAndUnloadAsync();
-          } catch (e) {}
-          mobileRecordingRef.current = null;
-        }
-
-        const recording = new Audio.Recording();
-        await recording.prepareToRecordAsync({
-          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-          isMeteringEnabled: true,
-        });
-        await recording.startAsync();
-        mobileRecordingRef.current = recording;
-        pendingMobileVoiceRef.current = { handled: false };
-        isSilenceDetectedRef.current = false;
-        lastMeterRef.current = -120;
-        lastSoundRef.current = Date.now();
-        isListeningRef.current = true;
-        setLiveState('listening');
-        setErrorMessage(null);
-
-        // Continuous voice activity detection loop:
-        // - Barge in: if AI is speaking and user talks, interrupt AI.
-        // - Turn end: after user stops talking (silence) for ~1.4s, auto-send.
-        if (meterPollRef.current) clearInterval(meterPollRef.current);
-        meterPollRef.current = setInterval(async () => {
-          if (!isComponentMounted.current) return;
-          const rec = mobileRecordingRef.current;
-          if (!rec) {
-            if (meterPollRef.current) clearInterval(meterPollRef.current);
-            return;
-          }
-          try {
-            const status = await rec.getStatusAsync();
-            if (!status?.isRecording) {
-              if (meterPollRef.current) clearInterval(meterPollRef.current);
-              return;
-            }
-            const meter = typeof status.metering === 'number' ? status.metering : -120;
-            lastMeterRef.current = meter;
-            const now = Date.now();
-
-            if (meter > -26) {
-              lastSoundRef.current = now;
-              isSilenceDetectedRef.current = false;
-            } else {
-              // User appears silent; auto-send after 1.4s of continuous silence
-              if (!isSilenceDetectedRef.current) {
-                isSilenceDetectedRef.current = true;
-                lastSoundRef.current = now;
-              } else if (now - lastSoundRef.current > 1400 && !pendingMobileVoiceRef.current.handled) {
-                pendingMobileVoiceRef.current.handled = true;
-                if (meterPollRef.current) clearInterval(meterPollRef.current);
-                meterPollRef.current = null;
-                stopMobileRecordingAndSend();
-              }
-            }
-          } catch (e) {
-            // ignore transient polling errors
-          }
-        }, 180);
-      } catch (err: any) {
-        console.log('Error starting mobile audio recording:', err);
-        setErrorMessage('Gagal merekam suara: ' + (err.message || 'Periksa izin mikrofon'));
-      }
-      return;
-    }
-
-    // 2. Web Browser Engine (Web Speech API)
+    // Safely cleanup any previous recognition instance
     if (recognitionRef.current) {
       try {
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
         recognitionRef.current.abort();
-      } catch (e) {}
+      } catch (e) { }
       recognitionRef.current = null;
     }
 
-    if (typeof window !== 'undefined') {
+    if (Platform.OS === 'web' && typeof window !== 'undefined') {
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SR) {
         setErrorMessage('Browser ini belum mendukung Web Speech Recognition. Gunakan Google Chrome atau Edge ya.');
@@ -491,53 +356,20 @@ export default function GeminiLiveVoiceModal({
         console.log('Error creating/starting speech recognition:', err);
       }
     }
-  }, [requestMicPermission]);
-
-  // Stop mobile recording and send to Gemini
-  const stopMobileRecordingAndSend = async () => {
-    if (!mobileRecordingRef.current) {
-      if (liveState === 'listening') {
-        startListeningSession();
-      }
-      return;
-    }
-
-    isListeningRef.current = false;
-    setLiveState('thinking');
-
-    try {
-      const rec = mobileRecordingRef.current;
-      mobileRecordingRef.current = null;
-      await rec.stopAndUnloadAsync();
-      const uri = rec.getURI();
-
-      if (uri) {
-        const base64Audio = await FileSystem.readAsStringAsync(uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        await processVoiceQuery('', base64Audio, 'audio/m4a');
-      } else {
-        startListeningSession();
-      }
-    } catch (err: any) {
-      console.log('Error stopping mobile recording:', err);
-      setLiveState('listening');
-      startListeningSession();
-    }
-  };
+  }, []);
 
   // -------------------------------------------------------------
   // AI QUERY & NATURAL VOICE RESPONSE
   // -------------------------------------------------------------
-  const processVoiceQuery = async (queryText: string, audioBase64?: string, audioMime?: string) => {
-    if ((!queryText.trim() && !audioBase64) || isAiSpeakingRef.current) return;
+  const processVoiceQuery = async (queryText: string) => {
+    if (!queryText.trim() || isAiSpeakingRef.current) return;
 
     // Stop listening while AI is thinking and preparing answer
     isListeningRef.current = false;
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
-      } catch (e) {}
+      } catch (e) { }
     }
 
     setLiveState('thinking');
@@ -559,39 +391,22 @@ export default function GeminiLiveVoiceModal({
         ...convoHistoryRef.current,
       ];
 
-      let reply = '';
-      if (audioBase64) {
-        const attachments: ChatAttachment[] = [
-          {
-            uri: 'memory://voice_recording.m4a',
-            name: 'voice_recording.m4a',
-            type: 'audio',
-            mimeType: audioMime || 'audio/m4a',
-            base64: audioBase64,
-          },
-        ];
-        const prompt = 'Dengarkan suara rekaman pengguna yang terlampir dan jawab langsung dengan ramah, santai, dan alami sesuai persona kamu.';
-        reply = await sendMessageToGemini(historyWithPrompt, prompt, attachments);
-      } else {
-        reply = await sendMessageToGemini(historyWithPrompt, queryText);
-      }
-      
-      const cleanReply = (reply || 'Suaramu tadi agak kurang jelas, bisa diulang lagi?').trim();
+      const reply = await sendMessageToGemini(historyWithPrompt, queryText);
+      const cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
 
       convoHistoryRef.current = [
         ...convoHistoryRef.current,
-        { role: 'user', parts: [{ text: queryText || '[Pesan Suara Pengguna]' }] },
+        { role: 'user', parts: [{ text: queryText }] },
         { role: 'model', parts: [{ text: cleanReply }] },
       ];
 
       if (onNewMessagePair) {
-        onNewMessagePair(queryText || '🎙️ Pesan Suara', cleanReply);
+        onNewMessagePair(queryText, cleanReply);
       }
 
       speakAiVoice(cleanReply);
-    } catch (e: any) {
+    } catch (e) {
       console.log('Gemini voice query error:', e);
-      setErrorMessage(e?.message || 'Gagal memproses suara. Mencoba kembali...');
       setLiveState('listening');
       startListeningSession();
     }
@@ -633,10 +448,10 @@ export default function GeminiLiveVoiceModal({
       if (!isMicMutedRef.current && isComponentMounted.current) {
         setUserTranscript('');
         setLiveState('listening');
-        // Give 350ms buffer before restarting mic to prevent hearing AI's own echo
+        // Give 300ms buffer before restarting mic to prevent hearing AI's own echo
         setTimeout(() => {
           startListeningSession();
-        }, 350);
+        }, 300);
       } else {
         setLiveState('idle');
       }
@@ -651,14 +466,14 @@ export default function GeminiLiveVoiceModal({
       }
     }, estimatedDurationMs + 2000);
 
-    // 1. Web SpeechSynthesis
+    // Primary: Web SpeechSynthesis API
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.speechSynthesis) {
       try {
         window.speechSynthesis.cancel();
 
         const utterance = new SpeechSynthesisUtterance(speechText);
         utterance.lang = 'id-ID';
-        utterance.rate = 0.98;
+        utterance.rate = 0.96;
         utterance.pitch = 1.05;
 
         const voices = window.speechSynthesis.getVoices();
@@ -695,7 +510,7 @@ export default function GeminiLiveVoiceModal({
       }
     }
 
-    // 2. Mobile Native TTS: Expo Speech
+    // Fallback: Expo Speech
     try {
       Speech.stop();
       Speech.speak(speechText, {
@@ -715,11 +530,11 @@ export default function GeminiLiveVoiceModal({
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.speechSynthesis) {
       try {
         window.speechSynthesis.cancel();
-      } catch (e) {}
+      } catch (e) { }
     }
     try {
       Speech.stop();
-    } catch (e) {}
+    } catch (e) { }
 
     isAiSpeakingRef.current = false;
     if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
@@ -740,14 +555,10 @@ export default function GeminiLiveVoiceModal({
       setIsMicMuted(true);
       isMicMutedRef.current = true;
       isListeningRef.current = false;
-      if (mobileRecordingRef.current) {
-        mobileRecordingRef.current.stopAndUnloadAsync().catch(() => {});
-        mobileRecordingRef.current = null;
-      }
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
-        } catch (e) {}
+        } catch (e) { }
       }
       setLiveState('muted');
     }
@@ -758,12 +569,6 @@ export default function GeminiLiveVoiceModal({
       handleInterruptAi();
     } else if (liveState === 'muted') {
       toggleMute();
-    } else if (Platform.OS !== 'web') {
-      if (liveState === 'listening') {
-        stopMobileRecordingAndSend();
-      } else {
-        startListeningSession();
-      }
     } else {
       setUserTranscript('');
       setLiveState('listening');
@@ -779,11 +584,11 @@ export default function GeminiLiveVoiceModal({
   const getStatusText = () => {
     switch (liveState) {
       case 'listening':
-        return 'Dengarkan, silakan bicara...';
+        return 'Mendengarkan suaramu...';
       case 'thinking':
-        return 'Menghubungkan pikiran AI...';
+        return 'Menghubungkan pikiran...';
       case 'speaking':
-        return `${botName} sedang bicara (Ketuk untuk sela)`;
+        return `${botName} sedang bicara`;
       case 'muted':
         return 'Mikrofon dijeda (ketuk untuk bicara)';
       default:
@@ -825,10 +630,10 @@ export default function GeminiLiveVoiceModal({
                   liveState === 'speaking'
                     ? (theme.accentLight || '#38BDF8')
                     : liveState === 'thinking'
-                    ? '#A855F7'
-                    : liveState === 'muted'
-                    ? '#F59E0B'
-                    : (theme.primary || '#00E5FF'),
+                      ? '#A855F7'
+                      : liveState === 'muted'
+                        ? '#F59E0B'
+                        : (theme.primary || '#00E5FF'),
               },
             ]}
           />
@@ -890,22 +695,6 @@ export default function GeminiLiveVoiceModal({
           {/* Status Label */}
           <Text style={[styles.statusIndicatorText, { color: theme.subtext }]}>{getStatusText()}</Text>
 
-          {liveState === 'listening' && Platform.OS !== 'web' && (
-            <View
-              style={[
-                styles.interruptPill,
-                {
-                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
-                  borderColor: theme.border,
-                  borderWidth: 1,
-                },
-              ]}
-            >
-              <Ionicons name="pulse" size={12} color={theme.subtext} />
-              <Text style={[styles.interruptPillText, { color: theme.subtext }]}>Berhenti bicara sebentar = langsung terkirim otomatis</Text>
-            </View>
-          )}
-
           {liveState === 'speaking' && (
             <TouchableOpacity
               style={[
@@ -925,13 +714,26 @@ export default function GeminiLiveVoiceModal({
           )}
         </View>
 
-        {/* Status / Error Toast Area */}
-        {errorMessage && (
-          <View style={styles.errorContainer}>
-            <Ionicons name="alert-circle" size={14} color="#EF4444" />
-            <Text style={styles.errorCaptionText}>{errorMessage}</Text>
-          </View>
-        )}
+        {/* Floating Minimalist Captions */}
+        <View style={styles.captionsContainer}>
+          {userTranscript ? (
+            <Text
+              style={[
+                styles.userCaptionText,
+                { color: isLightMode ? theme.primary : (theme.accentLight || '#38BDF8') },
+              ]}
+              numberOfLines={3}
+            >
+              "{userTranscript}"
+            </Text>
+          ) : displayedAiSpeech ? (
+            <Text style={[styles.aiCaptionText, { color: theme.text }]} numberOfLines={4}>
+              {displayedAiSpeech}
+            </Text>
+          ) : null}
+
+          {errorMessage && <Text style={styles.errorCaptionText}>{errorMessage}</Text>}
+        </View>
 
         {/* Gemini Live Sleek Floating Controls Dock */}
         <View
@@ -1127,23 +929,11 @@ const styles = StyleSheet.create({
     lineHeight: 24,
     fontWeight: '400',
   },
-  errorContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingHorizontal: 16,
-    paddingVertical: 8,
-    borderRadius: 20,
-    backgroundColor: 'rgba(239, 68, 68, 0.12)',
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.3)',
-    marginHorizontal: 20,
-  },
   errorCaptionText: {
     color: '#F87171',
     fontSize: 12.5,
     textAlign: 'center',
+    marginTop: 6,
   },
   bottomDock: {
     flexDirection: 'row',

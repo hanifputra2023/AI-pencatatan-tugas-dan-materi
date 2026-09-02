@@ -10,7 +10,7 @@ AsyncStorage.getItem('@gemini_api_keys').then(val => {
     try {
       const parsed = JSON.parse(val);
       if (Array.isArray(parsed)) inMemoryApiKeys = parsed;
-    } catch (e) {}
+    } catch (e) { }
   }
   if (inMemoryApiKeys.length === 0) {
     AsyncStorage.getItem('@gemini_api_key').then(single => {
@@ -167,7 +167,7 @@ export function extractJsonFromText<T>(text: string): T {
   const cleaned = text.replace(/```json/gi, '').replace(/```/g, '').trim();
   try {
     return JSON.parse(cleaned);
-  } catch (e) {}
+  } catch (e) { }
 
   // 2. Extract valid array [ ... ]
   const startArr = text.indexOf('[');
@@ -176,7 +176,7 @@ export function extractJsonFromText<T>(text: string): T {
     const arrStr = text.substring(startArr, endArr + 1);
     try {
       return JSON.parse(arrStr);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 3. Extract valid object { ... }
@@ -186,7 +186,7 @@ export function extractJsonFromText<T>(text: string): T {
     const objStr = text.substring(startObj, endObj + 1);
     try {
       return JSON.parse(objStr);
-    } catch (e) {}
+    } catch (e) { }
   }
 
   // 4. Salvage partially truncated JSON array: if starts with [ but cut off before ]
@@ -200,7 +200,7 @@ export function extractJsonFromText<T>(text: string): T {
         if (Array.isArray(parsed) && parsed.length > 0) {
           return parsed as unknown as T;
         }
-      } catch (e) {}
+      } catch (e) { }
     }
   }
 
