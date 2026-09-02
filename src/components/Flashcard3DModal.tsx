@@ -101,25 +101,29 @@ export default function Flashcard3DModal({
 
   const currentCard = cards[currentIndex] || null;
 
-  // 3D Flip interpolations
+  // 3D Flip interpolations with proper clamping
   const frontInterpolate = animatedValue.interpolate({
     inputRange: [0, 180],
     outputRange: ['0deg', '180deg'],
+    extrapolate: 'clamp',
   });
 
   const backInterpolate = animatedValue.interpolate({
     inputRange: [0, 180],
     outputRange: ['180deg', '360deg'],
+    extrapolate: 'clamp',
   });
 
   const frontOpacity = animatedValue.interpolate({
     inputRange: [89, 90],
     outputRange: [1, 0],
+    extrapolate: 'clamp',
   });
 
   const backOpacity = animatedValue.interpolate({
     inputRange: [89, 90],
     outputRange: [0, 1],
+    extrapolate: 'clamp',
   });
 
   const flipCard = () => {
@@ -127,7 +131,7 @@ export default function Flashcard3DModal({
       Animated.spring(animatedValue, {
         toValue: 0,
         friction: 8,
-        tension: 10,
+        tension: 12,
         useNativeDriver: Platform.OS !== 'web',
       }).start();
       setIsFlipped(false);
@@ -135,7 +139,7 @@ export default function Flashcard3DModal({
       Animated.spring(animatedValue, {
         toValue: 180,
         friction: 8,
-        tension: 10,
+        tension: 12,
         useNativeDriver: Platform.OS !== 'web',
       }).start();
       setIsFlipped(true);
@@ -465,12 +469,17 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
                     >
                       {/* Front Face of Card */}
                       <Animated.View
+                        pointerEvents={isFlipped ? 'none' : 'auto'}
                         style={[
                           styles.flipCardFace,
                           {
                             backgroundColor: isLightMode ? '#FFFFFF' : theme.cardInner,
                             borderColor: theme.border,
-                            transform: [{ rotateY: frontInterpolate }],
+                            zIndex: isFlipped ? 0 : 10,
+                            transform: [
+                              { perspective: 1200 },
+                              { rotateY: frontInterpolate },
+                            ],
                             opacity: frontOpacity,
                           }
                         ]}
@@ -521,13 +530,18 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
 
                       {/* Back Face of Card */}
                       <Animated.View
+                        pointerEvents={isFlipped ? 'auto' : 'none'}
                         style={[
                           styles.flipCardFace,
                           styles.flipCardBack,
                           {
                             backgroundColor: isLightMode ? '#F8FAFC' : theme.cardInner,
                             borderColor: theme.accent,
-                            transform: [{ rotateY: backInterpolate }],
+                            zIndex: isFlipped ? 10 : 0,
+                            transform: [
+                              { perspective: 1200 },
+                              { rotateY: backInterpolate },
+                            ],
                             opacity: backOpacity,
                           }
                         ]}
@@ -938,7 +952,7 @@ const styles = StyleSheet.create({
     borderRadius: 2.5,
   },
   cardContainer: {
-    height: 240,
+    height: 260,
     width: '100%',
   },
   flipTouchWrap: {
@@ -952,16 +966,16 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
-    borderRadius: 16,
-    borderWidth: 1,
+    borderRadius: 18,
+    borderWidth: 1.2,
     padding: 18,
     justifyContent: 'space-between',
     backfaceVisibility: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.15,
-    shadowRadius: 12,
-    elevation: 4,
+    shadowRadius: 14,
+    elevation: 6,
   },
   flipCardBack: {},
   cardFaceHeader: {

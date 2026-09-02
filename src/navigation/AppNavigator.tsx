@@ -179,10 +179,11 @@ export default function AppNavigator() {
           AsyncStorage.getItem(INTRO_VIDEO_STORAGE_KEY),
         ]);
         setHasSeenOnboarding(seen === 'true');
-        setShowIntroVideo(introSeen !== 'true');
+        // Video intro hanya untuk pengguna aplikasi (mobile), tidak untuk web/desktop
+        setShowIntroVideo(Platform.OS !== 'web' && introSeen !== 'true');
       } catch (e) {
         setHasSeenOnboarding(false);
-        setShowIntroVideo(true);
+        setShowIntroVideo(Platform.OS !== 'web');
       } finally {
         setCheckingOnboarding(false);
       }
@@ -199,7 +200,7 @@ export default function AppNavigator() {
     return (
       <View style={[styles.loader, { backgroundColor: theme.bg }]}>
         <ActivityIndicator size="small" color={theme.accentLight} />
-        <IntroVideoLoading visible={showIntroVideo} onFinish={handleIntroFinish} />
+        {Platform.OS !== 'web' && <IntroVideoLoading visible={showIntroVideo} onFinish={handleIntroFinish} />}
       </View>
     );
   }
@@ -234,7 +235,7 @@ export default function AppNavigator() {
         )}
       </Stack.Navigator>
       </NavigationContainer>
-      <IntroVideoLoading visible={showIntroVideo} onFinish={handleIntroFinish} />
+      {Platform.OS !== 'web' && <IntroVideoLoading visible={showIntroVideo} onFinish={handleIntroFinish} />}
     </View>
   );
 }

@@ -179,6 +179,56 @@ function MarkdownTable({
 }
 
 /**
+ * Visual Timeline Component — menggantikan ASCII art |---| yang berantakan
+ */
+function MarkdownTimeline({
+  points,
+  theme,
+  isLightMode,
+}: {
+  points: Array<{ year: string; label: string; sub?: string }>;
+  theme: AppTheme;
+  isLightMode: boolean;
+}) {
+  const lineColor = isLightMode ? '#CBD5E1' : '#334155';
+  const dotColor = theme.primary;
+  const yearColor = isLightMode ? '#1D4ED8' : '#93C5FD';
+  const labelColor = isLightMode ? '#0F172A' : '#F1F5F9';
+  const subColor = isLightMode ? '#64748B' : '#94A3B8';
+  const bgColor = isLightMode ? '#F8FAFC' : '#0F172A';
+
+  return (
+    <View
+      style={[
+        styles.timelineWrapper,
+        { backgroundColor: bgColor, borderColor: isLightMode ? '#E2E8F0' : '#334155' },
+      ]}
+    >
+      {/* Garis horizontal */}
+      <View style={[styles.timelineLine, { backgroundColor: lineColor }]} />
+
+      {/* Titik & label */}
+      <View style={styles.timelineRow}>
+        {points.map((pt, idx) => (
+          <View key={idx} style={styles.timelinePoint}>
+            {/* Dot */}
+            <View style={[styles.timelineDot, { backgroundColor: dotColor, borderColor: isLightMode ? '#FFFFFF' : '#0F172A' }]} />
+            {/* Year */}
+            <Text style={[styles.timelineYear, { color: yearColor }]}>{pt.year}</Text>
+            {/* Label */}
+            <Text style={[styles.timelineLabel, { color: labelColor }]} numberOfLines={3}>{pt.label}</Text>
+            {/* Sub label */}
+            {pt.sub ? (
+              <Text style={[styles.timelineSub, { color: subColor }]} numberOfLines={2}>{pt.sub}</Text>
+            ) : null}
+          </View>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+/**
  * Callout / Alert Box Component
  */
 function MarkdownCallout({
@@ -491,7 +541,56 @@ export default function MarkdownRenderer({
       continue;
     }
 
-    // 4. Horizontal rule (--- or *** or ___)
+    // 4a. ASCII Timeline Detection
+    // Deteksi 2–4 baris berurutan yang membentuk pola timeline ASCII:
+    // Baris 1: angka tahun/label epoch (misal "1760   1970   2020")
+    // Baris 2: garis connector |----|
+    // Baris 3: label peristiwa
+    // Baris 4 (opsional): sub-label dalam kurung
+    const isYearLine = (l: string) => /^\s*(\d{3,4}|\w[\w\s]*)(\s{2,}(\d{3,4}|\w[\w\s]*))+\s*$/.test(l);
+    const isConnectorLine = (l: string) => /^[\s|\-=+.]{4,}$/.test(l) && l.includes('-') && l.includes('|');
+    const isLabelLine = (l: string) => !!l.trim() && !isYearLine(l) && !isConnectorLine(l) && !l.trim().startsWith('#') && !l.trim().startsWith('|');
+
+    if (
+      isYearLine(trimmedLine) &&
+      i + 1 < lines.length && isConnectorLine(lines[i + 1]) &&
+      i + 2 < lines.length && isLabelLine(lines[i + 2])
+    ) {
+      // Ekstrak token dari baris tahun berdasarkan spasi ganda sebagai separator
+      const yearTokens = trimmedLine.trim().split(/\s{2,}/).map(t => t.trim()).filter(Boolean);
+      const labelLine = lines[i + 2];
+      // Coba split label di posisi yang sama dengan tahun via spasi ganda
+      const labelTokens = labelLine.trim().split(/\s{2,}/).map(t => t.trim()).filter(Boolean);
+      // Baris sub opsional
+      let subTokens: string[] = [];
+      let skip = 3;
+      if (i + 3 < lines.length) {
+        const possibleSub = lines[i + 3];
+        if (isLabelLine(possibleSub) && possibleSub.includes('(') && possibleSub.includes(')')) {
+          subTokens = possibleSub.trim().split(/\)\s*\(|\)\s{2,}|\s{2,}/).map(t => t.replace(/[()]/g, '').trim()).filter(Boolean);
+          skip = 4;
+        }
+      }
+
+      const points = yearTokens.map((year, idx) => ({
+        year,
+        label: labelTokens[idx] || '',
+        sub: subTokens[idx] || undefined,
+      }));
+
+      renderedElements.push(
+        <MarkdownTimeline
+          key={`timeline-${i}`}
+          points={points}
+          theme={theme}
+          isLightMode={isLightMode}
+        />
+      );
+      i += skip;
+      continue;
+    }
+
+    // 4b. Horizontal rule (--- or *** or ___)
     if (/^[-*_]{3,}$/.test(trimmedLine)) {
       renderedElements.push(
         <View key={`hr-${i}`} style={[styles.hr, { backgroundColor: theme.border }]} />
@@ -834,5 +933,60 @@ const styles = StyleSheet.create({
   calloutBody: {
     fontSize: 14,
     lineHeight: 22,
+  },
+  timelineWrapper: {
+    borderWidth: 1,
+    borderRadius: 12,
+    marginVertical: 12,
+    paddingVertical: 20,
+    paddingHorizontal: 14,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  timelineLine: {
+    position: 'absolute',
+    height: 2,
+    left: 28,
+    right: 28,
+    top: 32,
+    borderRadius: 1,
+  },
+  timelineRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    alignItems: 'flex-start',
+  },
+  timelinePoint: {
+    flex: 1,
+    alignItems: 'center',
+    paddingHorizontal: 4,
+    gap: 4,
+  },
+  timelineDot: {
+    width: 14,
+    height: 14,
+    borderRadius: 7,
+    borderWidth: 2.5,
+    marginBottom: 4,
+    zIndex: 1,
+  },
+  timelineYear: {
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+    textAlign: 'center',
+  },
+  timelineLabel: {
+    fontSize: 11,
+    fontWeight: '600',
+    textAlign: 'center',
+    lineHeight: 16,
+    marginTop: 2,
+  },
+  timelineSub: {
+    fontSize: 10,
+    fontStyle: 'italic',
+    textAlign: 'center',
+    lineHeight: 14,
   },
 });

@@ -37,6 +37,7 @@ import {
   FadeSlideIn,
   PulseDot,
 } from '../components/DuolingoAnimations';
+import GeminiLiveVoiceModal from '../components/GeminiLiveVoiceModal';
 
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
@@ -82,6 +83,7 @@ export default function ChatScreen() {
   const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
+  const [showLiveVoiceModal, setShowLiveVoiceModal] = useState(false);
 
   // Lazy Load Older Messages on Scroll Up
   const CHAT_PAGE_SIZE = 25;
@@ -538,6 +540,56 @@ export default function ChatScreen() {
     }
   };
 
+  const handleLiveVoiceMessagePair = async (userText: string, aiText: string) => {
+    const activeSessionId = currentSessionId || generateUUID();
+    if (!currentSessionId) {
+      setCurrentSessionId(activeSessionId);
+    }
+    const userMsg: ChatMessage = {
+      id: generateUUID(),
+      session_id: activeSessionId,
+      user_id: effectiveUserId,
+      role: 'user',
+      content: userText,
+      created_at: new Date().toISOString(),
+    };
+    const aiMsg: ChatMessage = {
+      id: generateUUID(),
+      session_id: activeSessionId,
+      user_id: effectiveUserId,
+      role: 'assistant',
+      content: aiText,
+      created_at: new Date(Date.now() + 50).toISOString(),
+    };
+    const updated = [...messages, userMsg, aiMsg];
+    setMessages(updated);
+    await safeSaveChatMessages(effectiveUserId, activeSessionId, updated);
+    await safeSaveActiveSessionId(effectiveUserId, activeSessionId);
+    if (user) {
+      try {
+        await supabase.from('chat_messages').insert([
+          {
+            id: userMsg.id,
+            session_id: activeSessionId,
+            user_id: user.id,
+            role: 'user',
+            content: userMsg.content,
+            created_at: userMsg.created_at,
+          },
+          {
+            id: aiMsg.id,
+            session_id: activeSessionId,
+            user_id: user.id,
+            role: 'assistant',
+            content: aiMsg.content,
+            created_at: aiMsg.created_at,
+          },
+        ]);
+      } catch (e) {}
+    }
+    scrollToBottom(100);
+  };
+
   // Automatically process incoming initialMessage from Study / Task navigation
   useEffect(() => {
     const initialMsg = route.params?.initialMessage;
@@ -876,6 +928,30 @@ export default function ChatScreen() {
 
             {/* Header Right Actions: Quick New Chat & Options Dropdown Menu */}
             <View style={styles.headerRightActions}>
+              {/* Gemini Live Voice Call Button */}
+              <TouchableOpacity
+                style={[
+                  styles.headerActionBtn,
+                  {
+                    width: 'auto',
+                    flexDirection: 'row',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    backgroundColor: isLightMode ? '#EFF6FF' : 'rgba(56, 189, 248, 0.15)',
+                    borderColor: isLightMode ? '#93C5FD' : '#38BDF8',
+                    borderWidth: 1.2,
+                    paddingHorizontal: 9,
+                    gap: 4,
+                  },
+                ]}
+                onPress={() => setShowLiveVoiceModal(true)}
+                activeOpacity={0.7}
+                accessibilityLabel="Panggilan Gemini Live"
+              >
+                <Ionicons name="sparkles" size={14} color={isLightMode ? '#2563EB' : '#38BDF8'} />
+                <Text style={{ color: isLightMode ? '#2563EB' : '#38BDF8', fontSize: 11, fontWeight: '800' }}>Live</Text>
+              </TouchableOpacity>
+
               {!isWide && (
                 <TouchableOpacity
                   style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
@@ -1109,28 +1185,42 @@ export default function ChatScreen() {
                   onKeyDown={handleKeyDown}
                 />
 
-                {/* Send Button */}
-                <TouchableOpacity
-                  style={[
-                    styles.capsuleSendBtn,
-                    (!inputText.trim() && !attachment) || loading
-                      ? [styles.capsuleSendBtnDisabled, { backgroundColor: theme.cardInner, borderColor: theme.border }]
-                      : [styles.capsuleSendBtnActive, { backgroundColor: theme.primary }],
-                  ]}
-                  onPress={() => handleSend()}
-                  disabled={(!inputText.trim() && !attachment) || loading}
-                  activeOpacity={0.8}
-                >
-                  {loading ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Ionicons
-                      name="arrow-up"
-                      size={16}
-                      color={(!inputText.trim() && !attachment) ? theme.muted : '#FFFFFF'}
-                    />
-                  )}
-                </TouchableOpacity>
+                {/* Voice / Send Button */}
+                {!inputText.trim() && !attachment ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.capsuleSendBtn,
+                      { backgroundColor: theme.cardInner, borderColor: theme.border },
+                    ]}
+                    onPress={() => setShowLiveVoiceModal(true)}
+                    activeOpacity={0.7}
+                    accessibilityLabel="Panggilan Suara Gemini Live"
+                  >
+                    <Ionicons name="mic" size={16} color={theme.accentLight} />
+                  </TouchableOpacity>
+                ) : (
+                  <TouchableOpacity
+                    style={[
+                      styles.capsuleSendBtn,
+                      loading
+                        ? [styles.capsuleSendBtnDisabled, { backgroundColor: theme.cardInner, borderColor: theme.border }]
+                        : [styles.capsuleSendBtnActive, { backgroundColor: theme.primary }],
+                    ]}
+                    onPress={() => handleSend()}
+                    disabled={loading}
+                    activeOpacity={0.8}
+                  >
+                    {loading ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" />
+                    ) : (
+                      <Ionicons
+                        name="arrow-up"
+                        size={16}
+                        color="#FFFFFF"
+                      />
+                    )}
+                  </TouchableOpacity>
+                )}
               </View>
             </View>
 
@@ -1172,7 +1262,24 @@ export default function ChatScreen() {
                   </View>
                 </TouchableOpacity>
 
-                {/* Option: Refresh Messages */}
+                {/* Option: Gemini Live Voice */}
+                <TouchableOpacity
+                  style={styles.optionRow}
+                  onPress={() => {
+                    setShowOptionsMenu(false);
+                    setShowLiveVoiceModal(true);
+                  }}
+                >
+                  <View style={[styles.optionIconBox, { backgroundColor: isLightMode ? '#EFF6FF' : '#1E293B' }]}>
+                    <Ionicons name="sparkles" size={16} color={isLightMode ? '#2563EB' : '#38BDF8'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.optionLabel, { color: theme.text }]}>Panggilan Suara Gemini Live</Text>
+                    <Text style={[styles.optionSub, { color: theme.subtext }]}>Ngobrol langsung lewat audio suara AI</Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Option: Reload Chat */}
                 <TouchableOpacity
                   style={[styles.optionRow, { borderBottomColor: theme.cardInner }]}
                   onPress={() => {
@@ -1232,6 +1339,18 @@ export default function ChatScreen() {
           </View>
         </Modal>
       )}
+
+      {/* ========================================================================= */}
+      {/* GEMINI LIVE VOICE MODAL */}
+      {/* ========================================================================= */}
+      <GeminiLiveVoiceModal
+        visible={showLiveVoiceModal}
+        onClose={() => setShowLiveVoiceModal(false)}
+        botName={effectiveBotName}
+        personaPrompt={activePersona?.prompt}
+        existingMessages={messages}
+        onNewMessagePair={handleLiveVoiceMessagePair}
+      />
 
     </SafeAreaView>
   );

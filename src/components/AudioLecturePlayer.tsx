@@ -48,19 +48,117 @@ export default function AudioLecturePlayer({
     playbackSpeedRef.current = playbackSpeed;
   }, [playbackSpeed]);
 
-  // Indonesian Text Normalization for ultra-natural oral flow
-  const normalizeIndonesianText = (rawText: string) => {
+  // Indonesian Text Normalization — membersihkan semua teks agar natural saat dibacakan TTS
+  const normalizeIndonesianText = (rawText: string): string => {
     return rawText
-      // Remove markdown format
-      .replace(/#+\s/g, '')
+      // ── 1. Hapus blok kode (``` ... ```) sepenuhnya — tidak dibacakan ──
+      .replace(/```[\s\S]*?```/g, '. ')
+      .replace(/`[^`]+`/g, (m) => m.slice(1, -1)) // inline code → teksnya saja
+
+      // ── 2. Hapus heading markdown (##, ###, ####) ──
+      .replace(/^#{1,6}\s+/gm, '')
+
+      // ── 3. Hapus baris tabel markdown dan ASCII timeline (|---|, |===|) ──
+      .replace(/^\|[-=|:\s]+\|$/gm, '') // separator baris tabel
+      .replace(/^[\s|]+[-=|]+[\s|]+$/gm, '') // ASCII art |------|
+      .replace(/\|/g, ', ') // sisa pipe tabel → jeda koma
+
+      // ── 4. Hapus baris ASCII art connector (-----, =====) ──
+      .replace(/^[-=*_+.]{3,}$/gm, '. ')
+
+      // ── 5. Hapus bold/italic/strikethrough tapi pertahankan isinya ──
+      .replace(/\*\*\*(.*?)\*\*\*/g, '$1')
       .replace(/\*\*(.*?)\*\*/g, '$1')
+      .replace(/__(.*?)__/g, '$1')
       .replace(/\*(.*?)\*/g, '$1')
-      .replace(/`{1,3}(.*?)`{1,3}/gs, '$1')
-      .replace(/>\s/g, '')
-      .replace(/[-*•+]\s/g, '. ')
-      .replace(/\[(.*?)\]\(.*?\)/g, '$1')
-      .replace(/[\(\)\[\]\{\}]/g, ' ')
-      // Expand common abbreviations to full spoken words
+      .replace(/_(.*?)_/g, '$1')
+      .replace(/~~(.*?)~~/g, '$1')
+      .replace(/<u>(.*?)<\/u>/g, '$1')
+
+      // ── 6. Hapus blockquote dan callout markers ──
+      .replace(/^>\s*\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*/gim, '')
+      .replace(/^>\s*/gm, '')
+
+      // ── 7. Ubah bullet/list menjadi jeda alami ──
+      .replace(/^\s*[-*•+]\s+/gm, '. ')
+      .replace(/^\s*\d+\.\s+/gm, '. ')
+
+      // ── 8. Hapus link tapi pertahankan teks link ──
+      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
+      .replace(/https?:\/\/\S+/g, 'tautan')
+
+      // ── 9. Simbol matematika → kata yang bisa diucapkan ──
+      .replace(/(\w)\s*²/g, '$1 kuadrat')
+      .replace(/(\w)\s*³/g, '$1 kubik')
+      .replace(/(\w)\s*⁴/g, '$1 pangkat empat')
+      .replace(/√(\w+)/g, 'akar dari $1')
+      .replace(/∑/g, 'sigma ')
+      .replace(/∫/g, 'integral ')
+      .replace(/∞/g, 'tak hingga')
+      .replace(/π/g, 'pi')
+      .replace(/α/g, 'alfa')
+      .replace(/β/g, 'beta')
+      .replace(/γ/g, 'gamma')
+      .replace(/δ/g, 'delta')
+      .replace(/θ/g, 'theta')
+      .replace(/λ/g, 'lambda')
+      .replace(/μ/g, 'mu')
+      .replace(/σ/g, 'sigma')
+      .replace(/φ/g, 'phi')
+      .replace(/ω/g, 'omega')
+      .replace(/≤/g, 'kurang dari atau sama dengan')
+      .replace(/≥/g, 'lebih dari atau sama dengan')
+      .replace(/≠/g, 'tidak sama dengan')
+      .replace(/≈/g, 'kira-kira')
+      .replace(/±/g, 'plus minus')
+      .replace(/×/g, 'dikali')
+      .replace(/÷/g, 'dibagi')
+      .replace(/=/g, ' sama dengan ')
+      .replace(/\+/g, ' ditambah ')
+      .replace(/\s*-\s*(\d)/g, ' dikurangi $1') // minus/kurang sebelum angka
+
+      // ── 10. Simbol panah dan logika ──
+      .replace(/→|⟶|➔|➜/g, 'menuju')
+      .replace(/←|⟵/g, 'dari')
+      .replace(/↔|⟷/g, 'berhubungan dengan')
+      .replace(/⇒|➡/g, 'sehingga')
+      .replace(/⇔/g, 'jika dan hanya jika')
+      .replace(/∧/g, 'dan')
+      .replace(/∨/g, 'atau')
+      .replace(/¬/g, 'bukan')
+      .replace(/∈/g, 'anggota dari')
+      .replace(/∉/g, 'bukan anggota dari')
+      .replace(/⊂|⊆/g, 'himpunan bagian dari')
+      .replace(/∪/g, 'gabungan')
+      .replace(/∩/g, 'irisan')
+      .replace(/∅/g, 'himpunan kosong')
+      .replace(/∀/g, 'untuk semua')
+      .replace(/∃/g, 'terdapat')
+
+      // ── 11. Satuan dan unit → ejaan natural ──
+      .replace(/\bkm\/h\b/gi, 'kilometer per jam')
+      .replace(/\bm\/s\b/gi, 'meter per detik')
+      .replace(/\bkg\b/gi, 'kilogram')
+      .replace(/\bkm\b/gi, 'kilometer')
+      .replace(/\bcm\b/gi, 'sentimeter')
+      .replace(/\bmm\b/gi, 'milimeter')
+      .replace(/\bm\b(?=\s+\d)/gi, 'meter')
+      .replace(/\bHz\b/g, 'hertz')
+      .replace(/\bkHz\b/g, 'kilohertz')
+      .replace(/\bMHz\b/g, 'megahertz')
+      .replace(/\bGHz\b/g, 'gigahertz')
+      .replace(/\bkWh\b/gi, 'kilowatt jam')
+      .replace(/\bwatt\b/gi, 'watt')
+      .replace(/\bvolt\b/gi, 'volt')
+      .replace(/\bampere\b/gi, 'ampere')
+      .replace(/\bohm\b/gi, 'ohm')
+      .replace(/\b%/g, 'persen')
+      .replace(/\b°C\b/g, 'derajat celcius')
+      .replace(/\b°F\b/g, 'derajat fahrenheit')
+      .replace(/\b°K\b/g, 'kelvin')
+      .replace(/°/g, 'derajat')
+
+      // ── 12. Singkatan umum Indonesia dan Inggris ──
       .replace(/\bdll\b\.?/gi, 'dan lain-lain')
       .replace(/\bdst\b\.?/gi, 'dan seterusnya')
       .replace(/\bdsb\b\.?/gi, 'dan sebagainya')
@@ -72,8 +170,43 @@ export default function AudioLecturePlayer({
       .replace(/\bmis\b\.?/gi, 'misalnya')
       .replace(/\bno\b\.?/gi, 'nomor')
       .replace(/\bvs\b\.?/gi, 'versus')
-      .replace(/\n+/g, '. ')
-      .replace(/\s+/g, ' ')
+      .replace(/\bsvp\b\.?/gi, 'sebagai variabel pembanding')
+      .replace(/\bi\.e\.\b/gi, 'yaitu')
+      .replace(/\be\.g\.\b/gi, 'misalnya')
+      .replace(/\betc\.\b/gi, 'dan lain-lain')
+      .replace(/\bst\./gi, 'Street')
+      .replace(/\bdr\.\b/gi, 'Doktor')
+      .replace(/\bprof\.\b/gi, 'Profesor')
+      .replace(/\bpt\.\b/gi, 'Perseroan Terbatas')
+
+      // ── 13. Emoji dan simbol lain → hapus ──
+      // eslint-disable-next-line no-misleading-character-class
+      .replace(/[\u{1F300}-\u{1FAFF}]/gu, '')  // semua emoji
+      .replace(/[\u2600-\u27BF]/g, '')          // misc symbols & dingbats
+      .replace(/[★☆✓✗✔✘◆◇■□●○▲△▼▽]/g, '')
+
+      // ── 14. Kurung dan tanda baca berlebih → jeda alami ──
+      .replace(/[()[\]{}<>]/g, ', ')
+      .replace(/[_^~]/g, '')
+      .replace(/#+/g, '')
+      .replace(/\$/g, 'dollar')
+      .replace(/@/g, 'at')
+      .replace(/&/g, 'dan')
+      .replace(/#/g, 'pagar')
+
+      // ── 15. Spasi baris → jeda kalimat ──
+      .replace(/\n{2,}/g, '. ')
+      .replace(/\n/g, '. ')
+
+      // ── 16. Rapikan tanda baca ganda ──
+      .replace(/\.\s*\.\s*\./g, '. ')
+      .replace(/,\s*,/g, ',')
+      .replace(/\s*,\s*,/g, ', ')
+      .replace(/\.\s*,/g, '.')
+      .replace(/[.]{2,}/g, '. ')
+
+      // ── 17. Rapikan spasi ──
+      .replace(/\s{2,}/g, ' ')
       .trim();
   };
 

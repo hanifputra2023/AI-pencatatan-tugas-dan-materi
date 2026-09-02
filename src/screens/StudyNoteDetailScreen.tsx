@@ -1,4 +1,4 @@
-﻿import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import {
   View, Text, TextInput, TouchableOpacity, ScrollView,
   StyleSheet, SafeAreaView, ActivityIndicator, Platform, AppState
@@ -44,7 +44,8 @@ import { defeatBossEvent } from '../lib/bossEventStorage';
 type StudyNoteRouteProp = RouteProp<RootStackParamList, 'StudyNoteDetail'>;
 
 
-const QUIZ_COUNT_OPTIONS = [3, 5, 10];
+const FLASHCARD_COUNT_OPTIONS = [5, 10, 15, 20];
+const QUIZ_COUNT_OPTIONS = [3, 5, 10, 15];
 
 export default function StudyNoteDetailScreen() {
   const { user } = useAuth();
@@ -79,6 +80,7 @@ export default function StudyNoteDetailScreen() {
 
   // 3D Flashcard Modal & Audio Player
   const [showFlashcardModal, setShowFlashcardModal] = useState(false);
+  const [flashcardCount, setFlashcardCount] = useState<number>(10);
   const [generatingFlashcards, setGeneratingFlashcards] = useState(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
 
@@ -344,6 +346,17 @@ export default function StudyNoteDetailScreen() {
   useFocusEffect(
     useCallback(() => {
       if (noteId) {
+        // Reset semua state catatan ke kosong SEBELUM fetch agar tidak ada
+        // "ghost" konten catatan sebelumnya tampil selama loading
+        setTitle('');
+        setContent('');
+        setSummary(null);
+        setQuizData([]);
+        setFlashcards([]);
+        setAttachments([]);
+        setCreatedAt('');
+        setSelectedAnswers({});
+        setFetching(true);
         fetchNote();
         setViewMode('reader');
       } else {
@@ -501,6 +514,8 @@ export default function StudyNoteDetailScreen() {
       const cached = await getCachedNotes(user.id);
       const found = cached.find(n => n.id === noteId);
       if (found) {
+        // Set semua field catatan sekaligus (atomic) agar tidak ada
+        // frame yang menampilkan state setengah-setengah
         setTitle(found.title);
         setSubject(found.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
         setContent(found.content);
@@ -509,6 +524,16 @@ export default function StudyNoteDetailScreen() {
         setFlashcards(found.flashcards || []);
         setAttachments(found.attachments || []);
         setCreatedAt(found.created_at);
+      } else {
+        // Note tidak ditemukan di cache — kosongkan state
+        setTitle('');
+        setSubject(subjects.length > 0 ? subjects[0].name : 'Umum');
+        setContent('');
+        setSummary(null);
+        setQuizData([]);
+        setFlashcards([]);
+        setAttachments([]);
+        setCreatedAt('');
       }
     } catch (e) {
       console.log('Error fetching local note:', e);
@@ -589,7 +614,7 @@ ${content}`;
     }
   };
 
-  const handleGenerateFlashcards = async () => {
+  const handleGenerateFlashcards = async (overrideCount?: number) => {
     if (!content.trim()) {
       showAlert('Perhatian', 'Isi catatan masih kosong. Tulis materi terlebih dahulu untuk dibuatkan flashcard.');
       return;
@@ -601,27 +626,37 @@ ${content}`;
       return;
     }
 
+    const countToGenerate = overrideCount || flashcardCount || 10;
     setGeneratingFlashcards(true);
     try {
-      const prompt = `Anda adalah asisten dosen akademik. Buatlah 6-10 kartu flashcard tanya-jawab / konsep inti penting dari materi kuliah berikut.
+      const prompt = `Anda adalah asisten dosen akademik jenius dan sistem pembuat kartu belajar cerdas (Spaced Repetition Flashcard).
+Tugas Anda adalah membedah dan mengekstrak materi kuliah berikut menjadi tepat ${countToGenerate} kartu flashcard konsep inti yang berkualitas tinggi, mendalam, dan mudah dipahami.
+
+PEDOMAN PENTING:
+1. JANGAN copy-paste teks mentah apa adanya. Olah dan sintesis informasi menjadi konsep yang padat, berbobot, dan jernih.
+2. Jika ada rumus matematika / fisika / sains, gunakan format Unicode yang bersih dan langsung terbaca (misal: "E = mc²", "sin θ", "V = I × R", "Δv / Δt") dan HINDARI kode LaTeX mentah yang membingungkan.
+3. Sisi depan ("front"): Pertanyaan pemicu ingatan, istilah konsep, atau studi kasus singkat yang menantang pemahaman.
+4. Sisi belakang ("back"): Jawaban esensial, definisi lugas, rumus, atau penjelasan logis yang mudah dihafal.
+5. "hint": Petunjuk kata kunci atau analogi singkat pembantu ingatan (opsional).
+
 Judul Materi: "${title || 'Materi Kuliah'}"
 Mata Kuliah: "${subject || 'Kuliah Umum'}"
 Isi Catatan:
 """
-${content.slice(0, 4000)}
+${content}
 """
 
-Kembalikan HANYA JSON array murni tanpa markdown pembungkus dengan format:
+Kembalikan HANYA JSON array valid tanpa markdown pembungkus:
 [
   {
     "id": "1",
-    "front": "Pertanyaan atau istilah konsep yang harus ditebak/diingat mahasiswa",
-    "back": "Jawaban, rumus, definisi, atau penjelasan padat dan jelas",
-    "hint": "Petunjuk singkat untuk membantu mengingat (opsional)"
+    "front": "Pertanyaan konsep / istilah penting",
+    "back": "Penjelasan esensial atau jawaban lugas",
+    "hint": "Petunjuk kata kunci singkat"
   }
 ]`;
 
-      const response = await sendMessageToGemini([], prompt, null, undefined, { isJsonMode: true });
+      const response = await sendMessageToGemini([], prompt, null, undefined, { isJsonMode: true, maxTokens: 4096 });
       const parsed: any = extractJsonFromText(response);
       let rawArray: any[] = [];
       if (Array.isArray(parsed)) {
@@ -634,7 +669,7 @@ Kembalikan HANYA JSON array murni tanpa markdown pembungkus dengan format:
       }
 
       if (Array.isArray(rawArray) && rawArray.length > 0) {
-        const formatted: FlashcardItem[] = rawArray.map((item, idx) => ({
+        const formatted: FlashcardItem[] = rawArray.slice(0, countToGenerate).map((item, idx) => ({
           id: item.id || String(idx + 1),
           front: item.front || item.question || item.term || '',
           back: item.back || item.answer || item.definition || '',
@@ -671,7 +706,7 @@ Kembalikan HANYA JSON array murni tanpa markdown pembungkus dengan format:
     }
   };
 
-  // AI Feature 2: Generate Comprehensive Interactive Quiz (3, 5, or 10 Questions)
+  // AI Feature 2: Generate Comprehensive Interactive Quiz
   const handleGenerateQuiz = async (autoLaunchBattle?: boolean | any) => {
     const shouldLaunch = autoLaunchBattle === true;
     if (!content.trim()) {
@@ -680,13 +715,18 @@ Kembalikan HANYA JSON array murni tanpa markdown pembungkus dengan format:
     }
     setGeneratingQuiz(true);
     try {
-      const prompt = `Buatkan ${quizCount} soal kuis pilihan ganda akademik (4 opsi A, B, C, D) yang mendalam berdasarkan materi kuliah ini.
-Berikan opsi pengecoh yang masuk akal dan penjelasan mendalam untuk tiap jawaban yang benar.
+      const prompt = `Buatkan tepat ${quizCount} soal kuis pilihan ganda akademik (4 opsi A, B, C, D) yang mendalam dan berkualitas tinggi berdasarkan materi kuliah ini.
+
+PEDOMAN PENTING:
+1. JANGAN gunakan teks mentah tanpa diolah. Buat pertanyaan konseptual, analisis kasus, dan penalaran logis dari materi.
+2. Sediakan 1 opsi jawaban benar dan 3 opsi pengecoh yang masuk akal dan realistis (bukan opsi asal-asalan).
+3. Berikan penjelasan ilmiah yang padat dan mencerahkan kenapa opsi tersebut benar.
+4. Gunakan format Unicode yang bersih untuk simbol dan rumus matematika/sains.
 
 Format output HARUS HANYA berupa JSON valid array murni:
 [
   {
-    "question": "Pertanyaan soal",
+    "question": "Pertanyaan soal yang berbobot",
     "options": ["Opsi A", "Opsi B", "Opsi C", "Opsi D"],
     "correctIndex": 0,
     "explanation": "Penjelasan ilmiah kenapa opsi ini benar"
@@ -697,7 +737,7 @@ Mata Kuliah: ${subject || 'Kuliah'}
 Materi Catatan:
 ${content}`;
 
-      const academicSystemPrompt = `Kamu adalah mesin pembuat kuis akademik berformat JSON murni.
+      const academicSystemPrompt = `Kamu adalah mesin pembuat kuis akademik cerdas berformat JSON murni.
 Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa penutup.`;
 
       const aiReply = await sendMessageToGemini([], prompt, null, academicSystemPrompt, {
@@ -1343,32 +1383,67 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         </Text>
                       </TouchableOpacity>
 
-                      {/* Flashcard AI (3D Flip & Spaced Repetition) */}
-                      <TouchableOpacity
-                        style={[
-                          styles.sideStudioBtn,
-                          { backgroundColor: isLightMode ? '#F5F3FF' : '#211838', borderColor: isLightMode ? '#DDD6FE' : '#4C3077' },
-                          generatingFlashcards && { opacity: 0.6 }
-                        ]}
-                        onPress={() => {
-                          if (flashcards.length > 0) {
-                            setShowFlashcardModal(true);
-                          } else {
-                            handleGenerateFlashcards();
-                          }
-                        }}
-                        disabled={generatingFlashcards}
-                        activeOpacity={0.75}
-                      >
-                        {generatingFlashcards ? (
-                          <ActivityIndicator size="small" color="#A855F7" />
-                        ) : (
-                          <Ionicons name="card-outline" size={15} color="#A855F7" />
-                        )}
-                        <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#7E22CE' : '#C084FC' }]}>
-                          {flashcards.length > 0 ? `Buka Flashcard (${flashcards.length} Kartu)` : 'Buat Flashcard AI'}
-                        </Text>
-                      </TouchableOpacity>
+                      {/* Flashcard AI (3D Flip & Spaced Repetition) with Count Selector */}
+                      <View style={[styles.sideQuizSelectorBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
+                          <Text style={[styles.sideQuizLabel, { color: theme.subtext }]}>Jumlah Flashcard:</Text>
+                          <View style={{ flexDirection: 'row', gap: 4 }}>
+                            {FLASHCARD_COUNT_OPTIONS.map(cnt => (
+                              <TouchableOpacity
+                                key={cnt}
+                                style={[
+                                  styles.sideQuizChip,
+                                  { backgroundColor: theme.card },
+                                  flashcardCount === cnt && { backgroundColor: '#8B5CF6', borderColor: '#8B5CF6' }
+                                ]}
+                                onPress={() => setFlashcardCount(cnt)}
+                              >
+                                <Text style={[styles.sideQuizChipText, { color: theme.subtext }, flashcardCount === cnt && { color: '#FFFFFF', fontWeight: '800' }]}>
+                                  {cnt}
+                                </Text>
+                              </TouchableOpacity>
+                            ))}
+                          </View>
+                        </View>
+
+                        <View style={{ flexDirection: 'row', gap: 6 }}>
+                          <TouchableOpacity
+                            style={[
+                              styles.sideStudioBtn,
+                              { flex: 1, backgroundColor: isLightMode ? '#F5F3FF' : '#211838', borderColor: isLightMode ? '#DDD6FE' : '#4C3077' },
+                              generatingFlashcards && { opacity: 0.6 }
+                            ]}
+                            onPress={() => handleGenerateFlashcards()}
+                            disabled={generatingFlashcards}
+                            activeOpacity={0.75}
+                          >
+                            {generatingFlashcards ? (
+                              <ActivityIndicator size="small" color="#A855F7" />
+                            ) : (
+                              <Ionicons name="sparkles" size={15} color="#A855F7" />
+                            )}
+                            <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#7E22CE' : '#C084FC' }]}>
+                              {flashcards.length > 0 ? `Buat Ulang (${flashcardCount})` : `Buat (${flashcardCount} Kartu)`}
+                            </Text>
+                          </TouchableOpacity>
+
+                          {flashcards.length > 0 && (
+                            <TouchableOpacity
+                              style={[
+                                styles.sideStudioBtn,
+                                { backgroundColor: isLightMode ? '#EDE9FE' : '#2E1065', borderColor: '#8B5CF6', paddingHorizontal: 10 }
+                              ]}
+                              onPress={() => setShowFlashcardModal(true)}
+                              activeOpacity={0.75}
+                            >
+                              <Ionicons name="eye-outline" size={15} color="#A855F7" />
+                              <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#7E22CE' : '#C084FC' }]}>
+                                Buka ({flashcards.length})
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+                      </View>
 
                       {/* Rangkum AI */}
                       <TouchableOpacity
@@ -1572,31 +1647,66 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         </Text>
                       </TouchableOpacity>
 
-                      {/* Flashcard AI Pill */}
-                      <TouchableOpacity
-                        style={[
-                          styles.docActionPill,
-                          { backgroundColor: isLightMode ? '#F5F3FF' : '#211838', borderColor: isLightMode ? '#DDD6FE' : '#4C3077' },
-                          generatingFlashcards && { opacity: 0.6 }
-                        ]}
-                        onPress={() => {
-                          if (flashcards.length > 0) {
-                            setShowFlashcardModal(true);
-                          } else {
-                            handleGenerateFlashcards();
-                          }
-                        }}
-                        disabled={generatingFlashcards}
-                      >
-                        {generatingFlashcards ? (
-                          <ActivityIndicator size="small" color="#A855F7" style={{ transform: [{ scale: 0.7 }] }} />
-                        ) : (
-                          <Ionicons name="card-outline" size={13} color="#A855F7" />
+                      {/* Flashcard AI with integrated card count selector & Buat Ulang on mobile */}
+                      <View style={[styles.docActionPillCombo, { backgroundColor: isLightMode ? '#F5F3FF' : '#211838', borderColor: isLightMode ? '#DDD6FE' : '#4C3077' }]}>
+                        <TouchableOpacity
+                          style={[styles.docActionPillComboBtn, generatingFlashcards && { opacity: 0.6 }]}
+                          onPress={() => {
+                            if (flashcards.length > 0) {
+                              setShowFlashcardModal(true);
+                            } else {
+                              handleGenerateFlashcards();
+                            }
+                          }}
+                          disabled={generatingFlashcards}
+                        >
+                          {generatingFlashcards ? (
+                            <ActivityIndicator size="small" color="#A855F7" style={{ transform: [{ scale: 0.7 }] }} />
+                          ) : (
+                            <Ionicons name="card-outline" size={13} color="#A855F7" />
+                          )}
+                          <Text style={[styles.docActionPillText, { color: isLightMode ? '#7E22CE' : '#C084FC' }]}>
+                            {flashcards.length > 0 ? `Buka (${flashcards.length})` : 'Buat Flashcard'}
+                          </Text>
+                        </TouchableOpacity>
+
+                        <View style={[styles.comboDivider, { backgroundColor: isLightMode ? '#DDD6FE' : '#4C3077' }]} />
+
+                        <View style={styles.comboChipsWrap}>
+                          {FLASHCARD_COUNT_OPTIONS.map(cnt => (
+                            <TouchableOpacity
+                              key={cnt}
+                              style={[
+                                styles.miniComboChip,
+                                { backgroundColor: isLightMode ? '#FFFFFF' : '#2D1F4C' },
+                                flashcardCount === cnt && { backgroundColor: '#8B5CF6' }
+                              ]}
+                              onPress={() => setFlashcardCount(cnt)}
+                            >
+                              <Text style={[styles.miniComboChipText, { color: isLightMode ? '#6B7280' : '#A78BFA' }, flashcardCount === cnt && { color: '#FFFFFF', fontWeight: '800' }]}>
+                                {cnt}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+
+                        {flashcards.length > 0 && (
+                          <>
+                            <View style={[styles.comboDivider, { backgroundColor: isLightMode ? '#DDD6FE' : '#4C3077' }]} />
+                            <TouchableOpacity
+                              style={[styles.docActionPillComboBtn, { paddingHorizontal: 6 }, generatingFlashcards && { opacity: 0.6 }]}
+                              onPress={() => handleGenerateFlashcards()}
+                              disabled={generatingFlashcards}
+                              accessibilityLabel="Buat Ulang Flashcard"
+                            >
+                              <Ionicons name="refresh" size={12} color="#A855F7" />
+                              <Text style={[styles.docActionPillText, { color: isLightMode ? '#7E22CE' : '#C084FC', fontSize: 11 }]}>
+                                Ulang
+                              </Text>
+                            </TouchableOpacity>
+                          </>
                         )}
-                        <Text style={[styles.docActionPillText, { color: isLightMode ? '#7E22CE' : '#C084FC' }]}>
-                          {flashcards.length > 0 ? `Flashcard (${flashcards.length})` : 'Flashcard AI'}
-                        </Text>
-                      </TouchableOpacity>
+                      </View>
 
                       {/* Rangkum AI */}
                       <TouchableOpacity
@@ -1614,24 +1724,24 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         </Text>
                       </TouchableOpacity>
 
-                      {/* Kuis AI with integrated question count selector on mobile */}
-                      <View style={[styles.docActionPillCombo, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                      {/* Kuis AI with integrated question count selector & Buat Ulang on mobile */}
+                      <View style={[styles.docActionPillCombo, { backgroundColor: isLightMode ? '#ECFDF5' : '#0F291E', borderColor: isLightMode ? '#A7F3D0' : '#1E4D38' }]}>
                         <TouchableOpacity
                           style={[styles.docActionPillComboBtn, generatingQuiz && { opacity: 0.6 }]}
                           onPress={handleGenerateQuiz}
                           disabled={generatingQuiz}
                         >
                           {generatingQuiz ? (
-                            <ActivityIndicator size="small" color="#34D399" style={{ transform: [{ scale: 0.7 }] }} />
+                            <ActivityIndicator size="small" color="#10B981" style={{ transform: [{ scale: 0.7 }] }} />
                           ) : (
-                            <Ionicons name="school-outline" size={13} color="#34D399" />
+                            <Ionicons name="school-outline" size={13} color="#10B981" />
                           )}
-                          <Text style={[styles.docActionPillText, { color: '#34D399' }]}>
-                            {quizData.length > 0 ? `Kuis (${quizData.length})` : 'Kuis AI'}
+                          <Text style={[styles.docActionPillText, { color: isLightMode ? '#047857' : '#34D399' }]}>
+                            {quizData.length > 0 ? `Kuis (${quizData.length})` : 'Buat Kuis'}
                           </Text>
                         </TouchableOpacity>
 
-                        <View style={[styles.comboDivider, { backgroundColor: theme.border }]} />
+                        <View style={[styles.comboDivider, { backgroundColor: isLightMode ? '#A7F3D0' : '#1E4D38' }]} />
 
                         <View style={styles.comboChipsWrap}>
                           {QUIZ_COUNT_OPTIONS.map(cnt => (
@@ -1639,17 +1749,34 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                               key={cnt}
                               style={[
                                 styles.miniComboChip,
-                                { backgroundColor: theme.cardInner },
+                                { backgroundColor: isLightMode ? '#FFFFFF' : '#14382A' },
                                 quizCount === cnt && { backgroundColor: '#10B981' }
                               ]}
                               onPress={() => setQuizCount(cnt)}
                             >
-                              <Text style={[styles.miniComboChipText, { color: theme.subtext }, quizCount === cnt && { color: '#FFFFFF', fontWeight: '800' }]}>
+                              <Text style={[styles.miniComboChipText, { color: isLightMode ? '#6B7280' : '#6EE7B7' }, quizCount === cnt && { color: '#FFFFFF', fontWeight: '800' }]}>
                                 {cnt}
                               </Text>
                             </TouchableOpacity>
                           ))}
                         </View>
+
+                        {quizData.length > 0 && (
+                          <>
+                            <View style={[styles.comboDivider, { backgroundColor: isLightMode ? '#A7F3D0' : '#1E4D38' }]} />
+                            <TouchableOpacity
+                              style={[styles.docActionPillComboBtn, { paddingHorizontal: 6 }, generatingQuiz && { opacity: 0.6 }]}
+                              onPress={handleGenerateQuiz}
+                              disabled={generatingQuiz}
+                              accessibilityLabel="Buat Ulang Kuis"
+                            >
+                              <Ionicons name="refresh" size={12} color="#10B981" />
+                              <Text style={[styles.docActionPillText, { color: isLightMode ? '#047857' : '#34D399', fontSize: 11 }]}>
+                                Ulang
+                              </Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
                       </View>
 
                       {/* Boss Battle RPG Mode Pill */}
