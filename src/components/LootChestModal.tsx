@@ -1,6 +1,6 @@
-﻿import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import {
-  View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing
+  View, Text, Modal, TouchableOpacity, StyleSheet, Animated, Easing, Platform
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../contexts/ThemeContext";
@@ -28,10 +28,14 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
   const [reward, setReward] = useState<LootResult | null>(null);
   const [showConfetti, setShowConfetti] = useState(false);
 
-  const shakeAnim = useRef(new Animated.Value(0)).current;
-  const scaleAnim = useRef(new Animated.Value(0.8)).current;
-  const glowAnim = useRef(new Animated.Value(0)).current;
-  const revealScale = useRef(new Animated.Value(0)).current;
+  // Symmetrical Animation Values
+  const shakeAnim = useRef(new Animated.Value(0)).current; // -1 to 1
+  const chestScaleAnim = useRef(new Animated.Value(1)).current;
+  const chestOpacity = useRef(new Animated.Value(1)).current;
+  const modalScaleAnim = useRef(new Animated.Value(0.85)).current;
+  const glowScale = useRef(new Animated.Value(0.8)).current;
+  const glowOpacity = useRef(new Animated.Value(0)).current;
+  const revealScale = useRef(new Animated.Value(0.3)).current;
   const revealOpacity = useRef(new Animated.Value(0)).current;
   const floatAnim = useRef(new Animated.Value(0)).current;
 
@@ -41,7 +45,15 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
       setPhase("idle");
       setReward(null);
       setShowConfetti(false);
-      Animated.spring(scaleAnim, { toValue: 1, tension: 60, friction: 7, useNativeDriver: true }).start();
+      shakeAnim.setValue(0);
+      chestScaleAnim.setValue(1);
+      chestOpacity.setValue(1);
+      glowScale.setValue(0.8);
+      glowOpacity.setValue(0);
+      revealScale.setValue(0.3);
+      revealOpacity.setValue(0);
+
+      Animated.spring(modalScaleAnim, { toValue: 1, tension: 70, friction: 7, useNativeDriver: true }).start();
       Animated.loop(
         Animated.sequence([
           Animated.timing(floatAnim, { toValue: -6, duration: 1200, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
@@ -49,7 +61,7 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
         ])
       ).start();
     } else {
-      scaleAnim.setValue(0.8);
+      modalScaleAnim.setValue(0.85);
       floatAnim.setValue(0);
     }
   }, [visible]);
@@ -61,14 +73,22 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
     setChestCount(prev => Math.max(0, prev - 1));
 
     setPhase("shake");
-    // Shake animation
-    Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: 12, duration: 80, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -12, duration: 80, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 10, duration: 80, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -10, duration: 80, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 6, duration: 80, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0, duration: 80, useNativeDriver: true }),
+
+    // Symmetrical wobble and scale pulse
+    Animated.parallel([
+      Animated.sequence([
+        Animated.timing(shakeAnim, { toValue: 1, duration: 65, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -1, duration: 65, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0.8, duration: 65, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -0.8, duration: 65, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0.5, duration: 65, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -0.5, duration: 65, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: 0, duration: 65, useNativeDriver: true }),
+      ]),
+      Animated.sequence([
+        Animated.timing(chestScaleAnim, { toValue: 1.08, duration: 200, useNativeDriver: true }),
+        Animated.timing(chestScaleAnim, { toValue: 1.0, duration: 250, useNativeDriver: true }),
+      ]),
     ]).start(async () => {
       const loot = rollLootChest();
       setReward(loot);
@@ -80,13 +100,20 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
       }
 
       setPhase("open");
-      // Glow up
-      Animated.timing(glowAnim, { toValue: 1, duration: 400, useNativeDriver: true }).start(() => {
+
+      // Radiant burst opening
+      Animated.parallel([
+        Animated.timing(chestScaleAnim, { toValue: 1.2, duration: 280, easing: Easing.out(Easing.back(1.4)), useNativeDriver: true }),
+        Animated.timing(chestOpacity, { toValue: 0, duration: 260, useNativeDriver: true }),
+        Animated.timing(glowScale, { toValue: 1.4, duration: 280, useNativeDriver: true }),
+        Animated.timing(glowOpacity, { toValue: 0.7, duration: 200, useNativeDriver: true }),
+      ]).start(() => {
         setPhase("reveal");
         setShowConfetti(loot.rarity === "epic" || loot.rarity === "legendary" || loot.rarity === "mythic");
         Animated.parallel([
-          Animated.spring(revealScale, { toValue: 1, tension: 70, friction: 8, useNativeDriver: true }),
-          Animated.timing(revealOpacity, { toValue: 1, duration: 350, useNativeDriver: true }),
+          Animated.spring(revealScale, { toValue: 1, tension: 80, friction: 7, useNativeDriver: true }),
+          Animated.timing(revealOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+          Animated.timing(glowOpacity, { toValue: 0, duration: 250, useNativeDriver: true }),
         ]).start();
       });
     });
@@ -96,8 +123,12 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
     if (reward) onRewardClaimed(reward);
     setPhase("idle");
     setReward(null);
-    glowAnim.setValue(0);
-    revealScale.setValue(0);
+    shakeAnim.setValue(0);
+    chestScaleAnim.setValue(1);
+    chestOpacity.setValue(1);
+    glowScale.setValue(0.8);
+    glowOpacity.setValue(0);
+    revealScale.setValue(0.3);
     revealOpacity.setValue(0);
     if (chestCount <= 0) onClose();
   };
@@ -105,13 +136,22 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
   const rarityColor = reward ? RARITY_COLORS[reward.rarity] : "#6B7280";
   const rarityLabel = reward ? RARITY_LABELS[reward.rarity] : "";
 
-  const chestEmoji = phase === "idle" ? "🎁" : phase === "shake" ? "🎁" : "✨";
+  // Symmetrical Transform interpolations
+  const rotateInterpolate = shakeAnim.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: ['-8deg', '0deg', '8deg'],
+  });
+
+  const translateXInterpolate = shakeAnim.interpolate({
+    inputRange: [-1, 0, 1],
+    outputRange: [-10, 0, 10],
+  });
 
   return (
     <Modal visible={visible} transparent animationType="fade">
       <View style={styles.overlay}>
         <ConfettiBurst visible={showConfetti} count={80} onDone={() => setShowConfetti(false)} />
-        <Animated.View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border, transform: [{ scale: scaleAnim }] }]}>
+        <Animated.View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border, transform: [{ scale: modalScaleAnim }] }]}>
 
           {/* Header */}
           <View style={[styles.headerBanner, { backgroundColor: theme.cardInner }]}>
@@ -122,45 +162,89 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
             </View>
           </View>
 
-          {/* Chest Visual */}
-          {phase !== "reveal" && (
-            <Animated.View style={{ alignItems: "center", paddingVertical: 20, transform: [{ translateX: shakeAnim }, { translateY: floatAnim }] }}>
-              <View style={[
-                styles.chestCircle,
+          {/* Symmetrical Centered Stage Area */}
+          <View style={styles.stageContainer}>
+            {/* Ambient Radial Glow */}
+            <Animated.View
+              style={[
+                styles.ambientGlow,
                 {
-                  backgroundColor: isLightMode ? '#FEF3C7' : '#B4530922',
-                  borderColor: isLightMode ? '#F59E0B88' : '#F59E0B44'
+                  transform: [{ scale: glowScale }],
+                  opacity: glowOpacity,
+                  backgroundColor: phase === "reveal" ? rarityColor : "#F59E0B",
                 }
-              ]}>
-                <Text style={{ fontSize: 72 }}>{chestEmoji}</Text>
-              </View>
-              <Animated.View style={{ opacity: glowAnim, position: "absolute", width: 160, height: 160, borderRadius: 80, backgroundColor: "#F59E0B22" }} />
-            </Animated.View>
-          )}
+              ]}
+            />
 
-          {/* Reveal Card */}
-          {phase === "reveal" && reward && (
-            <Animated.View style={[styles.revealCard, { transform: [{ scale: revealScale }], opacity: revealOpacity, backgroundColor: rarityColor + "18", borderColor: rarityColor + "55" }]}>
-              <View style={[styles.rewardIconCircle, { backgroundColor: rarityColor + "25" }]}>
-                <Ionicons name={reward.icon as any} size={38} color={rarityColor} />
-              </View>
-              <View style={[styles.rarityBadge, { backgroundColor: rarityColor }]}>
-                <Text style={styles.rarityBadgeText}>{rarityLabel.toUpperCase()}</Text>
-              </View>
-              <Text style={[styles.rewardLabel, { color: theme.text }]}>{reward.label}</Text>
-              {reward.type === "title" && (
-                <Text style={[styles.rewardSub, { color: theme.subtext }]}>
-                  Gelar baru ditambahkan ke koleksimu! Pasang di menu Profil.
-                </Text>
-              )}
-              {reward.type === "skin" && (
-                <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 4 }}>
-                  <View style={{ width: 20, height: 20, borderRadius: 10, backgroundColor: reward.skinColor as string }} />
-                  <Text style={{ color: theme.subtext, fontSize: 11 }}>Warna tema eksklusif tersimpan!</Text>
+            {/* Chest Visual */}
+            {phase !== "reveal" && (
+              <Animated.View
+                style={[
+                  styles.chestWrap,
+                  {
+                    transform: [
+                      { translateX: translateXInterpolate },
+                      { translateY: floatAnim },
+                      { rotate: rotateInterpolate },
+                      { scale: chestScaleAnim },
+                    ],
+                    opacity: chestOpacity,
+                  }
+                ]}
+              >
+                <View
+                  style={[
+                    styles.chestCircle,
+                    {
+                      backgroundColor: isLightMode ? '#FEF3C7' : 'rgba(245, 158, 11, 0.12)',
+                      borderColor: isLightMode ? '#F59E0B' : '#F59E0B88',
+                    }
+                  ]}
+                >
+                  <Text style={styles.chestEmojiText}>🎁</Text>
                 </View>
-              )}
-            </Animated.View>
-          )}
+                <Text style={[styles.tapHintText, { color: theme.subtext }]}>
+                  {phase === "shake" ? "Membuka hadiah..." : "Ketuk tombol untuk membuka!"}
+                </Text>
+              </Animated.View>
+            )}
+
+            {/* Symmetrical Reveal Reward Card */}
+            {phase === "reveal" && reward && (
+              <Animated.View
+                style={[
+                  styles.revealCard,
+                  {
+                    transform: [{ scale: revealScale }],
+                    opacity: revealOpacity,
+                    backgroundColor: isLightMode ? '#FFFFFF' : theme.cardInner,
+                    borderColor: rarityColor,
+                  }
+                ]}
+              >
+                <View style={[styles.rewardIconCircle, { backgroundColor: rarityColor + "20" }]}>
+                  <Ionicons name={reward.icon as any} size={36} color={rarityColor} />
+                </View>
+                <View style={[styles.rarityBadge, { backgroundColor: rarityColor }]}>
+                  <Text style={styles.rarityBadgeText}>{rarityLabel.toUpperCase()}</Text>
+                </View>
+                <Text style={[styles.rewardLabel, { color: theme.text }]} numberOfLines={2}>
+                  {reward.label}
+                </Text>
+                {reward.type === "title" && (
+                  <Text style={[styles.rewardSub, { color: theme.subtext }]}>
+                    Gelar baru ditambahkan ke koleksimu! Pasang di menu Profil.
+                  </Text>
+                )}
+                {reward.type === "skin" && (
+                  <View style={{ flexDirection: "row", alignItems: "center", gap: 8, marginTop: 2 }}>
+                    <View style={{ width: 16, height: 16, borderRadius: 8, backgroundColor: reward.skinColor as string }} />
+                    <Text style={{ color: theme.subtext, fontSize: 11 }}>Warna tema eksklusif tersimpan!</Text>
+                  </View>
+                )}
+              </Animated.View>
+            )}
+          </View>
 
           {/* Action Buttons */}
           {phase === "idle" && (
@@ -223,21 +307,158 @@ export default function LootChestModal({ visible, onClose, onRewardClaimed }: Pr
 }
 
 const styles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: "rgba(0,0,0,0.8)", justifyContent: "center", alignItems: "center", padding: 20 },
-  card: { width: "100%", maxWidth: 380, borderRadius: 24, borderWidth: 1.5, overflow: "hidden" },
-  headerBanner: { paddingHorizontal: 18, paddingVertical: 12, flexDirection: "row", alignItems: "center", justifyContent: "space-between" },
-  headerTitle: { fontSize: 14, fontWeight: "800", letterSpacing: 0.2 },
-  chestCircle: { width: 150, height: 150, borderRadius: 75, alignItems: "center", justifyContent: "center", borderWidth: 2 },
-  revealCard: { marginHorizontal: 16, marginBottom: 12, borderRadius: 18, borderWidth: 1.5, padding: 18, alignItems: "center", gap: 8 },
-  rewardIconCircle: { width: 70, height: 70, borderRadius: 35, alignItems: "center", justifyContent: "center" },
-  rarityBadge: { paddingHorizontal: 10, paddingVertical: 3, borderRadius: 8 },
-  rarityBadgeText: { color: "#FFFFFF", fontSize: 9.5, fontWeight: "900", letterSpacing: 1 },
-  rewardLabel: { fontSize: 17, fontWeight: "900", textAlign: "center", letterSpacing: -0.3 },
-  rewardSub: { fontSize: 10.5, textAlign: "center", lineHeight: 14 },
-  btnRow: { padding: 14, paddingTop: 4, gap: 8 },
-  openBtn: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 8, paddingVertical: 13, borderRadius: 14 },
-  openBtnText: { color: "#FFFFFF", fontSize: 14, fontWeight: "900" },
-  closeBtn: { alignItems: "center", justifyContent: "center", paddingVertical: 10, borderRadius: 10, borderWidth: 1 },
-  closeBtnText: { fontSize: 12, fontWeight: "600" },
-  emptyHint: { flexDirection: "row", alignItems: "flex-start", gap: 6, margin: 14, marginTop: 0, padding: 10, borderRadius: 10, borderWidth: 1 },
+  overlay: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.8)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 20,
+  },
+  card: {
+    width: "100%",
+    maxWidth: 380,
+    borderRadius: 24,
+    borderWidth: 1.5,
+    overflow: "hidden",
+  },
+  headerBanner: {
+    paddingHorizontal: 18,
+    paddingVertical: 12,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "space-between",
+  },
+  headerTitle: {
+    fontSize: 14,
+    fontWeight: "800",
+    letterSpacing: 0.2,
+  },
+  stageContainer: {
+    minHeight: 220,
+    width: "100%",
+    alignItems: "center",
+    justifyContent: "center",
+    position: "relative",
+    paddingVertical: 12,
+    overflow: "hidden",
+  },
+  ambientGlow: {
+    position: "absolute",
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    opacity: 0,
+    alignSelf: "center",
+  },
+  chestWrap: {
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  chestCircle: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 2,
+    shadowColor: "#F59E0B",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  chestEmojiText: {
+    fontSize: 62,
+    textAlign: "center",
+    lineHeight: 72,
+  },
+  tapHintText: {
+    fontSize: 11.5,
+    fontWeight: "600",
+    textAlign: "center",
+  },
+  revealCard: {
+    width: "90%",
+    maxWidth: 320,
+    borderRadius: 20,
+    borderWidth: 1.5,
+    padding: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 6,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.15,
+    shadowRadius: 12,
+    elevation: 6,
+  },
+  rewardIconCircle: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  rarityBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  rarityBadgeText: {
+    color: "#FFFFFF",
+    fontSize: 9.5,
+    fontWeight: "900",
+    letterSpacing: 1,
+  },
+  rewardLabel: {
+    fontSize: 16,
+    fontWeight: "900",
+    textAlign: "center",
+    letterSpacing: -0.3,
+  },
+  rewardSub: {
+    fontSize: 10.5,
+    textAlign: "center",
+    lineHeight: 14,
+  },
+  btnRow: {
+    padding: 14,
+    paddingTop: 4,
+    gap: 8,
+  },
+  openBtn: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+    paddingVertical: 13,
+    borderRadius: 14,
+  },
+  openBtnText: {
+    color: "#FFFFFF",
+    fontSize: 14,
+    fontWeight: "900",
+  },
+  closeBtn: {
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  closeBtnText: {
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  emptyHint: {
+    flexDirection: "row",
+    alignItems: "flex-start",
+    gap: 6,
+    margin: 14,
+    marginTop: 0,
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
 });

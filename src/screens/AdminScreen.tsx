@@ -29,6 +29,17 @@ import {
 } from '../lib/gamificationConfig';
 import { addChest, addSpinTicket } from '../lib/lootStorage';
 import { addWaterDrops } from '../lib/gardenStorage';
+import {
+  RpgTitle,
+  LootRarity,
+  RARITY_COLORS,
+  RARITY_LABELS,
+  getCustomTitles,
+  addCustomTitle,
+  deleteCustomTitle,
+  ALL_RPG_TITLES,
+  getAllRpgTitles,
+} from '../lib/lootChestStorage';
 
 const COLOR_PALETTE = [
   '#3B82F6', '#10B981', '#F59E0B', '#EF4444',
@@ -76,6 +87,17 @@ export default function AdminScreen() {
   const [gameConfig, setGameConfig] = useState<GamificationConfig>(DEFAULT_GAMIFICATION_CONFIG);
   const [loadingGameConfig, setLoadingGameConfig] = useState(false);
   const [savingGameConfig, setSavingGameConfig] = useState(false);
+
+  // Custom RPG Titles State
+  const [customTitles, setCustomTitles] = useState<RpgTitle[]>([]);
+  const [showBuiltinTitles, setShowBuiltinTitles] = useState(false);
+  const [savingCustomTitle, setSavingCustomTitle] = useState(false);
+  const [newTitleId, setNewTitleId] = useState('');
+  const [newTitleLabel, setNewTitleLabel] = useState('');
+  const [newTitleIcon, setNewTitleIcon] = useState('ribbon');
+  const [newTitleColor, setNewTitleColor] = useState('#8B5CF6');
+  const [newTitleRarity, setNewTitleRarity] = useState<LootRarity>('epic');
+  const [newTitleDesc, setNewTitleDesc] = useState('');
 
   // Rewards & Compensation State
   const [rewardRecipientType, setRewardRecipientType] = useState<'all' | 'single'>('all');
@@ -287,7 +309,75 @@ export default function AdminScreen() {
     fetchDailyRoutines();
     fetchGameConfig();
     fetchUsers();
+    fetchCustomTitles();
   }, [activeTab]);
+
+  // -------------------------------------------------------------
+  // Custom Titles Handlers
+  // -------------------------------------------------------------
+  const fetchCustomTitles = async () => {
+    try {
+      const ct = await getCustomTitles();
+      setCustomTitles(ct);
+    } catch (e) {
+      console.log('Error fetching custom titles:', e);
+    }
+  };
+
+  const handleAddCustomTitle = async () => {
+    const id = newTitleId.trim().replace(/\s+/g, '_').toLowerCase();
+    const label = newTitleLabel.trim();
+    if (!id || !label) {
+      showAlert('Form Belum Lengkap', 'ID Unik dan Nama Gelar wajib diisi.');
+      return;
+    }
+    const allTitles = getAllRpgTitles();
+    if (allTitles.some(t => t.id === id)) {
+      showAlert('ID Sudah Digunakan', `ID "${id}" sudah terdaftar pada sistem.`);
+      return;
+    }
+    setSavingCustomTitle(true);
+    try {
+      const newTitle: RpgTitle = {
+        id,
+        label,
+        icon: newTitleIcon.trim() || 'ribbon',
+        color: newTitleColor || RARITY_COLORS[newTitleRarity],
+        description: newTitleDesc.trim() || 'Gelar eksklusif dari Administrator Studio.',
+        rarity: newTitleRarity,
+      };
+      const updated = await addCustomTitle(newTitle);
+      setCustomTitles(updated);
+      setNewTitleId('');
+      setNewTitleLabel('');
+      setNewTitleIcon('ribbon');
+      setNewTitleColor('#8B5CF6');
+      setNewTitleRarity('epic');
+      setNewTitleDesc('');
+      showAlert('Gelar Berhasil Dibuat! 🏆', `Gelar "${label}" berhasil disimpan ke database dan langsung aktif di pool drop Kotak Hadiah & Koleksi Profil.`);
+    } catch (e) {
+      showAlert('Gagal', 'Gagal menambahkan gelar custom.');
+    } finally {
+      setSavingCustomTitle(false);
+    }
+  };
+
+  const handleDeleteCustomTitle = (titleId: string, titleLabel: string) => {
+    confirmAction(
+      `Hapus Gelar "${titleLabel}"?`,
+      'Gelar ini akan dihapus dari pool drop Kotak Hadiah dan daftar gelar custom.',
+      async () => {
+        const updated = await deleteCustomTitle(titleId);
+        setCustomTitles(updated);
+        showAlert('Dihapus', `Gelar "${titleLabel}" berhasil dihapus.`);
+      },
+      'Hapus'
+    );
+  };
+
+  // -------------------------------------------------------------
+  // Rewards & Compensation Handlers
+  // -------------------------------------------------------------
 
   const fetchStats = async () => {
     setLoadingStats(true);
@@ -1700,30 +1790,146 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   </View>
                 </View>
 
-                {/* 3. Peti Hadiah & Gelar RPG */}
+                {/* 3. Peti Hadiah & Konfigurasi Loot Drop Rate */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                       <Ionicons name="cube" size={18} color="#06B6D4" />
-                      <Text style={[styles.cardTitle, { color: theme.text }]}>Peti Hadiah & Syarat Gelar RPG</Text>
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Loot Vault — Drop Rate & Isi Hadiah</Text>
                     </View>
                     <View style={[styles.badgeKpi, { backgroundColor: '#06B6D422' }]}>
                       <Text style={[styles.badgeKpiText, { color: '#06B6D4' }]}>LOOT VAULT</Text>
                     </View>
                   </View>
 
-                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 12, marginTop: 4 }}>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.text }]}>Peluang Gelar Legendaris (%):</Text>
+                  {/* Drop Rate Info Box */}
+                  <View style={{ backgroundColor: theme.cardInner, borderRadius: 10, padding: 10, marginTop: 8, marginBottom: 4, flexDirection: 'row', gap: 6, alignItems: 'flex-start' }}>
+                    <Ionicons name="information-circle" size={14} color="#06B6D4" />
+                    <Text style={{ color: theme.subtext, fontSize: 10.5, flex: 1, lineHeight: 15 }}>
+                      Total drop rate = Mythic + Legendary + Epic + Air. Sisa 100% otomatis jadi drop XP Langka. Pastikan total ≤ 100%.{"\n"}
+                      Total saat ini: {(gameConfig.chestDropRateMythic ?? 4) + (gameConfig.chestDropRateLegendary ?? 12) + (gameConfig.chestDropRateEpic ?? 24) + (gameConfig.chestDropRateWater ?? 25)}% tersembunyi, sisanya {Math.max(0, 100 - ((gameConfig.chestDropRateMythic ?? 4) + (gameConfig.chestDropRateLegendary ?? 12) + (gameConfig.chestDropRateEpic ?? 24) + (gameConfig.chestDropRateWater ?? 25)))}% = XP Langka.
+                    </Text>
+                  </View>
+
+                  {/* Drop Rates per Rarity */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 10, marginBottom: 4, fontWeight: '800' }]}>🎲 Drop Rate per Raritas (%)</Text>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                    {/* Mythic */}
+                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#EF444418', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#EF444455' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' }} />
+                        <Text style={{ color: '#EF4444', fontWeight: '800', fontSize: 11 }}>🔮 Mitos (Mythic)</Text>
+                      </View>
                       <TextInput
-                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
-                        value={String(gameConfig.chestDropLegendaryRate)}
-                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestDropLegendaryRate: parseInt(v, 10) || 8 }))}
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#EF444455', marginBottom: 0 }]}
+                        value={String(gameConfig.chestDropRateMythic ?? 4)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestDropRateMythic: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                        placeholder="4"
+                        placeholderTextColor={theme.subtext}
+                      />
+                      <Text style={{ color: '#EF4444', fontSize: 10, marginTop: 4 }}>Default: 4%</Text>
+                    </View>
+                    {/* Legendary */}
+                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#F59E0B18', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#F59E0B55' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#F59E0B' }} />
+                        <Text style={{ color: '#F59E0B', fontWeight: '800', fontSize: 11 }}>✨ Legendaris</Text>
+                      </View>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#F59E0B55', marginBottom: 0 }]}
+                        value={String(gameConfig.chestDropRateLegendary ?? 12)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestDropRateLegendary: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                        placeholder="12"
+                        placeholderTextColor={theme.subtext}
+                      />
+                      <Text style={{ color: '#F59E0B', fontSize: 10, marginTop: 4 }}>Default: 12%</Text>
+                    </View>
+                    {/* Epic */}
+                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#8B5CF618', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#8B5CF655' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#8B5CF6' }} />
+                        <Text style={{ color: '#8B5CF6', fontWeight: '800', fontSize: 11 }}>⚡ Epik</Text>
+                      </View>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#8B5CF655', marginBottom: 0 }]}
+                        value={String(gameConfig.chestDropRateEpic ?? 24)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestDropRateEpic: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                        placeholder="24"
+                        placeholderTextColor={theme.subtext}
+                      />
+                      <Text style={{ color: '#8B5CF6', fontSize: 10, marginTop: 4 }}>Default: 24%</Text>
+                    </View>
+                    {/* Water */}
+                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#38BDF818', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#38BDF855' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#38BDF8' }} />
+                        <Text style={{ color: '#38BDF8', fontWeight: '800', fontSize: 11 }}>💧 Tetes Air</Text>
+                      </View>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#38BDF855', marginBottom: 0 }]}
+                        value={String(gameConfig.chestDropRateWater ?? 25)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestDropRateWater: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                        placeholder="25"
+                        placeholderTextColor={theme.subtext}
+                      />
+                      <Text style={{ color: '#38BDF8', fontSize: 10, marginTop: 4 }}>Default: 25%</Text>
+                    </View>
+                    {/* XP Rare (auto) */}
+                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#3B82F618', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#3B82F655' }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
+                        <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6' }} />
+                        <Text style={{ color: '#3B82F6', fontWeight: '800', fontSize: 11 }}>⭐ XP Langka (Sisa)</Text>
+                      </View>
+                      <View style={{ backgroundColor: theme.cardInner, borderRadius: 8, padding: 9, borderWidth: 1, borderColor: '#3B82F655', alignItems: 'center' }}>
+                        <Text style={{ color: '#3B82F6', fontWeight: '900', fontSize: 16 }}>
+                          {Math.max(0, 100 - ((gameConfig.chestDropRateMythic ?? 4) + (gameConfig.chestDropRateLegendary ?? 12) + (gameConfig.chestDropRateEpic ?? 24) + (gameConfig.chestDropRateWater ?? 25)))}%
+                        </Text>
+                      </View>
+                      <Text style={{ color: '#3B82F6', fontSize: 10, marginTop: 4 }}>Otomatis (sisa %)</Text>
+                    </View>
+                  </View>
+
+                  {/* XP Bonus per Rarity Title Drop */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14, marginBottom: 4, fontWeight: '800' }]}>💰 Bonus XP saat Gelar Drop</Text>
+                  <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={[styles.inputLabel, { color: '#EF4444', fontSize: 11 }]}>🔮 XP Mitos:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#EF444455' }]}
+                        value={String(gameConfig.chestXpMythic ?? 200)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestXpMythic: parseInt(v, 10) || 0 }))}
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.text }]}>Min XP Peti:</Text>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={[styles.inputLabel, { color: '#F59E0B', fontSize: 11 }]}>✨ XP Legendaris:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#F59E0B55' }]}
+                        value={String(gameConfig.chestXpLegendary ?? 120)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestXpLegendary: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 120 }}>
+                      <Text style={[styles.inputLabel, { color: '#8B5CF6', fontSize: 11 }]}>⚡ XP Epik:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#8B5CF655' }]}
+                        value={String(gameConfig.chestXpEpic ?? 75)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestXpEpic: parseInt(v, 10) || 0 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                  </View>
+
+                  {/* XP Range for Rare + Water Range */}
+                  <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14, marginBottom: 4, fontWeight: '800' }]}>📊 Rentang XP Langka & Air</Text>
+                  <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
+                    <View style={{ flex: 1, minWidth: 110 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Min XP Langka:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                         value={String(gameConfig.chestMinXp)}
@@ -1731,8 +1937,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.text }]}>Max XP Peti:</Text>
+                    <View style={{ flex: 1, minWidth: 110 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Max XP Langka:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                         value={String(gameConfig.chestMaxXp)}
@@ -1740,10 +1946,319 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
+                    <View style={{ flex: 1, minWidth: 110 }}>
+                      <Text style={[styles.inputLabel, { color: '#38BDF8', fontSize: 11 }]}>💧 Min Tetes Air:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#38BDF855' }]}
+                        value={String(gameConfig.chestWaterMin ?? 3)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestWaterMin: parseInt(v, 10) || 1 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
+                    <View style={{ flex: 1, minWidth: 110 }}>
+                      <Text style={[styles.inputLabel, { color: '#38BDF8', fontSize: 11 }]}>💧 Max Tetes Air:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#38BDF855' }]}
+                        value={String(gameConfig.chestWaterMax ?? 5)}
+                        onChangeText={(v) => setGameConfig(prev => ({ ...prev, chestWaterMax: parseInt(v, 10) || 1 }))}
+                        keyboardType="numeric"
+                      />
+                    </View>
                   </View>
                 </View>
 
-                {/* 4. Event & Double XP Happy Hour */}
+                {/* 4. Manajemen & Pembuatan Gelar RPG Custom */}
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="ribbon" size={18} color="#EC4899" />
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Manajemen & Pembuatan Gelar RPG</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#EC489922' }]}>
+                      <Text style={[styles.badgeKpiText, { color: '#EC4899' }]}>GELAR RPG</Text>
+                    </View>
+                  </View>
+
+                  {/* Form Tambah Gelar */}
+                  <Text style={[styles.inputLabel, { color: theme.text, fontWeight: '800', marginTop: 8 }]}>➕ Tambah Gelar RPG Baru</Text>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>ID Unik (huruf kecil & garis bawah):</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={newTitleId}
+                        onChangeText={setNewTitleId}
+                        placeholder="contoh: master_kimia"
+                        placeholderTextColor={theme.subtext}
+                        autoCapitalize="none"
+                      />
+                    </View>
+                    <View style={{ flex: 2, minWidth: 200 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Nama Gelar:</Text>
+                      <TextInput
+                        style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                        value={newTitleLabel}
+                        onChangeText={setNewTitleLabel}
+                        placeholder="contoh: Master Kimia Organik"
+                        placeholderTextColor={theme.subtext}
+                      />
+                    </View>
+                  </View>
+
+                  <View style={{ marginTop: 2 }}>
+                    <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Deskripsi Gelar / Syarat Perolehan:</Text>
+                    <TextInput
+                      style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border, minHeight: 40 }]}
+                      value={newTitleDesc}
+                      onChangeText={setNewTitleDesc}
+                      placeholder="contoh: Kuasai 10 materi kimia & raih skor 100 pada kuis."
+                      placeholderTextColor={theme.subtext}
+                    />
+                  </View>
+
+                  {/* Icon & Color Row */}
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Nama Icon (Ionicons):</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TextInput
+                          style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border, flex: 1 }]}
+                          value={newTitleIcon}
+                          onChangeText={setNewTitleIcon}
+                          placeholder="ribbon"
+                          placeholderTextColor={theme.subtext}
+                          autoCapitalize="none"
+                        />
+                        <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: (newTitleColor || '#8B5CF6') + '22', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: newTitleColor || '#8B5CF6' }}>
+                          <Ionicons name={(newTitleIcon || 'ribbon') as any} size={20} color={newTitleColor || '#8B5CF6'} />
+                        </View>
+                      </View>
+                    </View>
+                    <View style={{ flex: 1, minWidth: 140 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Warna HEX:</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TextInput
+                          style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border, flex: 1 }]}
+                          value={newTitleColor}
+                          onChangeText={setNewTitleColor}
+                          placeholder="#8B5CF6"
+                          placeholderTextColor={theme.subtext}
+                          autoCapitalize="none"
+                        />
+                        <View style={{ width: 38, height: 38, borderRadius: 10, backgroundColor: newTitleColor || '#8B5CF6', borderWidth: 1, borderColor: theme.border }} />
+                      </View>
+                    </View>
+                  </View>
+
+                  {/* Quick Icon Chips */}
+                  <View style={{ marginTop: 2 }}>
+                    <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 10.5 }]}>Pilihan Cepat Icon:</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 3 }}>
+                      {['ribbon', 'trophy', 'sparkles', 'flash', 'star', 'flame', 'shield', 'skull', 'planet', 'moon', 'diamond', 'flask', 'leaf', 'school', 'medal', 'compass', 'time', 'flower'].map(ic => (
+                        <TouchableOpacity
+                          key={ic}
+                          onPress={() => setNewTitleIcon(ic)}
+                          style={{
+                            padding: 6,
+                            borderRadius: 8,
+                            backgroundColor: newTitleIcon === ic ? (newTitleColor || '#8B5CF6') + '30' : theme.cardInner,
+                            borderWidth: 1,
+                            borderColor: newTitleIcon === ic ? (newTitleColor || '#8B5CF6') : theme.border,
+                          }}
+                        >
+                          <Ionicons name={ic as any} size={15} color={newTitleIcon === ic ? (newTitleColor || '#8B5CF6') : theme.subtext} />
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+
+                  {/* Raritas Selector */}
+                  <View style={{ marginTop: 8 }}>
+                    <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Pilih Tingkat Raritas (Rarity):</Text>
+                    <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4 }}>
+                      {(['mythic', 'legendary', 'epic', 'rare'] as LootRarity[]).map(r => {
+                        const isSel = newTitleRarity === r;
+                        const col = RARITY_COLORS[r];
+                        return (
+                          <TouchableOpacity
+                            key={r}
+                            onPress={() => {
+                              setNewTitleRarity(r);
+                              setNewTitleColor(col);
+                            }}
+                            style={{
+                              paddingHorizontal: 12,
+                              paddingVertical: 6,
+                              borderRadius: 8,
+                              backgroundColor: isSel ? col : theme.cardInner,
+                              borderWidth: 1,
+                              borderColor: col,
+                              flexDirection: 'row',
+                              alignItems: 'center',
+                              gap: 5,
+                            }}
+                          >
+                            <View style={{ width: 7, height: 7, borderRadius: 3.5, backgroundColor: isSel ? '#FFFFFF' : col }} />
+                            <Text style={{ color: isSel ? '#FFFFFF' : col, fontSize: 11, fontWeight: '800' }}>
+                              {RARITY_LABELS[r]}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  </View>
+
+                  {/* Warna Palette Shortcuts */}
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 8, marginBottom: 10 }}>
+                    {COLOR_PALETTE.map(c => (
+                      <TouchableOpacity
+                        key={c}
+                        onPress={() => setNewTitleColor(c)}
+                        style={{
+                          width: 26,
+                          height: 26,
+                          borderRadius: 6,
+                          backgroundColor: c,
+                          borderWidth: newTitleColor === c ? 2 : 0.5,
+                          borderColor: newTitleColor === c ? theme.text : theme.border,
+                        }}
+                      />
+                    ))}
+                  </View>
+
+                  {/* Button Add Title */}
+                  <TouchableOpacity
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: 6,
+                      paddingVertical: 11,
+                      borderRadius: 10,
+                      backgroundColor: savingCustomTitle ? theme.border : '#EC4899',
+                      marginTop: 2,
+                    }}
+                    onPress={handleAddCustomTitle}
+                    disabled={savingCustomTitle}
+                    activeOpacity={0.85}
+                  >
+                    <Ionicons name="add-circle" size={16} color="#FFFFFF" />
+                    <Text style={{ color: '#FFFFFF', fontWeight: '800', fontSize: 13 }}>{savingCustomTitle ? 'Menyimpan...' : 'Tambah Gelar ke Pool Hadiah'}</Text>
+                  </TouchableOpacity>
+
+                  {/* Daftar Gelar Custom Aktif */}
+                  {customTitles.length > 0 && (
+                    <View style={{ marginTop: 14 }}>
+                      <Text style={[styles.inputLabel, { color: theme.text, fontWeight: '800', marginBottom: 6 }]}>
+                        📋 Gelar Custom Aktif ({customTitles.length})
+                      </Text>
+                      {customTitles.map(t => (
+                        <View
+                          key={t.id}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            backgroundColor: theme.cardInner,
+                            borderRadius: 10,
+                            padding: 10,
+                            marginBottom: 6,
+                            gap: 10,
+                            borderWidth: 1,
+                            borderColor: t.color + '44',
+                          }}
+                        >
+                          <View style={{ width: 36, height: 36, borderRadius: 18, backgroundColor: t.color + '25', alignItems: 'center', justifyContent: 'center' }}>
+                            <Ionicons name={t.icon as any} size={18} color={t.color} />
+                          </View>
+                          <View style={{ flex: 1, gap: 2 }}>
+                            <Text style={{ color: theme.text, fontWeight: '800', fontSize: 12 }}>{t.label}</Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+                              <View style={{ backgroundColor: t.color, paddingHorizontal: 6, paddingVertical: 1, borderRadius: 5 }}>
+                                <Text style={{ color: '#FFFFFF', fontSize: 9, fontWeight: '900' }}>{t.rarity.toUpperCase()}</Text>
+                              </View>
+                              <Text style={{ color: theme.subtext, fontSize: 10 }}>ID: {t.id}</Text>
+                            </View>
+                            {t.description ? <Text style={{ color: theme.subtext, fontSize: 10, lineHeight: 13 }} numberOfLines={2}>{t.description}</Text> : null}
+                          </View>
+                          <TouchableOpacity
+                            onPress={() => handleDeleteCustomTitle(t.id, t.label)}
+                            style={{ padding: 6, backgroundColor: '#EF444420', borderRadius: 8 }}
+                          >
+                            <Ionicons name="trash" size={14} color="#EF4444" />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+
+                  {customTitles.length === 0 && (
+                    <View style={{ alignItems: 'center', paddingVertical: 10, gap: 4, marginTop: 4 }}>
+                      <Ionicons name="ribbon-outline" size={24} color={theme.subtext} />
+                      <Text style={{ color: theme.subtext, fontSize: 11 }}>Belum ada gelar custom yang dibuat. Tambahkan gelar melalui form di atas!</Text>
+                    </View>
+                  )}
+
+                  {/* Toggle lihat gelar bawaan sistem */}
+                  <TouchableOpacity
+                    onPress={() => setShowBuiltinTitles(v => !v)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      marginTop: 10,
+                      paddingVertical: 9,
+                      paddingHorizontal: 12,
+                      backgroundColor: theme.cardInner,
+                      borderRadius: 10,
+                      borderWidth: 1,
+                      borderColor: theme.border,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                      <Ionicons name="shield-checkmark" size={14} color={theme.accentLight} />
+                      <Text style={{ color: theme.text, fontSize: 11.5, fontWeight: '700' }}>
+                        Daftar {ALL_RPG_TITLES.length} Gelar Bawaan Sistem
+                      </Text>
+                    </View>
+                    <Ionicons name={showBuiltinTitles ? 'chevron-up' : 'chevron-down'} size={14} color={theme.subtext} />
+                  </TouchableOpacity>
+
+                  {showBuiltinTitles && (
+                    <View style={{ marginTop: 8, gap: 5 }}>
+                      {(['mythic', 'legendary', 'epic', 'rare'] as LootRarity[]).map(rarity => {
+                        const filtered = ALL_RPG_TITLES.filter(t => t.rarity === rarity);
+                        return (
+                          <View key={rarity}>
+                            <Text style={{ color: RARITY_COLORS[rarity], fontWeight: '800', fontSize: 11, marginBottom: 4, marginTop: 6 }}>
+                              {RARITY_LABELS[rarity]} ({filtered.length})
+                            </Text>
+                            {filtered.map(t => (
+                              <View
+                                key={t.id}
+                                style={{
+                                  flexDirection: 'row',
+                                  alignItems: 'center',
+                                  gap: 8,
+                                  paddingVertical: 5,
+                                  paddingHorizontal: 8,
+                                  backgroundColor: t.color + '12',
+                                  borderRadius: 8,
+                                  marginBottom: 3,
+                                }}
+                              >
+                                <Ionicons name={t.icon as any} size={14} color={t.color} />
+                                <Text style={{ color: theme.text, fontSize: 11, fontWeight: '700', flex: 1 }}>{t.label}</Text>
+                                <Text style={{ color: theme.subtext, fontSize: 9 }}>{t.id}</Text>
+                              </View>
+                            ))}
+                          </View>
+                        );
+                      })}
+                    </View>
+                  )}
+                </View>
+
+                {/* 5. Event & Double XP Happy Hour */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   <View style={styles.cardHeaderRow}>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>

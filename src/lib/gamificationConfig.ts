@@ -32,7 +32,23 @@ export interface GamificationConfig {
   chestCooldownMinutes: number; // 0 = instant open
   chestMinXp: number;
   chestMaxXp: number;
-  chestDropLegendaryRate: number; // 1-100%
+  chestDropLegendaryRate: number; // 1-100% (legacy, kept for compat)
+
+  // 🎲 Drop Rate per Rarity (%)
+  chestDropRateMythic: number;     // default 4
+  chestDropRateLegendary: number;  // default 12
+  chestDropRateEpic: number;       // default 24
+  chestDropRateWater: number;      // default 25
+  // remainder = XP Rare drop
+
+  // 💰 XP Bonus per Rarity (when chest drops title of that rarity)
+  chestXpMythic: number;     // default 200
+  chestXpLegendary: number;  // default 120
+  chestXpEpic: number;       // default 75
+
+  // 💧 Water range (for water drops)
+  chestWaterMin: number;  // default 3
+  chestWaterMax: number;  // default 5
 
   // 👑 Gelar & Lencana RPG
   rpgRequirementMultiplier: number; // 1.0 = normal, 2.0 = 2x harder requirements
@@ -79,6 +95,18 @@ export const DEFAULT_GAMIFICATION_CONFIG: GamificationConfig = {
   chestMinXp: 25,
   chestMaxXp: 150,
   chestDropLegendaryRate: 8,
+
+  chestDropRateMythic: 4,
+  chestDropRateLegendary: 12,
+  chestDropRateEpic: 24,
+  chestDropRateWater: 25,
+
+  chestXpMythic: 200,
+  chestXpLegendary: 120,
+  chestXpEpic: 75,
+
+  chestWaterMin: 3,
+  chestWaterMax: 5,
 
   rpgRequirementMultiplier: 1.0,
 

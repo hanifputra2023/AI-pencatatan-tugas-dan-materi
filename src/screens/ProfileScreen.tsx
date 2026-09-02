@@ -40,6 +40,8 @@ import {
 } from '../lib/dailyRewardStorage';
 import {
   ALL_RPG_TITLES,
+  getAllRpgTitles,
+  getCustomTitles,
   getUnlockedTitles,
   getActiveTitle,
   setActiveTitle,
@@ -282,6 +284,7 @@ export default function ProfileScreen() {
   // RPG Titles State
   const [unlockedTitleIds, setUnlockedTitleIds] = useState<string[]>([]);
   const [activeRpgTitle, setActiveRpgTitle] = useState<RpgTitle | null>(null);
+  const [rpgTitlesList, setRpgTitlesList] = useState<RpgTitle[]>(getAllRpgTitles());
 
   // AI Persona Selection Modal State
   const [showPersonaModal, setShowPersonaModal] = useState(false);
@@ -571,6 +574,8 @@ export default function ProfileScreen() {
 
   const loadTitles = useCallback(async () => {
     try {
+      await getCustomTitles();
+      setRpgTitlesList(getAllRpgTitles());
       const [unlocked, active] = await Promise.all([
         getUnlockedTitles(),
         getActiveTitle(),
@@ -1169,7 +1174,7 @@ export default function ProfileScreen() {
                       <Text style={[styles.themeHeaderTitle, { color: theme.text }]}>Koleksi Gelar RPG</Text>
                       <View style={{ backgroundColor: '#F59E0B22', paddingHorizontal: 6, paddingVertical: 1.5, borderRadius: 4 }}>
                         <Text style={{ color: '#F59E0B', fontSize: 10, fontWeight: '800' }}>
-                          {unlockedTitleIds.length}/{ALL_RPG_TITLES.length} Terbuka
+                          {unlockedTitleIds.length}/{rpgTitlesList.length} Terbuka
                         </Text>
                       </View>
                     </View>
@@ -1198,7 +1203,7 @@ export default function ProfileScreen() {
                 )}
 
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trophyScrollList}>
-                  {ALL_RPG_TITLES.map((title) => {
+                  {rpgTitlesList.map((title) => {
                     const isUnlocked = unlockedTitleIds.includes(title.id);
                     const isEquipped = activeRpgTitle?.id === title.id;
                     const rarityColor = title.rarity === 'mythic' ? '#EF4444' : title.rarity === 'legendary' ? '#F59E0B' : title.rarity === 'epic' ? '#8B5CF6' : '#3B82F6';

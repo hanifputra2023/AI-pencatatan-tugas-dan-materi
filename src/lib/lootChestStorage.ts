@@ -1,9 +1,12 @@
-﻿import AsyncStorage from '@react-native-async-storage/async-storage';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { addWaterDrops } from './gardenStorage';
+import { getInMemoryGamificationConfig } from './gamificationConfig';
+import { supabase } from './supabase';
 
 const KEY_CHESTS = '@loot_chest_inventory';
 const KEY_TITLES = '@rpg_titles_unlocked';
 const KEY_ACTIVE_TITLE = '@rpg_active_title';
+const KEY_CUSTOM_TITLES = '@rpg_custom_titles';
 const KEY_WHEEL_TICKETS = '@lucky_wheel_tickets';
 const KEY_WHEEL_LAST_ACTIVITY_DATE = '@lucky_wheel_last_activity_date';
 
@@ -114,31 +117,127 @@ export const WHEEL_SEGMENTS: WheelSegment[] = [
 ];
 
 export function rollLootChest(): LootResult {
+  const cfg = getInMemoryGamificationConfig();
+  const mythicRate     = cfg.chestDropRateMythic    ?? 4;
+  const legendaryRate  = cfg.chestDropRateLegendary  ?? 12;
+  const epicRate       = cfg.chestDropRateEpic       ?? 24;
+  const waterRate      = cfg.chestDropRateWater      ?? 25;
+  const xpMythic      = cfg.chestXpMythic     ?? 200;
+  const xpLegendary   = cfg.chestXpLegendary  ?? 120;
+  const xpEpic        = cfg.chestXpEpic       ?? 75;
+  const waterMin      = cfg.chestWaterMin ?? 3;
+  const waterMax      = cfg.chestWaterMax ?? 5;
+  const minXp         = cfg.chestMinXp  ?? 25;
+  const maxXp         = cfg.chestMaxXp  ?? 150;
+
   const rand = Math.random() * 100;
-  if (rand < 4) {
-    // 4% Mythic Drop: Mythic Title or Exclusive theme
-    const mythicTitles = ALL_RPG_TITLES.filter(t => t.rarity === 'mythic');
-    const title = mythicTitles[Math.floor(Math.random() * mythicTitles.length)] || ALL_RPG_TITLES[0];
-    return { type: 'title', rarity: 'mythic', label: `Gelar Mitos: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: 200 };
-  } else if (rand < 16) {
-    // 12% Legendary Drop: Legendary Title / Big XP
-    const pool = ALL_RPG_TITLES.filter(t => t.rarity === 'legendary');
-    const title = pool[Math.floor(Math.random() * pool.length)];
-    return { type: 'title', rarity: 'legendary', label: `Gelar Legendaris: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: 120 };
-  } else if (rand < 40) {
-    // 24% Epic Drop: Epic Title or 100 XP + Water
-    const pool = ALL_RPG_TITLES.filter(t => t.rarity === 'epic');
-    const title = pool[Math.floor(Math.random() * pool.length)];
-    return { type: 'title', rarity: 'epic', label: `Gelar Epik: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: 75 };
-  } else if (rand < 65) {
-    // 25% Water drops
-    const amount = Math.floor(Math.random() * 3) + 3;
+  const threshMythic    = mythicRate;
+  const threshLegendary = mythicRate + legendaryRate;
+  const threshEpic      = mythicRate + legendaryRate + epicRate;
+  const threshWater     = mythicRate + legendaryRate + epicRate + waterRate;
+
+  const allTitles = getAllRpgTitles();
+
+  if (rand < threshMythic) {
+    const pool = allTitles.filter(t => t.rarity === 'mythic');
+    const title = pool[Math.floor(Math.random() * pool.length)] || allTitles[0];
+    return { type: 'title', rarity: 'mythic', label: `Gelar Mitos: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: xpMythic };
+  } else if (rand < threshLegendary) {
+    const pool = allTitles.filter(t => t.rarity === 'legendary');
+    const title = pool[Math.floor(Math.random() * pool.length)] || allTitles[0];
+    return { type: 'title', rarity: 'legendary', label: `Gelar Legendaris: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: xpLegendary };
+  } else if (rand < threshEpic) {
+    const pool = allTitles.filter(t => t.rarity === 'epic');
+    const title = pool[Math.floor(Math.random() * pool.length)] || allTitles[0];
+    return { type: 'title', rarity: 'epic', label: `Gelar Epik: ${title.label}`, value: title.id, icon: title.icon, color: title.color, titleId: title.id, xpAmount: xpEpic };
+  } else if (rand < threshWater) {
+    const amount = waterMin + Math.floor(Math.random() * (waterMax - waterMin + 1));
     return { type: 'water', rarity: 'rare', label: `+${amount} Tetes Air Taman`, value: amount, icon: 'water', color: '#38BDF8', waterAmount: amount };
   } else {
-    // 35% Rare XP
-    const xp = (Math.floor(Math.random() * 5) + 6) * 10; // 60 - 100 XP
+    // XP Rare drop — range from config
+    const range = Math.max(1, maxXp - minXp);
+    const steps = Math.floor(range / 10);
+    const xp = minXp + (Math.floor(Math.random() * (steps + 1)) * 10);
     return { type: 'xp', rarity: 'rare', label: `+${xp} XP Belajar`, value: xp, icon: 'star', color: '#3B82F6', xpAmount: xp };
   }
+}
+
+// -------------------------------------------------------------
+// Custom RPG Titles Management
+// -------------------------------------------------------------
+let inMemoryCustomTitles: RpgTitle[] = [];
+
+export function getAllRpgTitles(): RpgTitle[] {
+  return [...ALL_RPG_TITLES, ...inMemoryCustomTitles];
+}
+
+export async function getCustomTitles(): Promise<RpgTitle[]> {
+  try {
+    const cached = await AsyncStorage.getItem(KEY_CUSTOM_TITLES);
+    if (cached) {
+      inMemoryCustomTitles = JSON.parse(cached);
+    }
+    // Try background sync with Supabase app_settings
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', 'custom_rpg_titles')
+      .maybeSingle();
+
+    if (data?.value) {
+      const parsed = JSON.parse(data.value);
+      if (Array.isArray(parsed)) {
+        inMemoryCustomTitles = parsed;
+        await AsyncStorage.setItem(KEY_CUSTOM_TITLES, JSON.stringify(parsed));
+      }
+    }
+  } catch (e) {
+    // ignore
+  }
+  return inMemoryCustomTitles;
+}
+
+// Initialize custom titles on startup
+getCustomTitles();
+
+export async function addCustomTitle(newTitle: RpgTitle): Promise<RpgTitle[]> {
+  const current = await getCustomTitles();
+  // Filter out any duplicates
+  const filtered = current.filter(t => t.id !== newTitle.id);
+  const updated = [newTitle, ...filtered];
+  inMemoryCustomTitles = updated;
+
+  try {
+    await AsyncStorage.setItem(KEY_CUSTOM_TITLES, JSON.stringify(updated));
+    await supabase.from('app_settings').upsert({
+      key: 'custom_rpg_titles',
+      value: JSON.stringify(updated),
+      updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.log('Failed to save custom title to cloud:', e);
+  }
+
+  return updated;
+}
+
+export async function deleteCustomTitle(titleId: string): Promise<RpgTitle[]> {
+  const current = await getCustomTitles();
+  const updated = current.filter(t => t.id !== titleId);
+  inMemoryCustomTitles = updated;
+
+  try {
+    await AsyncStorage.setItem(KEY_CUSTOM_TITLES, JSON.stringify(updated));
+    await supabase.from('app_settings').upsert({
+      key: 'custom_rpg_titles',
+      value: JSON.stringify(updated),
+      updated_at: new Date().toISOString(),
+    });
+  } catch (e) {
+    console.log('Failed to delete custom title from cloud:', e);
+  }
+
+  return updated;
 }
 
 export function pickWheelResult(): { segment: WheelSegment; angleIndex: number } {
@@ -168,7 +267,13 @@ export async function unlockTitle(titleId: string): Promise<string[]> {
   try { const c = await getUnlockedTitles(); if (c.includes(titleId)) return c; const u = [...c, titleId]; await AsyncStorage.setItem(KEY_TITLES, JSON.stringify(u)); return u; } catch { return []; }
 }
 export async function getActiveTitle(): Promise<RpgTitle | null> {
-  try { const id = await AsyncStorage.getItem(KEY_ACTIVE_TITLE); if (!id) return null; return ALL_RPG_TITLES.find(t => t.id === id) || null; } catch { return null; }
+  try {
+    const id = await AsyncStorage.getItem(KEY_ACTIVE_TITLE);
+    if (!id) return null;
+    return getAllRpgTitles().find(t => t.id === id) || null;
+  } catch {
+    return null;
+  }
 }
 export async function setActiveTitle(titleId: string | null): Promise<void> {
   try { if (titleId === null) { await AsyncStorage.removeItem(KEY_ACTIVE_TITLE); } else { await AsyncStorage.setItem(KEY_ACTIVE_TITLE, titleId); } } catch {}
