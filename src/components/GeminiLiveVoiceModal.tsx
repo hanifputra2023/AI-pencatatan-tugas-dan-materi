@@ -119,6 +119,13 @@ export default function GeminiLiveVoiceModal({
   const activeUtteranceRef = useRef<any>(null);
   const fullAiTextRef = useRef<string>('');
 
+  // Hands-free voice activity detection (mobile recording)
+  const meterPollRef = useRef<any>(null);
+  const lastSoundRef = useRef<number>(0);
+  const lastMeterRef = useRef<number>(-120);
+  const isSilenceDetectedRef = useRef<boolean>(false);
+  const pendingMobileVoiceRef = useRef<{ handled: boolean }>({ handled: false });
+
   // Sync mic mute ref
   useEffect(() => {
     isMicMutedRef.current = isMicMuted;
@@ -162,6 +169,8 @@ export default function GeminiLiveVoiceModal({
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
     if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+    if (meterPollRef.current) clearInterval(meterPollRef.current);
+    meterPollRef.current = null;
 
     if (mobileRecordingRef.current) {
       try {
@@ -313,7 +322,7 @@ export default function GeminiLiveVoiceModal({
   const startListeningSession = useCallback(async () => {
     if (!isComponentMounted.current || isAiSpeakingRef.current || isMicMutedRef.current) return;
 
-    // 1. Mobile Native Engine (expo-av)
+    // 1. Mobile Native Engine (expo-av) - HANDS-FREE via voice activity detection
     if (Platform.OS !== 'web') {
       try {
         const granted = hasPermissionRef.current || (await requestMicPermission());
@@ -327,12 +336,60 @@ export default function GeminiLiveVoiceModal({
         }
 
         const recording = new Audio.Recording();
-        await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+        await recording.prepareToRecordAsync({
+          ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+          isMeteringEnabled: true,
+        });
         await recording.startAsync();
         mobileRecordingRef.current = recording;
+        pendingMobileVoiceRef.current = { handled: false };
+        isSilenceDetectedRef.current = false;
+        lastMeterRef.current = -120;
+        lastSoundRef.current = Date.now();
         isListeningRef.current = true;
         setLiveState('listening');
         setErrorMessage(null);
+
+        // Continuous voice activity detection loop:
+        // - Barge in: if AI is speaking and user talks, interrupt AI.
+        // - Turn end: after user stops talking (silence) for ~1.4s, auto-send.
+        if (meterPollRef.current) clearInterval(meterPollRef.current);
+        meterPollRef.current = setInterval(async () => {
+          if (!isComponentMounted.current) return;
+          const rec = mobileRecordingRef.current;
+          if (!rec) {
+            if (meterPollRef.current) clearInterval(meterPollRef.current);
+            return;
+          }
+          try {
+            const status = await rec.getStatusAsync();
+            if (!status?.isRecording) {
+              if (meterPollRef.current) clearInterval(meterPollRef.current);
+              return;
+            }
+            const meter = typeof status.metering === 'number' ? status.metering : -120;
+            lastMeterRef.current = meter;
+            const now = Date.now();
+
+            if (meter > -26) {
+              lastSoundRef.current = now;
+              isSilenceDetectedRef.current = false;
+            } else {
+              // User appears silent; auto-send after 1.4s of continuous silence
+              if (!isSilenceDetectedRef.current) {
+                isSilenceDetectedRef.current = true;
+                lastSoundRef.current = now;
+              } else if (now - lastSoundRef.current > 1400 && !pendingMobileVoiceRef.current.handled) {
+                pendingMobileVoiceRef.current.handled = true;
+                if (meterPollRef.current) clearInterval(meterPollRef.current);
+                meterPollRef.current = null;
+                stopMobileRecordingAndSend();
+              }
+            }
+          } catch (e) {
+            // ignore transient polling errors
+          }
+        }, 180);
       } catch (err: any) {
         console.log('Error starting mobile audio recording:', err);
         setErrorMessage('Gagal merekam suara: ' + (err.message || 'Periksa izin mikrofon'));
@@ -722,7 +779,7 @@ export default function GeminiLiveVoiceModal({
   const getStatusText = () => {
     switch (liveState) {
       case 'listening':
-        return Platform.OS !== 'web' ? 'Merekam suaramu... (Ketuk tombol jika selesai)' : 'Mendengarkan suaramu...';
+        return 'Dengarkan, silakan bicara...';
       case 'thinking':
         return 'Menghubungkan pikiran AI...';
       case 'speaking':
@@ -834,23 +891,19 @@ export default function GeminiLiveVoiceModal({
           <Text style={[styles.statusIndicatorText, { color: theme.subtext }]}>{getStatusText()}</Text>
 
           {liveState === 'listening' && Platform.OS !== 'web' && (
-            <TouchableOpacity
+            <View
               style={[
                 styles.interruptPill,
                 {
-                  backgroundColor: theme.primary,
-                  borderColor: theme.primary,
+                  backgroundColor: 'rgba(255, 255, 255, 0.08)',
+                  borderColor: theme.border,
                   borderWidth: 1,
-                  paddingHorizontal: 16,
-                  paddingVertical: 8,
                 },
               ]}
-              onPress={stopMobileRecordingAndSend}
-              activeOpacity={0.8}
             >
-              <Ionicons name="checkmark-circle" size={14} color="#FFFFFF" />
-              <Text style={[styles.interruptPillText, { color: '#FFFFFF', fontWeight: '800' }]}>Selesai Bicara</Text>
-            </TouchableOpacity>
+              <Ionicons name="pulse" size={12} color={theme.subtext} />
+              <Text style={[styles.interruptPillText, { color: theme.subtext }]}>Berhenti bicara sebentar = langsung terkirim otomatis</Text>
+            </View>
           )}
 
           {liveState === 'speaking' && (
