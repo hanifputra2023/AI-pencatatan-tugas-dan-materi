@@ -1029,6 +1029,10 @@ export default function ChatScreen() {
                   onScroll={handleScroll}
                   scrollEventThrottle={80}
                   showsVerticalScrollIndicator={true}
+                  initialNumToRender={12}
+                  maxToRenderPerBatch={8}
+                  windowSize={7}
+                  removeClippedSubviews={Platform.OS !== 'web'}
                   ListHeaderComponent={
                     hasMoreOldMessages ? (
                       <TouchableOpacity

@@ -260,8 +260,25 @@ export async function sendMessageToGemini(
 
   userParts.push({ text: fullPrompt || 'Halo Ara' });
 
+  // Optimize history: Keep last 10 turns max & clamp older bulky text to keep response latency ultra-fast
+  const sanitizedHistory: GeminiMessage[] = history
+    .filter(m => m.parts && m.parts.length > 0)
+    .slice(-10)
+    .map((m, idx, arr) => {
+      if (m.role === 'model' && idx < arr.length - 1) {
+        const textPart = m.parts.find(p => p.text)?.text || '';
+        if (textPart.length > 500) {
+          return {
+            ...m,
+            parts: [{ text: textPart.substring(0, 500) + '... (dipersingkat)' }],
+          };
+        }
+      }
+      return m;
+    });
+
   const contents: GeminiMessage[] = [
-    ...history.filter(m => m.parts && m.parts.length > 0),
+    ...sanitizedHistory,
     {
       role: 'user',
       parts: userParts,
