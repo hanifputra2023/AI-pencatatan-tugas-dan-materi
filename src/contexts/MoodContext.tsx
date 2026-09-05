@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { MoodOption, MOOD_OPTIONS as DEFAULT_MOOD_OPTIONS, PersonaPreset, DEFAULT_PERSONAS } from '../types';
@@ -122,7 +123,10 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         } catch (e) {}
       }
 
-      if (cachedLogo !== null) setAppLogoUrl(cachedLogo || null);
+      if (cachedLogo !== null) {
+        const isBlockedWebFile = Platform.OS === 'web' && cachedLogo.startsWith('file://');
+        setAppLogoUrl(isBlockedWebFile ? null : (cachedLogo || null));
+      }
       if (cachedName) setAppBrandName(cachedName);
       if (cachedTagline) setAppBrandTagline(cachedTagline);
 
@@ -155,8 +159,10 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
           if (item.key === 'ai_persona') setAiPersona(item.value);
           if (item.key === 'ai_bot_name') setAiBotName(item.value);
           if (item.key === 'app_logo_url') {
-            setAppLogoUrl(item.value || null);
-            AsyncStorage.setItem('@app_logo_url', item.value || '');
+            const rawVal = item.value?.trim() || '';
+            const isBlockedWebFile = Platform.OS === 'web' && rawVal.startsWith('file://');
+            setAppLogoUrl(isBlockedWebFile ? null : (rawVal || null));
+            AsyncStorage.setItem('@app_logo_url', rawVal);
           }
           if (item.key === 'app_brand_name') {
             setAppBrandName(item.value || 'StudyBot AI');

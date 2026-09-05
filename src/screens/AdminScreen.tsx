@@ -16,7 +16,7 @@ import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import { PersonaPreset, DEFAULT_PERSONAS, DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
 import { sendImmediateNotification, scheduleDailyRoutineReminders } from '../lib/notifications';
-import { compressImage } from '../lib/imageCompressor';
+import { compressImage, uriToBase64 } from '../lib/imageCompressor';
 import AppLogo from '../components/AppLogo';
 
 import {
@@ -115,6 +115,7 @@ export default function AdminScreen() {
   const [brandTaglineInput, setBrandTaglineInput] = useState(appBrandTagline || 'Smart Academic & Journal');
   const [previewLogoUri, setPreviewLogoUri] = useState<string | null>(appLogoUrl || null);
   const [savingBranding, setSavingBranding] = useState(false);
+  const [convertingLogo, setConvertingLogo] = useState(false);
 
   useEffect(() => {
     setCustomLogoUrlInput(appLogoUrl || '');
@@ -885,22 +886,60 @@ export default function AdminScreen() {
       });
 
       if (!result.canceled && result.assets && result.assets.length > 0) {
+        setConvertingLogo(true);
         const rawUri = result.assets[0].uri;
-        const compressedUri = await compressImage(rawUri, { maxWidth: 300, quality: 0.7 });
-        setPreviewLogoUri(compressedUri);
-        setCustomLogoUrlInput(compressedUri);
+        // Kompres logo ke resolusi optimal 256x256 quality 0.75 (~15KB - 25KB)
+        const compressedUri = await compressImage(rawUri, { maxWidth: 256, quality: 0.75 });
+
+        // PENTING: Konversikan ke string Base64 Data URI (data:image/jpeg;base64,...)
+        // agar BISA DIBACA DI SEMUA PERANGKAT (Android, iOS, Web Chrome, Firefox, dll)
+        // dan tidak bergantung pada filesystem lokal (file://) perangkat pengunggah!
+        let finalDataUrl = compressedUri;
+        if (!compressedUri.startsWith('data:')) {
+          const b64 = await uriToBase64(compressedUri);
+          if (b64) {
+            finalDataUrl = `data:image/jpeg;base64,${b64}`;
+          }
+        }
+        setPreviewLogoUri(finalDataUrl);
+        setCustomLogoUrlInput(finalDataUrl);
       }
     } catch (e) {
       showAlert('Gagal', 'Tidak dapat memilih gambar logo.');
+    } finally {
+      setConvertingLogo(false);
     }
   };
 
   const handleSaveBranding = async () => {
     setSavingBranding(true);
     try {
-      const cleanUrl = customLogoUrlInput.trim();
+      let cleanUrl = customLogoUrlInput.trim();
       const cleanName = brandNameInput.trim() || 'StudyBot AI';
       const cleanTagline = brandTaglineInput.trim() || 'Smart Academic & Journal';
+
+      // Validasi keamanan cross-device:
+      // Jika URL masih merupakan path lokal perangkat (file:// atau content://),
+      // konversi ke Base64 Data URL sebelum disimpan ke database
+      if (cleanUrl.startsWith('file://') || cleanUrl.startsWith('content://')) {
+        try {
+          const b64 = await uriToBase64(cleanUrl);
+          if (b64) {
+            cleanUrl = `data:image/jpeg;base64,${b64}`;
+            setCustomLogoUrlInput(cleanUrl);
+            setPreviewLogoUri(cleanUrl);
+          } else {
+            throw new Error('Local file not accessible');
+          }
+        } catch (convErr) {
+          showAlert(
+            'Format Logo Lokal Tidak Didukung ⚠️',
+            'File logo ini merupakan file cache lokal dari perangkat lain yang tidak dapat dibaca. Silakan klik tombol "Pilih Foto dari Galeri" lagi untuk memilih logo baru.'
+          );
+          setSavingBranding(false);
+          return;
+        }
+      }
 
       await Promise.all([
         updateAppLogoUrl(cleanUrl.length > 0 ? cleanUrl : null),
@@ -2566,7 +2605,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <View style={[styles.brandingMockupBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                     <View style={styles.brandingMockupHeader}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                        {previewLogoUri ? (
+                        {previewLogoUri && (!Platform.OS || Platform.OS !== 'web' || !previewLogoUri.startsWith('file://')) ? (
                           <Image
                             source={{ uri: previewLogoUri }}
                             style={styles.brandingPreviewLogoImg}
@@ -2605,15 +2644,47 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     Pilih logo baru dari galeri foto atau masukkan tautan URL gambar (PNG/JPG/WebP).
                   </Text>
 
+                  {/* Warning if logo currently stored as local file */}
+                  {previewLogoUri && previewLogoUri.startsWith('file://') && (
+                    <View style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 10,
+                      backgroundColor: isLightMode ? '#FFFBEB' : '#2D2008',
+                      borderColor: isLightMode ? '#FDE68A' : '#78350F',
+                      borderWidth: 1,
+                      borderRadius: 10,
+                      padding: 10,
+                      marginBottom: 12,
+                    }}>
+                      <Ionicons name="warning" size={20} color="#D97706" />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: isLightMode ? '#92400E' : '#FCD34D' }}>
+                          Logo Tersimpan Dalam Format File Lokal HP
+                        </Text>
+                        <Text style={{ fontSize: 11, color: isLightMode ? '#B45309' : '#FBBF24', marginTop: 2 }}>
+                          Logo saat ini berformat path lokal sehingga tidak muncul di perangkat lain. Klik tombol di bawah untuk memilih ulang foto agar logo tersinkron ke semua perangkat & web.
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
                   {/* Logo Source Buttons */}
                   <View style={styles.brandingLogoActionRow}>
                     <TouchableOpacity
                       style={[styles.brandingUploadBtn, { backgroundColor: theme.primary }]}
                       onPress={handlePickLogoImage}
+                      disabled={convertingLogo}
                       activeOpacity={0.8}
                     >
-                      <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
-                      <Text style={styles.brandingUploadBtnText}>Pilih Foto dari Galeri</Text>
+                      {convertingLogo ? (
+                        <ActivityIndicator size="small" color="#FFFFFF" />
+                      ) : (
+                        <>
+                          <Ionicons name="cloud-upload-outline" size={16} color="#FFFFFF" />
+                          <Text style={styles.brandingUploadBtnText}>Pilih Foto dari Galeri</Text>
+                        </>
+                      )}
                     </TouchableOpacity>
 
                     {previewLogoUri && (
@@ -2633,16 +2704,28 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <View style={[styles.apiKeyInputRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                     <TextInput
                       style={[styles.apiKeyInput, { color: theme.text }]}
-                      value={customLogoUrlInput}
+                      value={customLogoUrlInput.startsWith('data:') ? '[Gambar Logo Kustom Diunggah]' : customLogoUrlInput}
                       onChangeText={(val) => {
                         setCustomLogoUrlInput(val);
                         setPreviewLogoUri(val.trim() || null);
                       }}
-                      placeholder="https://domain.com/logo.png atau data URI"
+                      placeholder="https://domain.com/logo.png atau pilih dari galeri"
                       placeholderTextColor={theme.muted}
                       autoCapitalize="none"
                       autoCorrect={false}
+                      editable={!customLogoUrlInput.startsWith('data:')}
                     />
+                    {customLogoUrlInput.startsWith('data:') && (
+                      <TouchableOpacity
+                        onPress={() => {
+                          setCustomLogoUrlInput('');
+                          setPreviewLogoUri(null);
+                        }}
+                        style={{ paddingHorizontal: 8 }}
+                      >
+                        <Ionicons name="close-circle" size={18} color={theme.subtext} />
+                      </TouchableOpacity>
+                    )}
                   </View>
 
                   {/* Brand Name Input */}
