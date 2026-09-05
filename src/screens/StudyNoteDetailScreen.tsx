@@ -1177,6 +1177,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                     {/* Audio Lecture Player for Desktop */}
                     {showAudioPlayer && (
                       <AudioLecturePlayer
+                        noteId={noteId}
                         title={title || 'Materi Catatan'}
                         summaryText={summary}
                         fullContentText={content}
@@ -1377,9 +1378,9 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         onPress={() => setShowAudioPlayer(prev => !prev)}
                         activeOpacity={0.75}
                       >
-                        <Ionicons name="volume-high-outline" size={15} color="#10B981" />
+                        <Ionicons name="mic-outline" size={15} color="#10B981" />
                         <Text style={[styles.sideStudioBtnText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
-                          {showAudioPlayer ? 'Tutup Pemutar Suara' : 'Dengarkan Audio Kuliah'}
+                          {showAudioPlayer ? 'Tutup AI Podcast & Audio' : '🎙️ AI Podcast & Audio'}
                         </Text>
                       </TouchableOpacity>
 
@@ -1641,9 +1642,9 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         ]}
                         onPress={() => setShowAudioPlayer(prev => !prev)}
                       >
-                        <Ionicons name="volume-high-outline" size={13} color="#10B981" />
+                        <Ionicons name="mic-outline" size={13} color="#10B981" />
                         <Text style={[styles.docActionPillText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
-                          {showAudioPlayer ? 'Tutup Audio' : 'Audio Kuliah'}
+                          {showAudioPlayer ? 'Tutup Audio' : '🎙️ AI Podcast'}
                         </Text>
                       </TouchableOpacity>
 
@@ -1841,6 +1842,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                   {/* Audio Lecture Player for Mobile */}
                   {showAudioPlayer && (
                     <AudioLecturePlayer
+                      noteId={noteId}
                       title={title || 'Materi Catatan'}
                       summaryText={summary}
                       fullContentText={content}
