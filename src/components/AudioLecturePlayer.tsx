@@ -17,6 +17,7 @@ import * as Speech from 'expo-speech';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useTheme } from '../contexts/ThemeContext';
 import { useMoods } from '../contexts/MoodContext';
+import { useResponsive } from '../hooks/useResponsive';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { copyToClipboard } from '../lib/clipboard';
 
@@ -47,6 +48,7 @@ export default function AudioLecturePlayer({
 }: AudioLecturePlayerProps) {
   const { theme, isLightMode } = useTheme();
   const { aiBotName, customAiName, customAiAvatar, activePersona } = useMoods();
+  const { isMobile, isSmallPhone } = useResponsive();
 
   // Resolved dynamic identity from user's custom AI configuration in Profile
   const effectiveAiName = customAiName || activePersona?.botName || aiBotName || 'Ara';
@@ -765,9 +767,9 @@ WAJIB menghasilkan output dalam format JSON Array murni:
 
   return (
     <View style={[styles.playerCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-      {/* ── Top Header Row ── */}
-      <View style={styles.topRow}>
-        <View style={styles.titleInfoGroup}>
+      {/* ── Top Header Row (Responsive) ── */}
+      <View style={[styles.topRow, isMobile && { flexWrap: 'wrap', gap: 6 }]}>
+        <View style={[styles.titleInfoGroup, isMobile && { minWidth: 160 }]}>
           <View style={[styles.iconPill, { backgroundColor: theme.accentBg }]}>
             <Ionicons
               name={playerMode === 'podcast' ? 'mic' : 'volume-high'}
@@ -776,7 +778,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
             />
           </View>
           <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, flexWrap: 'wrap' }}>
               <Text style={[styles.playerHeaderTitle, { color: theme.text }]} numberOfLines={1}>
                 {playerMode === 'podcast' ? 'AI Study Podcast Studio' : 'Audio Narasi Kuliah'}
               </Text>
@@ -791,10 +793,10 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                 ? isPaused
                   ? 'Dijeda'
                   : playerMode === 'podcast'
-                    ? `Sedang Berbicara: ${currentDialogue?.name || effectiveAiName}`
+                    ? `Bicara: ${currentDialogue?.name || effectiveAiName}`
                     : 'Sedang Membacakan Materi...'
                 : playerMode === 'podcast'
-                  ? `Diskusi Interaktif ${effectiveAiName} & ${coHostName}`
+                  ? `Diskusi ${effectiveAiName} & ${coHostName}`
                   : 'Tekan Play untuk mendengarkan'}
             </Text>
           </View>
@@ -830,11 +832,12 @@ WAJIB menghasilkan output dalam format JSON Array murni:
         </View>
       </View>
 
-      {/* ── Mode Switcher Tab Bar: Podcast vs Narration ── */}
-      <View style={[styles.mainTabWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+      {/* ── Mode Switcher Tab Bar: Podcast vs Narration (Responsive) ── */}
+      <View style={[styles.mainTabWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }, isMobile && { padding: 2.5 }]}>
         <TouchableOpacity
           style={[
             styles.mainTabBtn,
+            isMobile && { paddingVertical: 5 },
             playerMode === 'podcast' && [styles.mainTabBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
           ]}
           onPress={() => {
@@ -846,13 +849,14 @@ WAJIB menghasilkan output dalam format JSON Array murni:
         >
           <Ionicons
             name="mic"
-            size={13}
+            size={isMobile ? 12 : 13}
             color={playerMode === 'podcast' ? theme.primary : theme.subtext}
           />
           <Text
             style={[
               styles.mainTabText,
               { color: theme.subtext },
+              isMobile && { fontSize: 10.5 },
               playerMode === 'podcast' && [styles.mainTabTextActive, { color: theme.primary }]
             ]}
           >
@@ -863,6 +867,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
         <TouchableOpacity
           style={[
             styles.mainTabBtn,
+            isMobile && { paddingVertical: 5 },
             playerMode === 'narration' && [styles.mainTabBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
           ]}
           onPress={() => {
@@ -874,13 +879,14 @@ WAJIB menghasilkan output dalam format JSON Array murni:
         >
           <Ionicons
             name="reader-outline"
-            size={13}
+            size={isMobile ? 12 : 13}
             color={playerMode === 'narration' ? theme.primary : theme.subtext}
           />
           <Text
             style={[
               styles.mainTabText,
               { color: theme.subtext },
+              isMobile && { fontSize: 10.5 },
               playerMode === 'narration' && [styles.mainTabTextActive, { color: theme.primary }]
             ]}
           >
@@ -892,8 +898,14 @@ WAJIB menghasilkan output dalam format JSON Array murni:
       {/* ── MODE 1: AI PODCAST (NOTEBOOKLM STYLE) ── */}
       {playerMode === 'podcast' ? (
         <View style={styles.podcastContainer}>
-          {/* Dual Host Live Broadcast Stage */}
-          <View style={[styles.broadcastStage, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+          {/* Dual Host Live Broadcast Stage (Responsive Stack on Small Phones) */}
+          <View
+            style={[
+              styles.broadcastStage,
+              { backgroundColor: theme.cardInner, borderColor: theme.border },
+              isSmallPhone && { flexDirection: 'column', gap: 5, padding: 6 }
+            ]}
+          >
             {/* Host 1: Custom Teman AI */}
             <Animated.View
               style={[
@@ -903,6 +915,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                   borderColor: isAiSpeakingNow ? theme.primary : theme.border,
                   transform: isAiSpeakingNow ? [{ scale: speakerPulse }] : [{ scale: 1 }],
                 },
+                isMobile && { paddingHorizontal: 7, paddingVertical: 6, gap: 6 },
                 isAiSpeakingNow && {
                   shadowColor: theme.primary,
                   shadowOffset: { width: 0, height: 2 },
@@ -915,10 +928,20 @@ WAJIB menghasilkan output dalam format JSON Array murni:
             >
               <View style={styles.avatarWrapper}>
                 {customAiAvatar ? (
-                  <Image source={{ uri: customAiAvatar }} style={styles.hostAvatarImg} resizeMode="cover" />
+                  <Image
+                    source={{ uri: customAiAvatar }}
+                    style={[styles.hostAvatarImg, isMobile && { width: 28, height: 28, borderRadius: 14 }]}
+                    resizeMode="cover"
+                  />
                 ) : (
-                  <View style={[styles.hostAvatarFallback, { backgroundColor: theme.accentBg }]}>
-                    <Ionicons name="sparkles" size={16} color={theme.accentLight} />
+                  <View
+                    style={[
+                      styles.hostAvatarFallback,
+                      { backgroundColor: theme.accentBg },
+                      isMobile && { width: 28, height: 28, borderRadius: 14 }
+                    ]}
+                  >
+                    <Ionicons name="sparkles" size={isMobile ? 14 : 16} color={theme.accentLight} />
                   </View>
                 )}
                 {isAiSpeakingNow && (
@@ -927,10 +950,10 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               </View>
 
               <View style={styles.hostMetaWrap}>
-                <Text style={[styles.hostNameText, { color: theme.text }]} numberOfLines={1}>
+                <Text style={[styles.hostNameText, { color: theme.text }, isMobile && { fontSize: 10.5 }]} numberOfLines={1}>
                   {effectiveAiName}
                 </Text>
-                <Text style={[styles.hostRoleText, { color: theme.muted }]} numberOfLines={1}>
+                <Text style={[styles.hostRoleText, { color: theme.muted }, isMobile && { fontSize: 8.5 }]} numberOfLines={1}>
                   Host AI • {aiVoiceNameDisplay}
                 </Text>
               </View>
@@ -938,6 +961,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               <View
                 style={[
                   styles.speakerStatusPill,
+                  isMobile && { paddingHorizontal: 4, paddingVertical: 2 },
                   isAiSpeakingNow
                     ? { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B', borderColor: '#10B981' }
                     : { backgroundColor: theme.cardInner, borderColor: theme.border }
@@ -945,12 +969,13 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               >
                 <Ionicons
                   name={isAiSpeakingNow ? 'mic' : 'headset'}
-                  size={10}
+                  size={isMobile ? 9 : 10}
                   color={isAiSpeakingNow ? '#10B981' : theme.muted}
                 />
                 <Text
                   style={[
                     styles.speakerStatusText,
+                    isMobile && { fontSize: 8 },
                     { color: isAiSpeakingNow ? (isLightMode ? '#15803D' : '#34D399') : theme.muted }
                   ]}
                 >
@@ -960,10 +985,10 @@ WAJIB menghasilkan output dalam format JSON Array murni:
             </Animated.View>
 
             {/* Stage Center Divider */}
-            <View style={styles.stageCenterDivider}>
+            <View style={[styles.stageCenterDivider, isSmallPhone && { flexDirection: 'row', paddingVertical: 1, gap: 4 }]}>
               <Ionicons
                 name="radio-outline"
-                size={16}
+                size={14}
                 color={isPlaying && !isPaused ? theme.primary : theme.muted}
               />
               <Text style={[styles.stageVsText, { color: theme.muted }]}>DUAL</Text>
@@ -978,6 +1003,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                   borderColor: isCoHostSpeakingNow ? '#38BDF8' : theme.border,
                   transform: isCoHostSpeakingNow ? [{ scale: speakerPulse }] : [{ scale: 1 }],
                 },
+                isMobile && { paddingHorizontal: 7, paddingVertical: 6, gap: 6 },
                 isCoHostSpeakingNow && {
                   shadowColor: '#38BDF8',
                   shadowOffset: { width: 0, height: 2 },
@@ -989,8 +1015,14 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               ]}
             >
               <View style={styles.avatarWrapper}>
-                <View style={[styles.hostAvatarFallback, { backgroundColor: isLightMode ? '#E0F2FE' : '#082F49' }]}>
-                  <Ionicons name="headset" size={16} color={isLightMode ? '#0284C7' : '#38BDF8'} />
+                <View
+                  style={[
+                    styles.hostAvatarFallback,
+                    { backgroundColor: isLightMode ? '#E0F2FE' : '#082F49' },
+                    isMobile && { width: 28, height: 28, borderRadius: 14 }
+                  ]}
+                >
+                  <Ionicons name="headset" size={isMobile ? 14 : 16} color={isLightMode ? '#0284C7' : '#38BDF8'} />
                 </View>
                 {isCoHostSpeakingNow && (
                   <View style={[styles.liveGlowIndicator, { backgroundColor: '#38BDF8' }]} />
@@ -998,10 +1030,10 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               </View>
 
               <View style={styles.hostMetaWrap}>
-                <Text style={[styles.hostNameText, { color: theme.text }]} numberOfLines={1}>
+                <Text style={[styles.hostNameText, { color: theme.text }, isMobile && { fontSize: 10.5 }]} numberOfLines={1}>
                   {coHostName}
                 </Text>
-                <Text style={[styles.hostRoleText, { color: theme.muted }]} numberOfLines={1}>
+                <Text style={[styles.hostRoleText, { color: theme.muted }, isMobile && { fontSize: 8.5 }]} numberOfLines={1}>
                   Co-Host • {coHostVoiceNameDisplay}
                 </Text>
               </View>
@@ -1009,6 +1041,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               <View
                 style={[
                   styles.speakerStatusPill,
+                  isMobile && { paddingHorizontal: 4, paddingVertical: 2 },
                   isCoHostSpeakingNow
                     ? { backgroundColor: isLightMode ? '#E0F2FE' : '#082F49', borderColor: '#38BDF8' }
                     : { backgroundColor: theme.cardInner, borderColor: theme.border }
@@ -1016,12 +1049,13 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               >
                 <Ionicons
                   name={isCoHostSpeakingNow ? 'mic' : 'headset'}
-                  size={10}
+                  size={isMobile ? 9 : 10}
                   color={isCoHostSpeakingNow ? '#38BDF8' : theme.muted}
                 />
                 <Text
                   style={[
                     styles.speakerStatusText,
+                    isMobile && { fontSize: 8 },
                     { color: isCoHostSpeakingNow ? (isLightMode ? '#0284C7' : '#38BDF8') : theme.muted }
                   ]}
                 >
@@ -1031,14 +1065,14 @@ WAJIB menghasilkan output dalam format JSON Array murni:
             </Animated.View>
           </View>
 
-          {/* Style Selector Chips */}
-          <View style={styles.styleSelectorRow}>
+          {/* Style Selector Chips (Responsive Wrap) */}
+          <View style={[styles.styleSelectorRow, isMobile && { flexDirection: 'column', alignItems: 'stretch', gap: 6 }]}>
             <Text style={[styles.styleSelectorLabel, { color: theme.muted }]}>Gaya Obrolan:</Text>
-            <View style={styles.styleChipsGroup}>
+            <View style={[styles.styleChipsGroup, isMobile && { width: '100%' }]}>
               {(
                 [
-                  { key: 'casual', label: '☕ Santai & Analogi' },
-                  { key: 'speed', label: '⚡ Bedah Kilat' },
+                  { key: 'casual', label: '☕ Santai' },
+                  { key: 'speed', label: '⚡ Kilat' },
                   { key: 'deep', label: '🧐 Deep Dive' },
                 ] as const
               ).map(st => (
@@ -1048,6 +1082,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                   style={[
                     styles.styleChipBtn,
                     { backgroundColor: theme.cardInner, borderColor: theme.border },
+                    isMobile && { flex: 1, alignItems: 'center', justifyContent: 'center', paddingVertical: 5, paddingHorizontal: 4 },
                     podcastStyle === st.key && [
                       styles.styleChipBtnActive,
                       { backgroundColor: theme.accentBg, borderColor: theme.accent }
@@ -1063,6 +1098,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                     style={[
                       styles.styleChipBtnText,
                       { color: theme.subtext },
+                      isMobile && { fontSize: 9.5 },
                       podcastStyle === st.key && { color: theme.accentLight, fontWeight: '700' }
                     ]}
                   >
@@ -1101,104 +1137,138 @@ WAJIB menghasilkan output dalam format JSON Array murni:
             </View>
           ) : (
             <>
-              {/* Controls & Soundwave Bar */}
-              <View style={[styles.controlsRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                {/* Prev Dialogue */}
-                <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => seekToPodcastIndex(activeScriptIdx - 1)}
-                  disabled={activeScriptIdx <= 0}
-                >
-                  <Ionicons name="play-skip-back" size={13} color={activeScriptIdx > 0 ? theme.text : theme.muted} />
-                </TouchableOpacity>
+              {/* Controls & Soundwave Bar (Responsive 2-Tier on Mobile) */}
+              <View style={[styles.controlsCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                {/* Primary Playback Row */}
+                <View style={styles.controlsPrimaryRow}>
+                  {/* Prev Dialogue */}
+                  <TouchableOpacity
+                    style={[styles.stepBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={() => seekToPodcastIndex(activeScriptIdx - 1)}
+                    disabled={activeScriptIdx <= 0}
+                  >
+                    <Ionicons name="play-skip-back" size={13} color={activeScriptIdx > 0 ? theme.text : theme.muted} />
+                  </TouchableOpacity>
 
-                {/* Main Play / Pause */}
-                <TouchableOpacity
-                  style={[styles.mainPlayBtn, { backgroundColor: theme.primary }]}
-                  onPress={togglePlay}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name={isPlaying && !isPaused ? 'pause' : 'play'}
-                    size={17}
-                    color="#FFFFFF"
-                    style={isPlaying && !isPaused ? {} : { marginLeft: 2 }}
-                  />
-                </TouchableOpacity>
-
-                {/* Next Dialogue */}
-                <TouchableOpacity
-                  style={[styles.stepBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => seekToPodcastIndex(activeScriptIdx + 1)}
-                  disabled={activeScriptIdx >= podcastScript.length - 1}
-                >
-                  <Ionicons name="play-skip-forward" size={13} color={activeScriptIdx < podcastScript.length - 1 ? theme.text : theme.muted} />
-                </TouchableOpacity>
-
-                {/* Soundwave Visualizer Bars */}
-                <View style={styles.soundwaveWrap}>
-                  {[wave1, wave2, wave3, wave4, wave5].map((w, idx) => (
-                    <Animated.View
-                      key={idx}
-                      style={[
-                        styles.soundwaveBar,
-                        {
-                          backgroundColor: isPlaying && !isPaused ? theme.accentLight : theme.border,
-                          height: w.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [4, 18],
-                          }),
-                        }
-                      ]}
+                  {/* Main Play / Pause */}
+                  <TouchableOpacity
+                    style={[styles.mainPlayBtn, { backgroundColor: theme.primary }]}
+                    onPress={togglePlay}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name={isPlaying && !isPaused ? 'pause' : 'play'}
+                      size={17}
+                      color="#FFFFFF"
+                      style={isPlaying && !isPaused ? {} : { marginLeft: 2 }}
                     />
-                  ))}
-                </View>
+                  </TouchableOpacity>
 
-                {/* Speed Selector */}
-                <View style={styles.speedSelectorGroup}>
-                  {SPEED_OPTIONS.map(s => (
-                    <TouchableOpacity
-                      key={s}
-                      style={[
-                        styles.speedChip,
-                        playbackSpeed === s && [styles.speedChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                      ]}
-                      onPress={() => handleSpeedChange(s)}
-                    >
-                      <Text
+                  {/* Next Dialogue */}
+                  <TouchableOpacity
+                    style={[styles.stepBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={() => seekToPodcastIndex(activeScriptIdx + 1)}
+                    disabled={activeScriptIdx >= podcastScript.length - 1}
+                  >
+                    <Ionicons name="play-skip-forward" size={13} color={activeScriptIdx < podcastScript.length - 1 ? theme.text : theme.muted} />
+                  </TouchableOpacity>
+
+                  {/* Soundwave Visualizer Bars */}
+                  <View style={styles.soundwaveWrap}>
+                    {[wave1, wave2, wave3, wave4, wave5].map((w, idx) => (
+                      <Animated.View
+                        key={idx}
                         style={[
-                          styles.speedChipText,
-                          { color: theme.subtext },
-                          playbackSpeed === s && [styles.speedChipTextActive, { color: theme.accentLight }]
+                          styles.soundwaveBar,
+                          {
+                            backgroundColor: isPlaying && !isPaused ? theme.accentLight : theme.border,
+                            height: w.interpolate({
+                              inputRange: [0, 1],
+                              outputRange: [4, 18],
+                            }),
+                          }
                         ]}
-                      >
-                        {s}x
-                      </Text>
-                    </TouchableOpacity>
-                  ))}
+                      />
+                    ))}
+                  </View>
+
+                  {/* Desktop Only Speed chips in primary row */}
+                  {!isMobile && (
+                    <View style={styles.speedSelectorGroup}>
+                      {SPEED_OPTIONS.map(s => (
+                        <TouchableOpacity
+                          key={s}
+                          style={[
+                            styles.speedChip,
+                            playbackSpeed === s && [styles.speedChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                          ]}
+                          onPress={() => handleSpeedChange(s)}
+                        >
+                          <Text
+                            style={[
+                              styles.speedChipText,
+                              { color: theme.subtext },
+                              playbackSpeed === s && [styles.speedChipTextActive, { color: theme.accentLight }]
+                            ]}
+                          >
+                            {s}x
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  )}
+
+                  {/* Regenerate Script Button */}
+                  <TouchableOpacity
+                    style={[styles.actionIconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={() => handleGeneratePodcast(podcastStyle)}
+                    accessibilityLabel="Buat ulang naskah podcast"
+                  >
+                    <Ionicons name="refresh" size={13} color={theme.subtext} />
+                  </TouchableOpacity>
+
+                  {/* Copy Transcript Button */}
+                  <TouchableOpacity
+                    style={[styles.actionIconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                    onPress={handleCopyTranscript}
+                    accessibilityLabel="Salin naskah obrolan"
+                  >
+                    <Ionicons
+                      name={copiedSuccess ? 'checkmark-circle' : 'copy-outline'}
+                      size={13}
+                      color={copiedSuccess ? '#10B981' : theme.subtext}
+                    />
+                  </TouchableOpacity>
                 </View>
 
-                {/* Regenerate Script Button */}
-                <TouchableOpacity
-                  style={[styles.actionIconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={() => handleGeneratePodcast(podcastStyle)}
-                  accessibilityLabel="Buat ulang naskah podcast"
-                >
-                  <Ionicons name="refresh" size={13} color={theme.subtext} />
-                </TouchableOpacity>
-
-                {/* Copy Transcript Button */}
-                <TouchableOpacity
-                  style={[styles.actionIconBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                  onPress={handleCopyTranscript}
-                  accessibilityLabel="Salin naskah obrolan"
-                >
-                  <Ionicons
-                    name={copiedSuccess ? 'checkmark-circle' : 'copy-outline'}
-                    size={13}
-                    color={copiedSuccess ? '#10B981' : theme.subtext}
-                  />
-                </TouchableOpacity>
+                {/* Mobile Sub-Row: Speed Selector & Quick Jump */}
+                {isMobile && (
+                  <View style={[styles.controlsSecondaryRow, { borderTopColor: theme.border }]}>
+                    <Text style={[styles.speedLabelMobile, { color: theme.muted }]}>Kecepatan:</Text>
+                    <View style={styles.speedSelectorGroup}>
+                      {SPEED_OPTIONS.map(s => (
+                        <TouchableOpacity
+                          key={s}
+                          style={[
+                            styles.speedChip,
+                            playbackSpeed === s && [styles.speedChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                          ]}
+                          onPress={() => handleSpeedChange(s)}
+                        >
+                          <Text
+                            style={[
+                              styles.speedChipText,
+                              { color: theme.subtext },
+                              playbackSpeed === s && [styles.speedChipTextActive, { color: theme.accentLight }]
+                            ]}
+                          >
+                            {s}x
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                  </View>
+                )}
               </View>
 
               {/* Interactive Live Transcript Drawer */}
@@ -1217,7 +1287,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
 
                 <ScrollView
                   ref={scriptScrollRef}
-                  style={styles.transcriptScrollView}
+                  style={[styles.transcriptScrollView, isMobile && { maxHeight: 185 }]}
                   nestedScrollEnabled
                   showsVerticalScrollIndicator={false}
                 >
@@ -1256,12 +1326,13 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                             <Text
                               style={[
                                 styles.dialogueSpeakerName,
+                                isMobile && { fontSize: 10.5 },
                                 { color: isAi ? theme.primary : (isLightMode ? '#0284C7' : '#38BDF8') }
                               ]}
                             >
                               {item.name}
                             </Text>
-                            <Text style={[styles.dialogueRoleTag, { color: theme.muted }]}>
+                            <Text style={[styles.dialogueRoleTag, { color: theme.muted }, isMobile && { fontSize: 8.5 }]}>
                               • {isAi ? 'Host AI (Sopran)' : 'Co-Host (Bariton)'}
                             </Text>
                           </View>
@@ -1277,6 +1348,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                         <Text
                           style={[
                             styles.dialogueContentText,
+                            isMobile && { fontSize: 11, lineHeight: 16 },
                             { color: isItemActive ? theme.text : theme.subtext },
                             isItemActive && { fontWeight: '600' }
                           ]}
@@ -1299,6 +1371,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               <TouchableOpacity
                 style={[
                   styles.sourceToggleBtn,
+                  isMobile && { paddingVertical: 4.5 },
                   narrationSource === 'summary' && [styles.sourceToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
                 ]}
                 onPress={() => {
@@ -1317,6 +1390,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                   style={[
                     styles.sourceToggleText,
                     { color: theme.subtext },
+                    isMobile && { fontSize: 10.5 },
                     narrationSource === 'summary' && [styles.sourceToggleTextActive, { color: theme.accentLight }]
                   ]}
                 >
@@ -1327,6 +1401,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
               <TouchableOpacity
                 style={[
                   styles.sourceToggleBtn,
+                  isMobile && { paddingVertical: 4.5 },
                   narrationSource === 'full' && [styles.sourceToggleBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
                 ]}
                 onPress={() => {
@@ -1345,6 +1420,7 @@ WAJIB menghasilkan output dalam format JSON Array murni:
                   style={[
                     styles.sourceToggleText,
                     { color: theme.subtext },
+                    isMobile && { fontSize: 10.5 },
                     narrationSource === 'full' && [styles.sourceToggleTextActive, { color: theme.accentLight }]
                   ]}
                 >
@@ -1354,74 +1430,107 @@ WAJIB menghasilkan output dalam format JSON Array murni:
             </View>
           )}
 
-          {/* Controls & Soundwave Bar */}
-          <View style={[styles.controlsRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-            {/* Main Play / Pause */}
-            <TouchableOpacity
-              style={[styles.mainPlayBtn, { backgroundColor: theme.primary }]}
-              onPress={togglePlay}
-              activeOpacity={0.8}
-            >
-              <Ionicons
-                name={isPlaying && !isPaused ? 'pause' : 'play'}
-                size={18}
-                color="#FFFFFF"
-                style={isPlaying && !isPaused ? {} : { marginLeft: 2 }}
-              />
-            </TouchableOpacity>
-
-            {/* Stop Button */}
-            {isPlaying && (
+          {/* Controls & Soundwave Bar (Responsive) */}
+          <View style={[styles.controlsCard, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+            <View style={styles.controlsPrimaryRow}>
+              {/* Main Play / Pause */}
               <TouchableOpacity
-                style={[styles.stopBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                onPress={stopPlayback}
+                style={[styles.mainPlayBtn, { backgroundColor: theme.primary }]}
+                onPress={togglePlay}
+                activeOpacity={0.8}
               >
-                <Ionicons name="square" size={12} color="#EF4444" />
-              </TouchableOpacity>
-            )}
-
-            {/* Soundwave Visualizer Bars */}
-            <View style={styles.soundwaveWrap}>
-              {[wave1, wave2, wave3, wave4, wave5].map((w, idx) => (
-                <Animated.View
-                  key={idx}
-                  style={[
-                    styles.soundwaveBar,
-                    {
-                      backgroundColor: isPlaying && !isPaused ? theme.accentLight : theme.border,
-                      height: w.interpolate({
-                        inputRange: [0, 1],
-                        outputRange: [4, 20],
-                      }),
-                    }
-                  ]}
+                <Ionicons
+                  name={isPlaying && !isPaused ? 'pause' : 'play'}
+                  size={18}
+                  color="#FFFFFF"
+                  style={isPlaying && !isPaused ? {} : { marginLeft: 2 }}
                 />
-              ))}
+              </TouchableOpacity>
+
+              {/* Stop Button */}
+              {isPlaying && (
+                <TouchableOpacity
+                  style={[styles.stopBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={stopPlayback}
+                >
+                  <Ionicons name="square" size={12} color="#EF4444" />
+                </TouchableOpacity>
+              )}
+
+              {/* Soundwave Visualizer Bars */}
+              <View style={styles.soundwaveWrap}>
+                {[wave1, wave2, wave3, wave4, wave5].map((w, idx) => (
+                  <Animated.View
+                    key={idx}
+                    style={[
+                      styles.soundwaveBar,
+                      {
+                        backgroundColor: isPlaying && !isPaused ? theme.accentLight : theme.border,
+                        height: w.interpolate({
+                          inputRange: [0, 1],
+                          outputRange: [4, 20],
+                        }),
+                      }
+                    ]}
+                  />
+                ))}
+              </View>
+
+              {/* Desktop Speed */}
+              {!isMobile && (
+                <View style={styles.speedSelectorGroup}>
+                  {SPEED_OPTIONS.map(s => (
+                    <TouchableOpacity
+                      key={s}
+                      style={[
+                        styles.speedChip,
+                        playbackSpeed === s && [styles.speedChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                      ]}
+                      onPress={() => handleSpeedChange(s)}
+                    >
+                      <Text
+                        style={[
+                          styles.speedChipText,
+                          { color: theme.subtext },
+                          playbackSpeed === s && [styles.speedChipTextActive, { color: theme.accentLight }]
+                        ]}
+                      >
+                        {s}x
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              )}
             </View>
 
-            {/* Speed Selector */}
-            <View style={styles.speedSelectorGroup}>
-              {SPEED_OPTIONS.map(s => (
-                <TouchableOpacity
-                  key={s}
-                  style={[
-                    styles.speedChip,
-                    playbackSpeed === s && [styles.speedChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                  ]}
-                  onPress={() => handleSpeedChange(s)}
-                >
-                  <Text
-                    style={[
-                      styles.speedChipText,
-                      { color: theme.subtext },
-                      playbackSpeed === s && [styles.speedChipTextActive, { color: theme.accentLight }]
-                    ]}
-                  >
-                    {s}x
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
+            {/* Mobile Speed Sub-Row */}
+            {isMobile && (
+              <View style={[styles.controlsSecondaryRow, { borderTopColor: theme.border }]}>
+                <Text style={[styles.speedLabelMobile, { color: theme.muted }]}>Kecepatan:</Text>
+                <View style={styles.speedSelectorGroup}>
+                  {SPEED_OPTIONS.map(s => (
+                    <TouchableOpacity
+                      key={s}
+                      style={[
+                        styles.speedChip,
+                        playbackSpeed === s && [styles.speedChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                      ]}
+                      onPress={() => handleSpeedChange(s)}
+                    >
+                      <Text
+                        style={[
+                          styles.speedChipText,
+                          { color: theme.subtext },
+                          playbackSpeed === s && [styles.speedChipTextActive, { color: theme.accentLight }]
+                        ]}
+                      >
+                        {s}x
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
           </View>
         </View>
       )}
@@ -1731,14 +1840,28 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: '700',
   },
-  controlsRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: 8,
-    paddingVertical: 6,
+  controlsCard: {
     borderRadius: 10,
     borderWidth: 1,
+    padding: 6,
     gap: 6,
+  },
+  controlsPrimaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  controlsSecondaryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 5,
+    borderTopWidth: 1,
+    paddingHorizontal: 2,
+  },
+  speedLabelMobile: {
+    fontSize: 9.5,
+    fontWeight: '700',
   },
   stepBtn: {
     width: 28,
