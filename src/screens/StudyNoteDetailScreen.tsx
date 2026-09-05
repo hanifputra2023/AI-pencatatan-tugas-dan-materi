@@ -23,6 +23,7 @@ import ScanNoteModal from '../components/ScanNoteModal';
 import Flashcard3DModal from '../components/Flashcard3DModal';
 import AudioLecturePlayer from '../components/AudioLecturePlayer';
 import QuizBattleModal from '../components/QuizBattleModal';
+import ShareNoteModal from '../components/ShareNoteModal';
 import { exportStudyNoteToPdf } from '../lib/pdfExporter';
 import {
   XpPopup,
@@ -83,6 +84,7 @@ export default function StudyNoteDetailScreen() {
   const [flashcardCount, setFlashcardCount] = useState<number>(10);
   const [generatingFlashcards, setGeneratingFlashcards] = useState(false);
   const [showAudioPlayer, setShowAudioPlayer] = useState(false);
+  const [showShareModal, setShowShareModal] = useState(false);
 
   // Interactive Quiz options & test answers state
   const [quizCount, setQuizCount] = useState<number>(5);
@@ -1117,7 +1119,15 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={handleCopyNote}>
+              <TouchableOpacity
+                style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                onPress={() => setShowShareModal(true)}
+                accessibilityLabel="Bagikan Catatan ke Teman"
+              >
+                <Ionicons name="share-social-outline" size={17} color={theme.accentLight} />
+              </TouchableOpacity>
+
+              <TouchableOpacity style={[styles.headerIconBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]} onPress={handleCopyNote} accessibilityLabel="Salin Teks">
                 <Ionicons name="copy-outline" size={17} color={theme.subtext} />
               </TouchableOpacity>
             </View>
@@ -2806,6 +2816,23 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
           awardWheelTicketForActivity().catch(() => {});
           defeatBossEvent().catch(() => {});
         }}
+      />
+
+      {/* Share Note to Friends Modal */}
+      <ShareNoteModal
+        visible={showShareModal}
+        note={{
+          id: noteId || 'temp_note',
+          user_id: user?.id || 'guest',
+          title: title || 'Catatan Kuliah',
+          subject: subject || 'Kuliah Umum',
+          content: content || '',
+          summary,
+          quiz_data: quizData,
+          created_at: createdAt || new Date().toISOString(),
+          updated_at: new Date().toISOString(),
+        }}
+        onClose={() => setShowShareModal(false)}
       />
     </SafeAreaView>
   );

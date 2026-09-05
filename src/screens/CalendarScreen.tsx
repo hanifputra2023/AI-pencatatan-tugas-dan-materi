@@ -72,12 +72,60 @@ export default function CalendarScreen() {
     }, [fetchData])
   );
 
-  // 30-Day Grid calculation with multi-activity tracking
-  const getDaysGrid = () => {
-    const days = [];
-    for (let i = 29; i >= 0; i--) {
-      const date = new Date();
-      date.setDate(date.getDate() - i);
+  const [currentMonthDate, setCurrentMonthDate] = useState<Date>(() => {
+    const d = new Date();
+    return new Date(d.getFullYear(), d.getMonth(), 1);
+  });
+
+  const handlePrevMonth = () => {
+    setCurrentMonthDate(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCurrentMonthDate(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const handleToday = () => {
+    const today = new Date();
+    setCurrentMonthDate(new Date(today.getFullYear(), today.getMonth(), 1));
+    setSelectedDateStr(today.toDateString());
+  };
+
+  const isCurrentViewingMonth = () => {
+    const today = new Date();
+    return (
+      currentMonthDate.getMonth() === today.getMonth() &&
+      currentMonthDate.getFullYear() === today.getFullYear()
+    );
+  };
+
+  // Full Month Interactive Grid with Monday-Sunday column alignment
+  const getMonthDaysGrid = () => {
+    const year = currentMonthDate.getFullYear();
+    const month = currentMonthDate.getMonth();
+
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+    const totalDays = lastDay.getDate();
+
+    // 0 = Sunday, 1 = Monday, ... convert so Monday = 0, Sunday = 6
+    const firstDayOfWeek = (firstDay.getDay() + 6) % 7;
+
+    const days: any[] = [];
+
+    // 1. Previous month padding cells
+    for (let p = 0; p < firstDayOfWeek; p++) {
+      days.push({
+        isEmpty: true,
+        key: `pad_prev_${p}`,
+      });
+    }
+
+    // 2. Days of the current viewing month
+    const todayStr = new Date().toDateString();
+
+    for (let dayNum = 1; dayNum <= totalDays; dayNum++) {
+      const date = new Date(year, month, dayNum);
       date.setHours(0, 0, 0, 0);
       const dateStr = date.toDateString();
 
@@ -96,9 +144,12 @@ export default function CalendarScreen() {
       const filteredTaskCount = showTasks ? dayTasks.length : 0;
 
       days.push({
+        isEmpty: false,
+        key: `day_${dayNum}`,
         date,
         dateStr,
-        dayNum: date.getDate(),
+        dayNum,
+        isToday: dateStr === todayStr,
         mood,
         journalCount: filteredJournalCount,
         noteCount: filteredNoteCount,
@@ -106,6 +157,19 @@ export default function CalendarScreen() {
         hasActivity: filteredNoteCount > 0 || filteredJournalCount > 0 || filteredTaskCount > 0,
       });
     }
+
+    // 3. Next month padding cells to complete row
+    const remainder = days.length % 7;
+    if (remainder > 0) {
+      const extra = 7 - remainder;
+      for (let e = 0; e < extra; e++) {
+        days.push({
+          isEmpty: true,
+          key: `pad_next_${e}`,
+        });
+      }
+    }
+
     return days;
   };
 
@@ -157,7 +221,7 @@ export default function CalendarScreen() {
     return Object.entries(stats).sort((a, b) => b[1] - a[1]).slice(0, 4);
   };
 
-  const daysGrid = getDaysGrid();
+  const daysGrid = getMonthDaysGrid();
   const weekData = getWeekData();
   const maxWeeklyEvents = Math.max(1, ...weekData.map(d => d.totalEvents));
   const totalWeeklyEvents = weekData.reduce((acc, d) => acc + d.totalEvents, 0);
@@ -318,12 +382,13 @@ export default function CalendarScreen() {
           {/* ========================================================================= */}
           <View style={[styles.column, isWide && { flex: 1.2 }]}>
 
-            {/* 30-Day Activity Calendar Grid */}
+            {/* Interactive Monthly Activity Calendar Grid */}
             <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              {/* Header: Title & Legends */}
               <View style={styles.cardHeaderBetween}>
                 <View>
-                  <Text style={[styles.cardTitle, { color: theme.text }]}>Kalender Aktivitas 30 Hari</Text>
-                  <Text style={[styles.cardSub, { color: theme.subtext }]}>Klik tanggal untuk melihat rincian materi & jurnal</Text>
+                  <Text style={[styles.cardTitle, { color: theme.text }]}>Kalender Aktivitas & Materi</Text>
+                  <Text style={[styles.cardSub, { color: theme.subtext }]}>Pilih tanggal untuk melihat rincian materi, tugas & refleksi</Text>
                 </View>
                 <View style={styles.legendRow}>
                   <View style={styles.legendItem}>
@@ -341,14 +406,71 @@ export default function CalendarScreen() {
                 </View>
               </View>
 
-              <View style={styles.grid}>
+              {/* Month Navigation Control Bar */}
+              <View style={[styles.monthNavContainer, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                <TouchableOpacity
+                  style={[styles.monthNavBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={handlePrevMonth}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Bulan Sebelumnya"
+                >
+                  <Ionicons name="chevron-back" size={16} color={theme.text} />
+                  <Text style={[styles.monthNavBtnText, { color: theme.text }]}>Bulan Lalu</Text>
+                </TouchableOpacity>
+
+                <View style={styles.monthCenterInfo}>
+                  <Text style={[styles.monthTitleMain, { color: theme.text }]}>
+                    {currentMonthDate.toLocaleDateString('id-ID', { month: 'long', year: 'numeric' })}
+                  </Text>
+                  {!isCurrentViewingMonth() && (
+                    <TouchableOpacity
+                      style={[styles.todayBadgeBtn, { backgroundColor: theme.accentBg, borderColor: theme.accent }]}
+                      onPress={handleToday}
+                      activeOpacity={0.7}
+                    >
+                      <Text style={[styles.todayBadgeText, { color: theme.accentLight }]}>Bulan Ini</Text>
+                    </TouchableOpacity>
+                  )}
+                </View>
+
+                <TouchableOpacity
+                  style={[styles.monthNavBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                  onPress={handleNextMonth}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Bulan Berikutnya"
+                >
+                  <Text style={[styles.monthNavBtnText, { color: theme.text }]}>Bulan Depan</Text>
+                  <Ionicons name="chevron-forward" size={16} color={theme.text} />
+                </TouchableOpacity>
+              </View>
+
+              {/* Weekday Column Headers (Monday - Sunday) */}
+              <View style={styles.weekDayHeaderRow}>
+                {['Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab', 'Min'].map((dayName, idx) => (
+                  <View key={dayName} style={styles.weekDayHeaderCell}>
+                    <Text style={[
+                      styles.weekDayHeaderText,
+                      { color: idx >= 5 ? (isLightMode ? '#DC2626' : '#F87171') : theme.subtext },
+                    ]}>
+                      {dayName}
+                    </Text>
+                  </View>
+                ))}
+              </View>
+
+              {/* Month 7-Column Date Grid */}
+              <View style={styles.monthGridContainer}>
                 {daysGrid.map((d, i) => {
+                  if (d.isEmpty) {
+                    return <View key={d.key || i} style={styles.emptyGridCell} />;
+                  }
+
                   const isSelected = d.dateStr === selectedDateStr;
                   return (
                     <TouchableOpacity
-                      key={i}
+                      key={d.key || i}
                       style={[
-                        styles.gridCell,
+                        styles.gridCellMonthly,
                         {
                           backgroundColor: isSelected
                             ? theme.primary
@@ -357,24 +479,29 @@ export default function CalendarScreen() {
                               : theme.cardInner,
                           borderColor: isSelected
                             ? theme.primary
-                            : d.hasActivity
-                              ? (isLightMode ? '#BFDBFE' : '#2A3C59')
-                              : theme.border,
+                            : d.isToday
+                              ? theme.accent
+                              : d.hasActivity
+                                ? (isLightMode ? '#BFDBFE' : '#2A3C59')
+                                : theme.border,
                         },
+                        d.isToday && !isSelected && { borderWidth: 1.5, borderColor: theme.accentLight },
                       ]}
                       onPress={() => setSelectedDateStr(d.dateStr)}
                       activeOpacity={0.7}
                     >
                       <Text
                         style={[
-                          styles.gridDay,
+                          styles.gridDayNum,
                           {
                             color: isSelected
                               ? '#FFFFFF'
-                              : d.hasActivity
-                                ? (isLightMode ? '#1D4ED8' : '#60A5FA')
-                                : theme.subtext,
-                            fontWeight: isSelected || d.hasActivity ? '700' : '500',
+                              : d.isToday
+                                ? theme.accentLight
+                                : d.hasActivity
+                                  ? (isLightMode ? '#1D4ED8' : '#60A5FA')
+                                  : theme.text,
+                            fontWeight: isSelected || d.isToday || d.hasActivity ? '700' : '500',
                           }
                         ]}
                       >
@@ -810,6 +937,88 @@ const styles = StyleSheet.create({
   legendText: {
     color: '#6B7280',
     fontSize: 11,
+  },
+  monthNavContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  monthNavBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  monthNavBtnText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  monthCenterInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  monthTitleMain: {
+    fontSize: 14,
+    fontWeight: '700',
+    letterSpacing: -0.2,
+  },
+  todayBadgeBtn: {
+    paddingHorizontal: 7,
+    paddingVertical: 3,
+    borderRadius: 6,
+    borderWidth: 1,
+  },
+  todayBadgeText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  weekDayHeaderRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  weekDayHeaderCell: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 4,
+  },
+  weekDayHeaderText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  monthGridContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'space-between',
+    rowGap: 6,
+  },
+  emptyGridCell: {
+    width: '13.5%',
+    height: 48,
+    opacity: 0,
+  },
+  gridCellMonthly: {
+    width: '13.5%',
+    height: 48,
+    borderRadius: 8,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    paddingVertical: 3,
+  },
+  gridDayNum: {
+    fontSize: 12,
+    fontWeight: '600',
   },
   grid: {
     flexDirection: 'row',

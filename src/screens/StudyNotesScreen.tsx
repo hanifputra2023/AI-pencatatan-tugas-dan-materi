@@ -18,6 +18,7 @@ import { confirmAction, showAlert } from '../lib/alert';
 import SubjectManagerModal from '../components/SubjectManagerModal';
 import DateTimePickerModal from '../components/DateTimePickerModal';
 import TaskWorkpadModal from '../components/TaskWorkpadModal';
+import ShareNoteModal from '../components/ShareNoteModal';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { compressImage, uriToBase64 } from '../lib/imageCompressor';
@@ -187,6 +188,8 @@ export default function StudyNotesScreen() {
   const [selectedSubject, setSelectedSubject] = useState('Semua');
   const [searchQuery, setSearchQuery] = useState('');
   const [loadingNotes, setLoadingNotes] = useState(true);
+  const [showShareModal, setShowShareModal] = useState(false);
+  const [selectedShareNote, setSelectedShareNote] = useState<StudyNote | null>(null);
 
   // Subject Manager Modal
   const [showSubjectModal, setShowSubjectModal] = useState(false);
@@ -1535,9 +1538,24 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                         ) : null}
                       </View>
 
-                      <View style={[styles.openDetailPill, { backgroundColor: theme.accentBg }]}>
-                        <Text style={[styles.openDetailText, { color: theme.accentLight }]}>Detail</Text>
-                        <Ionicons name="arrow-forward" size={11} color={theme.accentLight} />
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <TouchableOpacity
+                          style={[styles.openDetailPill, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                          onPress={() => {
+                            setSelectedShareNote(item);
+                            setShowShareModal(true);
+                          }}
+                          activeOpacity={0.7}
+                          accessibilityLabel="Bagikan Catatan"
+                        >
+                          <Ionicons name="share-social-outline" size={11} color={theme.text} />
+                          <Text style={[styles.openDetailText, { color: theme.text }]}>Bagikan</Text>
+                        </TouchableOpacity>
+
+                        <View style={[styles.openDetailPill, { backgroundColor: theme.accentBg }]}>
+                          <Text style={[styles.openDetailText, { color: theme.accentLight }]}>Detail</Text>
+                          <Ionicons name="arrow-forward" size={11} color={theme.accentLight} />
+                        </View>
                       </View>
                     </View>
                   </TouchableOpacity>
@@ -2501,6 +2519,16 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
           </View>
         </View>
       </Modal>
+
+      {/* Share Note Modal */}
+      <ShareNoteModal
+        visible={showShareModal}
+        note={selectedShareNote}
+        onClose={() => {
+          setShowShareModal(false);
+          setSelectedShareNote(null);
+        }}
+      />
 
       </View>
     </SafeAreaView>
