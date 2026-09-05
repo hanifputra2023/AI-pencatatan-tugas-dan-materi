@@ -75,6 +75,7 @@ export interface NoteAttachment {
   size?: number;
   mimeType?: string;
   textContent?: string;
+  base64?: string;
 }
 
 export interface StudyNote {

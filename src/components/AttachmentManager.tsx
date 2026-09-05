@@ -15,6 +15,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
+import * as FileSystem from 'expo-file-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { NoteAttachment } from '../types';
 import {
@@ -26,6 +27,35 @@ import {
 import { showAlert } from '../lib/alert';
 import { sendMessageToGemini } from '../lib/gemini';
 import { uriToBase64, readTextFileContent, isTextFile, isPdfFile } from '../lib/fileReader';
+
+function getSafeWebDocumentUrl(doc: NoteAttachment): string {
+  if (Platform.OS !== 'web') return doc.uri;
+
+  // 1. If it's already a blob url and still valid
+  if (doc.uri && doc.uri.startsWith('blob:')) {
+    return doc.uri;
+  }
+
+  // 2. If base64 is available, create a fresh object URL
+  if (doc.base64) {
+    try {
+      const isPdf = doc.name.toLowerCase().endsWith('.pdf') || doc.mimeType === 'application/pdf';
+      const mime = doc.mimeType || (isPdf ? 'application/pdf' : 'application/octet-stream');
+      const byteCharacters = atob(doc.base64);
+      const byteNumbers = new Array(byteCharacters.length);
+      for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+      }
+      const byteArray = new Uint8Array(byteNumbers);
+      const blob = new Blob([byteArray], { type: mime });
+      return URL.createObjectURL(blob);
+    } catch (e) {
+      return `data:${doc.mimeType || 'application/pdf'};base64,${doc.base64}`;
+    }
+  }
+
+  return doc.uri || '';
+}
 
 interface AttachmentManagerProps {
   attachments: NoteAttachment[];
@@ -50,7 +80,8 @@ export default function AttachmentManager({
   const [loadingAction, setLoadingAction] = useState(false);
   const [extractingAi, setExtractingAi] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
-  const [webDocTab, setWebDocTab] = useState<'text' | 'viewer'>('text');
+  const [docViewMode, setDocViewMode] = useState<'document' | 'ai_summary'>('document');
+  const [aiSummaryMap, setAiSummaryMap] = useState<Record<string, string>>({});
 
   const handlePickImages = async () => {
     if (!onAddAttachments) return;
@@ -94,22 +125,43 @@ export default function AttachmentManager({
   const handleOpenFile = async (item: NoteAttachment) => {
     try {
       if (Platform.OS === 'web') {
+        const safeUri = getSafeWebDocumentUrl(item);
         if (typeof window !== 'undefined') {
-          window.open(item.uri, '_blank');
+          window.open(safeUri, '_blank');
           return;
         }
       }
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(item.uri, {
-          mimeType: item.mimeType || 'application/pdf',
-          dialogTitle: `Buka ${item.name}`,
-        });
-        return;
+      if (Platform.OS === 'android') {
+        try {
+          const contentUri = await FileSystem.getContentUriAsync(item.uri);
+          await Linking.openURL(contentUri);
+          return;
+        } catch (err) {
+          try {
+            await Linking.openURL(item.uri);
+            return;
+          } catch (err2) {}
+        }
       }
       await Linking.openURL(item.uri);
     } catch (e: any) {
       showAlert('Buka Dokumen', 'Tidak dapat membuka dokumen secara langsung. Pastikan ada aplikasi pembaca PDF atau dokumen di perangkatmu.');
+    }
+  };
+
+  const handleShareFile = async (item: NoteAttachment) => {
+    try {
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(item.uri, {
+          mimeType: item.mimeType || 'application/pdf',
+          dialogTitle: `Bagikan ${item.name}`,
+        });
+      } else {
+        showAlert('Bagikan Dokumen', 'Fitur bagikan tidak tersedia pada perangkat atau browser ini.');
+      }
+    } catch (e: any) {
+      showAlert('Bagikan Dokumen', 'Gagal membagikan dokumen.');
     }
   };
 
@@ -154,21 +206,22 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
       const aiReply = await sendMessageToGemini(
         [],
         prompt,
-        undefined,
         attachmentsToSend.length > 0 ? attachmentsToSend : undefined
       );
 
       if (aiReply && aiReply.trim()) {
+        const replyText = aiReply.trim();
+        setAiSummaryMap(prev => ({ ...prev, [doc.id]: replyText }));
         const updatedDoc: NoteAttachment = {
           ...doc,
-          textContent: aiReply.trim(),
+          textContent: replyText,
           base64: b64 || doc.base64,
         };
         setPreviewDoc(updatedDoc);
         if (onUpdateAttachment) {
           onUpdateAttachment(updatedDoc);
         }
-        setWebDocTab('text');
+        setDocViewMode('ai_summary');
         showAlert('Ekstraksi Berhasil ✨', 'Isi dokumen berhasil dibaca dan dirangkum secara lengkap oleh AI!');
       } else {
         throw new Error('AI tidak menghasilkan teks ekstraksi.');
@@ -185,18 +238,24 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
       setPreviewImageUri(item.uri);
     } else {
       setPreviewDoc(item);
-      const isPdf = isPdfFile(item.name, item.mimeType);
-      if (Platform.OS === 'web' && isPdf && !item.textContent) {
-        setWebDocTab('viewer');
-      } else {
-        setWebDocTab('text');
-      }
+      setDocViewMode('document'); // Always show original document directly!
 
-      // Auto-read plain text files if textContent is not yet loaded
+      // Auto-read plain text files immediately if not already read
       if (!item.textContent && isTextFile(item.name, item.mimeType)) {
         readTextFileContent(item.uri).then(txt => {
           if (txt && txt.trim()) {
             const updated = { ...item, textContent: txt.trim() };
+            setPreviewDoc(updated);
+            if (onUpdateAttachment) onUpdateAttachment(updated);
+          }
+        }).catch(() => {});
+      }
+
+      // If on Web and PDF has no base64, cache base64 in background
+      if (Platform.OS === 'web' && !item.base64 && isPdfFile(item.name, item.mimeType) && item.uri) {
+        uriToBase64(item.uri).then(b64 => {
+          if (b64) {
+            const updated = { ...item, base64: b64 };
             setPreviewDoc(updated);
             if (onUpdateAttachment) onUpdateAttachment(updated);
           }
@@ -368,80 +427,97 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
         <TouchableWithoutFeedback onPress={() => setPreviewDoc(null)}>
           <View style={styles.docPreviewOverlay}>
             <TouchableWithoutFeedback>
-              <View style={[styles.docPreviewCard, styles.docPreviewCardLarge, { backgroundColor: theme.card, borderColor: theme.border }]}>
+              <View style={[
+                styles.docPreviewCard,
+                styles.docPreviewCardLarge,
+                { backgroundColor: theme.card, borderColor: theme.border }
+              ]}>
                 
                 {/* Header info */}
                 <View style={styles.docPreviewHeader}>
-                  <View style={styles.docIconBox}>
+                  <View style={[
+                    styles.docIconBox,
+                    { backgroundColor: (previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? (isLightMode ? '#FEE2E2' : '#7F1D1D') : theme.accentBg }
+                  ]}>
                     <Ionicons
                       name={previewDoc ? getDocIconName(previewDoc.name, previewDoc.mimeType) : 'document'}
                       size={24}
-                      color={theme.accentLight}
+                      color={(previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? '#EF4444' : theme.accentLight}
                     />
                   </View>
                   <View style={{ flex: 1, marginRight: 8 }}>
-                    <Text style={[styles.docPreviewTitle, { color: theme.text }]} numberOfLines={2}>
+                    <Text style={[styles.docPreviewTitle, { color: theme.text }]} numberOfLines={1}>
                       {previewDoc?.name}
                     </Text>
                     <Text style={[styles.docPreviewMeta, { color: theme.subtext }]}>
-                      {formatFileSize(previewDoc?.size)} • {previewDoc?.mimeType || 'Dokumen'}
+                      {formatFileSize(previewDoc?.size)} • {previewDoc?.name.split('.').pop()?.toUpperCase() || 'DOKUMEN'}
                     </Text>
                   </View>
-                  <TouchableOpacity onPress={() => setPreviewDoc(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                    <Ionicons name="close-circle" size={24} color={theme.subtext} />
-                  </TouchableOpacity>
+
+                  {/* Header Actions */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    {Platform.OS === 'web' && previewDoc && (
+                      <TouchableOpacity
+                        style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        onPress={() => handleOpenFile(previewDoc)}
+                      >
+                        <Ionicons name="open-outline" size={14} color={theme.accentLight} />
+                        <Text style={[styles.headerActionBtnText, { color: theme.accentLight }]}>
+                          Layar Penuh
+                        </Text>
+                      </TouchableOpacity>
+                    )}
+
+                    <TouchableOpacity
+                      style={[styles.headerCloseBtn, { backgroundColor: theme.cardInner }]}
+                      onPress={() => setPreviewDoc(null)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="close" size={20} color={theme.text} />
+                    </TouchableOpacity>
+                  </View>
                 </View>
 
-                {/* Web PDF Toggle Switcher */}
-                {Platform.OS === 'web' && previewDoc && (previewDoc.mimeType === 'application/pdf' || previewDoc.name.toLowerCase().endsWith('.pdf')) && (
+                {/* Tab Switcher: Dokumen Asli (Default) vs Rangkuman AI (Opsional) */}
+                {previewDoc && (
                   <View style={styles.webTabRow}>
                     <TouchableOpacity
                       style={[
                         styles.webTabBtn,
-                        { borderColor: theme.border, backgroundColor: webDocTab === 'text' ? theme.accentBg : theme.cardInner },
-                        webDocTab === 'text' && { borderColor: theme.accent }
+                        { borderColor: theme.border, backgroundColor: docViewMode === 'document' ? theme.accentBg : theme.cardInner },
+                        docViewMode === 'document' && { borderColor: theme.accent }
                       ]}
-                      onPress={() => setWebDocTab('text')}
+                      onPress={() => setDocViewMode('document')}
                     >
-                      <Ionicons name="document-text-outline" size={14} color={webDocTab === 'text' ? theme.accentLight : theme.subtext} />
-                      <Text style={[styles.webTabText, { color: webDocTab === 'text' ? theme.accentLight : theme.subtext }, webDocTab === 'text' && { fontWeight: '700' }]}>
-                        Teks & Ekstrak AI
+                      <Ionicons name="document-text" size={14} color={docViewMode === 'document' ? theme.accentLight : theme.subtext} />
+                      <Text style={[styles.webTabText, { color: docViewMode === 'document' ? theme.accentLight : theme.subtext }, docViewMode === 'document' && { fontWeight: '700' }]}>
+                        📄 Dokumen Asli
                       </Text>
                     </TouchableOpacity>
 
                     <TouchableOpacity
                       style={[
                         styles.webTabBtn,
-                        { borderColor: theme.border, backgroundColor: webDocTab === 'viewer' ? theme.accentBg : theme.cardInner },
-                        webDocTab === 'viewer' && { borderColor: theme.accent }
+                        { borderColor: theme.border, backgroundColor: docViewMode === 'ai_summary' ? theme.accentBg : theme.cardInner },
+                        docViewMode === 'ai_summary' && { borderColor: theme.accent }
                       ]}
-                      onPress={() => setWebDocTab('viewer')}
+                      onPress={() => {
+                        setDocViewMode('ai_summary');
+                        if (!aiSummaryMap[previewDoc.id] && !previewDoc.textContent) {
+                          handleExtractDocWithAi(previewDoc);
+                        }
+                      }}
                     >
-                      <Ionicons name="eye-outline" size={14} color={webDocTab === 'viewer' ? theme.accentLight : theme.subtext} />
-                      <Text style={[styles.webTabText, { color: webDocTab === 'viewer' ? theme.accentLight : theme.subtext }, webDocTab === 'viewer' && { fontWeight: '700' }]}>
-                        Tampilan Dokumen PDF
+                      <Ionicons name="sparkles" size={14} color={docViewMode === 'ai_summary' ? '#F59E0B' : theme.subtext} />
+                      <Text style={[styles.webTabText, { color: docViewMode === 'ai_summary' ? '#F59E0B' : theme.subtext }, docViewMode === 'ai_summary' && { fontWeight: '700' }]}>
+                        ✨ Rangkuman AI
                       </Text>
                     </TouchableOpacity>
                   </View>
                 )}
 
-                {/* Body Content */}
-                {Platform.OS === 'web' && webDocTab === 'viewer' && previewDoc ? (
-                  <View style={styles.iframeContainer}>
-                    {/* @ts-ignore - Web iframe for native PDF reading */}
-                    <iframe
-                      src={previewDoc.uri}
-                      style={{
-                        width: '100%',
-                        height: 340,
-                        borderRadius: 10,
-                        border: '1px solid ' + (isLightMode ? '#E2E8F0' : '#334155'),
-                        backgroundColor: '#FFFFFF',
-                      }}
-                      title={previewDoc.name}
-                    />
-                  </View>
-                ) : extractingAi ? (
+                {/* Modal Body Content */}
+                {extractingAi ? (
                   <View style={styles.docLoadingBox}>
                     <ActivityIndicator size="large" color={theme.primary} />
                     <Text style={[styles.docLoadingTitle, { color: theme.text }]}>
@@ -451,75 +527,128 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
                       Sedang mengekstrak materi, bab, rumus, dan konsep penting dari "{previewDoc?.name}"
                     </Text>
                   </View>
-                ) : previewDoc?.textContent ? (
-                  <View style={{ flex: 1, marginVertical: 10 }}>
+                ) : docViewMode === 'ai_summary' ? (
+                  /* AI Summary View */
+                  <View style={{ flex: 1, marginVertical: 8 }}>
                     <View style={styles.docContentHeaderRow}>
                       <Text style={[styles.docContentLabel, { color: theme.subtext }]}>
-                        Isi & Ringkasan Materi Dokumen:
+                        Intisari Materi Dokumen (AI):
                       </Text>
                       <View style={{ flexDirection: 'row', gap: 6 }}>
                         <TouchableOpacity
                           style={[styles.copyTextBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                          onPress={() => handleCopyDocText(previewDoc.textContent || '')}
+                          onPress={() => handleCopyDocText(aiSummaryMap[previewDoc?.id || ''] || previewDoc?.textContent || '')}
                           activeOpacity={0.7}
                         >
                           <Ionicons name={copiedText ? 'checkmark' : 'copy-outline'} size={13} color={copiedText ? '#10B981' : theme.accentLight} />
                           <Text style={[styles.copyTextBtnLabel, { color: copiedText ? '#10B981' : theme.accentLight }]}>
-                            {copiedText ? 'Tersalin' : 'Salin Teks'}
+                            {copiedText ? 'Tersalin' : 'Salin'}
                           </Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                          style={[styles.copyTextBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                          onPress={() => handleExtractDocWithAi(previewDoc)}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name="sparkles" size={12} color="#F59E0B" />
-                          <Text style={[styles.copyTextBtnLabel, { color: '#F59E0B' }]}>
-                            Baca Ulang
-                          </Text>
-                        </TouchableOpacity>
+                        {previewDoc && (
+                          <TouchableOpacity
+                            style={[styles.copyTextBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                            onPress={() => handleExtractDocWithAi(previewDoc)}
+                            activeOpacity={0.7}
+                          >
+                            <Ionicons name="sparkles" size={12} color="#F59E0B" />
+                            <Text style={[styles.copyTextBtnLabel, { color: '#F59E0B' }]}>
+                              Baca Ulang
+                            </Text>
+                          </TouchableOpacity>
+                        )}
                       </View>
                     </View>
 
                     <ScrollView style={styles.docContentScroll}>
                       <Text style={[styles.docContentText, { color: theme.text }]} selectable>
+                        {aiSummaryMap[previewDoc?.id || ''] || previewDoc?.textContent || 'Belum ada rangkuman AI. Klik "Baca Ulang" untuk merangkum.'}
+                      </Text>
+                    </ScrollView>
+                  </View>
+                ) : Platform.OS === 'web' && previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType) ? (
+                  /* WEB NATIVE PDF VIEWER - Renders original PDF directly inside the app */
+                  <View style={styles.iframeContainer}>
+                    {/* @ts-ignore - Web iframe for native direct PDF reading */}
+                    <iframe
+                      src={getSafeWebDocumentUrl(previewDoc)}
+                      style={{
+                        width: '100%',
+                        height: '100%',
+                        minHeight: 480,
+                        borderRadius: 10,
+                        border: 'none',
+                        backgroundColor: '#525659',
+                      }}
+                      title={previewDoc.name}
+                    />
+                  </View>
+                ) : previewDoc?.textContent ? (
+                  /* TEXT / CODE / DOCX CONTENT VIEWER - Directly displays original text */
+                  <View style={{ flex: 1, marginVertical: 8 }}>
+                    <View style={styles.docContentHeaderRow}>
+                      <Text style={[styles.docContentLabel, { color: theme.subtext }]}>
+                        Lembar Dokumen Asli ({previewDoc.textContent.split('\n').length} baris):
+                      </Text>
+                      <TouchableOpacity
+                        style={[styles.copyTextBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                        onPress={() => handleCopyDocText(previewDoc.textContent || '')}
+                        activeOpacity={0.7}
+                      >
+                        <Ionicons name={copiedText ? 'checkmark' : 'copy-outline'} size={13} color={copiedText ? '#10B981' : theme.accentLight} />
+                        <Text style={[styles.copyTextBtnLabel, { color: copiedText ? '#10B981' : theme.accentLight }]}>
+                          {copiedText ? 'Tersalin' : 'Salin Semua Teks'}
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    <ScrollView style={[styles.docContentScroll, { backgroundColor: isLightMode ? '#F8FAFC' : '#0B1120' }]}>
+                      <Text style={[styles.docContentText, { color: theme.text, fontFamily: Platform.OS === 'web' ? 'monospace' : undefined }]} selectable>
                         {previewDoc.textContent}
                       </Text>
                     </ScrollView>
                   </View>
                 ) : (
+                  /* MOBILE PDF / BINARY VIEWER CARD */
                   <View style={styles.docUnextractedCard}>
-                    <View style={[styles.docUnextractedIconBox, { backgroundColor: theme.accentBg }]}>
-                      <Ionicons name="document-text" size={32} color={theme.accentLight} />
+                    <View style={[styles.docUnextractedIconBox, { backgroundColor: (previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? (isLightMode ? '#FEE2E2' : '#7F1D1D') : theme.accentBg }]}>
+                      <Ionicons
+                        name={previewDoc ? getDocIconName(previewDoc.name, previewDoc.mimeType) : 'document-text'}
+                        size={36}
+                        color={(previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? '#EF4444' : theme.accentLight}
+                      />
                     </View>
                     <Text style={[styles.docUnextractedTitle, { color: theme.text }]}>
-                      Isi Dokumen Siap Diakses
+                      {previewDoc?.name}
                     </Text>
                     <Text style={[styles.docUnextractedDesc, { color: theme.subtext }]}>
-                      Dokumen "{previewDoc?.name}" tersimpan sebagai lampiran. Kamu dapat membaca isi dokumen ini langsung menggunakan AI, atau membukanya di aplikasi pembaca bawaan perangkatmu.
+                      Dokumen lampiran asli ({formatFileSize(previewDoc?.size)}). Buka langsung menggunakan aplikasi pembaca dokumen di perangkatmu.
                     </Text>
 
                     <View style={styles.docActionGrid}>
                       <TouchableOpacity
-                        style={[styles.primaryAiBtn, { backgroundColor: theme.primary }]}
-                        onPress={() => previewDoc && handleExtractDocWithAi(previewDoc)}
+                        style={[styles.primaryAiBtn, { backgroundColor: (previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? '#EF4444' : theme.primary }]}
+                        onPress={() => previewDoc && handleOpenFile(previewDoc)}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="sparkles" size={16} color="#FFFFFF" />
+                        <Ionicons name="reader-outline" size={18} color="#FFFFFF" />
                         <Text style={styles.primaryAiBtnText}>
-                          🤖 Baca & Ekstrak Isi Dokumen (AI)
+                          Buka Dokumen Asli
                         </Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
                         style={[styles.secondaryOpenBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                        onPress={() => previewDoc && handleOpenFile(previewDoc)}
+                        onPress={() => {
+                          setDocViewMode('ai_summary');
+                          if (previewDoc) handleExtractDocWithAi(previewDoc);
+                        }}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="open-outline" size={15} color={theme.accentLight} />
-                        <Text style={[styles.secondaryOpenBtnText, { color: theme.accentLight }]}>
-                          ↗️ Buka di Aplikasi Pembaca / Tab Baru
+                        <Ionicons name="sparkles" size={15} color="#F59E0B" />
+                        <Text style={[styles.secondaryOpenBtnText, { color: theme.text }]}>
+                          Rangkum Isi dengan AI
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -535,7 +664,20 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
                       activeOpacity={0.7}
                     >
                       <Ionicons name="open-outline" size={15} color={theme.text} />
-                      <Text style={[styles.footerOpenBtnText, { color: theme.text }]}>Buka Dokumen Asli</Text>
+                      <Text style={[styles.footerOpenBtnText, { color: theme.text }]}>
+                        {Platform.OS === 'web' ? 'Layar Penuh' : 'Buka Dokumen'}
+                      </Text>
+                    </TouchableOpacity>
+                  )}
+
+                  {Platform.OS !== 'web' && previewDoc && (
+                    <TouchableOpacity
+                      style={[styles.footerOpenBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={() => handleShareFile(previewDoc)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="share-outline" size={15} color={theme.text} />
+                      <Text style={[styles.footerOpenBtnText, { color: theme.text }]}>Bagikan</Text>
                     </TouchableOpacity>
                   )}
 
@@ -700,8 +842,31 @@ const styles = StyleSheet.create({
     padding: 18,
   },
   docPreviewCardLarge: {
-    maxWidth: 620,
-    maxHeight: '90%',
+    maxWidth: 960,
+    width: Platform.OS === 'web' ? '92%' : '96%',
+    height: Platform.OS === 'web' ? '88%' : '85%',
+    maxHeight: '92%',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  headerActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 7,
+    borderWidth: 1,
+  },
+  headerActionBtnText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+  headerCloseBtn: {
+    padding: 6,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   docPreviewHeader: {
     flexDirection: 'row',
@@ -746,7 +911,12 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
   iframeContainer: {
+    flex: 1,
+    width: '100%',
+    minHeight: 480,
     marginVertical: 10,
+    borderRadius: 10,
+    overflow: 'hidden',
   },
   docLoadingBox: {
     alignItems: 'center',

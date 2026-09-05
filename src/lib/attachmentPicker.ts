@@ -123,6 +123,7 @@ export async function pickMultipleDocuments(): Promise<NoteAttachment[]> {
           size: file.size,
           mimeType: processed.mimeType,
           textContent: processed.textContent,
+          base64: processed.base64,
         });
       } catch (err) {
         attachments.push({
