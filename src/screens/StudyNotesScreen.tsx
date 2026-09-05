@@ -19,6 +19,7 @@ import SubjectManagerModal from '../components/SubjectManagerModal';
 import DateTimePickerModal from '../components/DateTimePickerModal';
 import TaskWorkpadModal from '../components/TaskWorkpadModal';
 import ShareNoteModal from '../components/ShareNoteModal';
+import { pickAndImportNoteFromJson } from '../lib/noteSharer';
 import * as ImagePicker from 'expo-image-picker';
 import * as DocumentPicker from 'expo-document-picker';
 import { compressImage, uriToBase64 } from '../lib/imageCompressor';
@@ -163,8 +164,12 @@ export default function StudyNotesScreen() {
   const { theme, isLightMode } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<TabParamList, 'Study'>>();
-  const { isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
+  const { width, isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
+  // Responsive header thresholds for button styling & label shortening
+  const isWideHeader = width >= 900;
+  const isCompactHeader = width < 640;
+  const isUltraCompact = width < 420;
 
   const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
@@ -296,6 +301,36 @@ export default function StudyNotesScreen() {
       setLoadingNotes(false);
     }
   }, [user]);
+
+  const handleImportNoteJson = async () => {
+    if (!user) {
+      showAlert('Perhatian', 'Silakan masuk ke akun terlebih dahulu untuk mengimpor catatan.');
+      return;
+    }
+    const res = await pickAndImportNoteFromJson();
+    if (res.success && res.note) {
+      const targetId = `note_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+      const newNote: StudyNote = {
+        id: targetId,
+        user_id: user.id,
+        title: res.note.title || 'Catatan Impor',
+        subject: res.note.subject || 'Umum',
+        content: res.note.content || '',
+        summary: res.note.summary || null,
+        quiz_data: res.note.quiz_data || [],
+        flashcards: res.note.flashcards || [],
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      const currentNotes = await getCachedNotes(user.id);
+      const updated = [newNote, ...currentNotes];
+      await cacheNotesLocally(user.id, updated);
+      setNotes(updated);
+      showAlert('Impor Berhasil 🎉', `Catatan "${newNote.title}" dari teman berhasil diimpor dan disimpan!`);
+    } else if (res.message && !res.message.includes('dibatalkan')) {
+      showAlert('Gagal Impor', res.message);
+    }
+  };
 
   const fetchTasks = useCallback(async () => {
     if (!user) {
@@ -1154,41 +1189,92 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
       <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
       {/* Top Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={[styles.title, { color: theme.text }]}>Belajar & Kuliah</Text>
-          <Text style={[styles.subtitle, { color: isLightMode ? theme.text : theme.accentLight }]}>Catatan pintar AI, manajemen tugas & fokus nugas</Text>
+      <View style={[styles.header, isCompactHeader && styles.headerCompact]}>
+        <View style={styles.headerTitleWrap}>
+          <Text
+            style={[
+              styles.title,
+              { color: theme.text },
+              isCompactHeader && { fontSize: isSmallPhone ? 18 : 20 },
+            ]}
+            numberOfLines={1}
+          >
+            Belajar & Kuliah
+          </Text>
+          <Text
+            style={[styles.subtitle, { color: isLightMode ? theme.text : theme.accentLight }]}
+            numberOfLines={1}
+          >
+            {isCompactHeader ? 'Catatan pintar AI, tugas & fokus' : 'Catatan pintar AI, manajemen tugas & fokus nugas'}
+          </Text>
         </View>
 
-        <View style={styles.topActionBtnGroup}>
+        <View style={[styles.topActionBtnGroup, isCompactHeader && styles.topActionBtnGroupCompact]}>
           {Platform.OS === 'web' && (
             <TouchableOpacity
-              style={[styles.headerNotifBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+              style={[
+                styles.headerNotifBtn,
+                { backgroundColor: theme.cardInner, borderColor: theme.border },
+                !isWideHeader && styles.headerIconOnlyBtn,
+              ]}
               onPress={handleToggleNotifications}
               hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+              accessibilityLabel="Pengaturan Notifikasi"
             >
               <Ionicons name="notifications-outline" size={16} color={theme.accentLight} />
-              <Text style={[styles.headerNotifBtnText, { color: theme.text }]}>Notifikasi</Text>
+              {isWideHeader && <Text style={[styles.headerNotifBtnText, { color: theme.text }]}>Notifikasi</Text>}
             </TouchableOpacity>
           )}
 
           {activeTab === 'notes' && (
-            <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: theme.primary }]}
-              onPress={() => navigation.navigate('StudyNoteDetail', {})}
-            >
-              <Ionicons name="add" size={17} color={primaryBtnTextColor} />
-              <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]}>Catatan Baru</Text>
-            </TouchableOpacity>
+            <View style={styles.notesBtnRow}>
+              <TouchableOpacity
+                style={[
+                  styles.headerNotifBtn,
+                  { backgroundColor: theme.cardInner, borderColor: theme.border },
+                  isUltraCompact && styles.headerIconOnlyBtn,
+                  !isWideHeader && !isUltraCompact && styles.compactActionBtn,
+                ]}
+                onPress={handleImportNoteJson}
+                activeOpacity={0.7}
+                accessibilityLabel="Impor File Catatan JSON"
+              >
+                <Ionicons name="download-outline" size={15} color={theme.accentLight} />
+                {!isUltraCompact && (
+                  <Text style={[styles.headerNotifBtnText, { color: theme.text }]} numberOfLines={1}>
+                    {isWideHeader ? 'Impor JSON' : 'Impor'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.addBtn,
+                  { backgroundColor: theme.primary },
+                  !isWideHeader && styles.compactAddBtn,
+                ]}
+                onPress={() => navigation.navigate('StudyNoteDetail', {})}
+                activeOpacity={0.8}
+                accessibilityLabel="Buat Catatan Baru"
+              >
+                <Ionicons name="add" size={16} color={primaryBtnTextColor} />
+                <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]} numberOfLines={1}>
+                  {isWideHeader ? 'Catatan Baru' : isUltraCompact ? 'Baru' : 'Catatan'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           )}
 
           {activeTab === 'tasks' && isMobile && (
             <TouchableOpacity
-              style={[styles.addBtn, { backgroundColor: theme.primary }]}
+              style={[styles.addBtn, { backgroundColor: theme.primary }, styles.compactAddBtn]}
               onPress={() => setShowTaskForm(!showTaskForm)}
+              accessibilityLabel={showTaskForm ? 'Tutup Form' : 'Tugas Baru'}
             >
-              <Ionicons name={showTaskForm ? 'close' : 'add'} size={17} color={primaryBtnTextColor} />
-              <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]}>{showTaskForm ? 'Tutup' : 'Tugas Baru'}</Text>
+              <Ionicons name={showTaskForm ? 'close' : 'add'} size={16} color={primaryBtnTextColor} />
+              <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]} numberOfLines={1}>
+                {showTaskForm ? 'Tutup' : 'Tugas'}
+              </Text>
             </TouchableOpacity>
           )}
         </View>
@@ -2562,6 +2648,17 @@ const styles = StyleSheet.create({
     paddingTop: 16,
     paddingBottom: 12,
   },
+  headerCompact: {
+    paddingHorizontal: 12,
+    paddingTop: 12,
+    paddingBottom: 10,
+  },
+  headerTitleWrap: {
+    flex: 1,
+    minWidth: 90,
+    marginRight: 8,
+    justifyContent: 'center',
+  },
   title: {
     fontSize: 22,
     fontWeight: '700',
@@ -2574,6 +2671,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    flexShrink: 0,
+  },
+  topActionBtnGroupCompact: {
+    gap: 5,
+  },
+  notesBtnRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
   },
   scanQuickTopBtn: {
     flexDirection: 'row',
@@ -2583,6 +2690,7 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     gap: 5,
     borderWidth: 1,
+    flexShrink: 0,
   },
   scanQuickTopText: {
     fontSize: 12,
@@ -2595,6 +2703,32 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     borderWidth: 1,
+    gap: 5,
+    flexShrink: 0,
+  },
+  headerIconOnlyBtn: {
+    width: 36,
+    height: 36,
+    paddingHorizontal: 0,
+    paddingVertical: 0,
+    borderRadius: 10,
+    borderWidth: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    flexShrink: 0,
+  },
+  compactActionBtn: {
+    paddingHorizontal: 8,
+    paddingVertical: 7,
+    borderRadius: 9,
+    flexShrink: 0,
+    gap: 4,
+  },
+  compactAddBtn: {
+    paddingHorizontal: 9,
+    paddingVertical: 7,
+    borderRadius: 9,
+    flexShrink: 0,
     gap: 4,
   },
   headerNotifBtnText: {
@@ -2609,6 +2743,7 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 10,
     gap: 4,
+    flexShrink: 0,
   },
   addBtnText: {
     color: '#FFFFFF',

@@ -5,7 +5,6 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
   ActivityIndicator,
   Platform,
 } from 'react-native';
@@ -14,7 +13,8 @@ import { StudyNote } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useAuth } from '../contexts/AuthContext';
 import {
-  shareNoteViaSystem,
+  shareNoteAsJsonFile,
+  sanitizeFilename,
   copyFormattedNoteToClipboard,
   exportAndShareNotePdf,
 } from '../lib/noteSharer';
@@ -28,19 +28,20 @@ interface ShareNoteModalProps {
 export default function ShareNoteModal({ visible, note, onClose }: ShareNoteModalProps) {
   const { theme, isLightMode } = useTheme();
   const { user, profile } = useAuth();
+  const [sharingJson, setSharingJson] = useState(false);
   const [sharingPdf, setSharingPdf] = useState(false);
-  const [sharingText, setSharingText] = useState(false);
 
   if (!note) return null;
 
   const username = profile?.username || user?.user_metadata?.username || user?.email?.split('@')[0] || 'Mahasiswa';
+  const jsonFileName = `${sanitizeFilename(note.title)}.json`;
 
-  const handleShareText = async () => {
-    setSharingText(true);
+  const handleShareJson = async () => {
+    setSharingJson(true);
     try {
-      await shareNoteViaSystem(note, username);
+      await shareNoteAsJsonFile(note, username);
     } finally {
-      setSharingText(false);
+      setSharingJson(false);
     }
   };
 
@@ -81,7 +82,7 @@ export default function ShareNoteModal({ visible, note, onClose }: ShareNoteModa
               <View>
                 <Text style={[styles.title, { color: theme.text }]}>Bagikan Catatan ke Teman</Text>
                 <Text style={[styles.subtitle, { color: theme.subtext }]}>
-                  Kirim rangkuman & materi kuliah secara instan
+                  Kirim file dokumen utuh agar format tidak berantakan
                 </Text>
               </View>
             </View>
@@ -117,36 +118,45 @@ export default function ShareNoteModal({ visible, note, onClose }: ShareNoteModa
               {note.title || 'Materi Catatan Kuliah'}
             </Text>
 
-            <Text style={[styles.noteSnippet, { color: theme.subtext }]} numberOfLines={3}>
-              {note.summary || note.content || 'Tidak ada konten materi.'}
-            </Text>
+            <View style={[styles.filenamePill, { backgroundColor: isLightMode ? '#F1F5F9' : '#0E131F', borderColor: theme.border }]}>
+              <Ionicons name="document-attach-outline" size={13} color={theme.accentLight} />
+              <Text style={[styles.filenameText, { color: theme.text }]} numberOfLines={1}>
+                {jsonFileName}
+              </Text>
+            </View>
           </View>
 
           {/* Action Options */}
           <View style={styles.actionsList}>
-            {/* 1. Share via System / WhatsApp */}
+            {/* 1. Share as JSON File (Recommended) */}
             <TouchableOpacity
               style={[
                 styles.actionItem,
-                { backgroundColor: isLightMode ? '#ECFDF5' : '#06281C', borderColor: isLightMode ? '#86EFAC' : '#14532D' },
+                styles.recommendedItem,
+                { backgroundColor: isLightMode ? '#F0FDF4' : '#052918', borderColor: isLightMode ? '#86EFAC' : '#166534' },
               ]}
-              onPress={handleShareText}
-              disabled={sharingText}
+              onPress={handleShareJson}
+              disabled={sharingJson}
               activeOpacity={0.75}
             >
               <View style={[styles.actionIconCircle, { backgroundColor: '#10B981' }]}>
-                {sharingText ? (
+                {sharingJson ? (
                   <ActivityIndicator size="small" color="#FFFFFF" />
                 ) : (
-                  <Ionicons name="logo-whatsapp" size={20} color="#FFFFFF" />
+                  <Ionicons name="code-slash" size={20} color="#FFFFFF" />
                 )}
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={[styles.actionTitle, { color: isLightMode ? '#065F46' : '#6EE7B7' }]}>
-                  Kirim Teks ke WhatsApp / Medsos
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[styles.actionTitle, { color: isLightMode ? '#065F46' : '#86EFAC' }]}>
+                    Kirim File Dokumen JSON
+                  </Text>
+                  <View style={[styles.recommendBadge, { backgroundColor: '#10B981' }]}>
+                    <Text style={styles.recommendBadgeText}>TERBAIK</Text>
+                  </View>
+                </View>
                 <Text style={[styles.actionDesc, { color: isLightMode ? '#047857' : '#A7F3D0' }]}>
-                  Format pesan estetik lengkap dengan ringkasan & kuis
+                  Kirim via WhatsApp/File sebagai "{jsonFileName}". Format 100% utuh & bisa di-import teman!
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={isLightMode ? '#059669' : '#34D399'} />
@@ -194,10 +204,10 @@ export default function ShareNoteModal({ visible, note, onClose }: ShareNoteModa
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={[styles.actionTitle, { color: theme.text }]}>
-                  Salin Teks Lengkap Materi
+                  Salin Teks Ringkas ke Clipboard
                 </Text>
                 <Text style={[styles.actionDesc, { color: theme.subtext }]}>
-                  Salin ke clipboard untuk ditempel di dokumen / chat lain
+                  Salin teks materi untuk ditempel langsung ke chat
                 </Text>
               </View>
               <Ionicons name="chevron-forward" size={18} color={theme.subtext} />
@@ -305,11 +315,21 @@ const styles = StyleSheet.create({
   noteTitle: {
     fontSize: 15,
     fontWeight: '700',
-    marginBottom: 6,
+    marginBottom: 8,
   },
-  noteSnippet: {
-    fontSize: 12.5,
-    lineHeight: 18,
+  filenamePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  filenameText: {
+    fontSize: 12,
+    fontWeight: '600',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
   },
   actionsList: {
     marginTop: 16,
@@ -323,6 +343,9 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
   },
+  recommendedItem: {
+    borderWidth: 1.5,
+  },
   actionIconCircle: {
     width: 38,
     height: 38,
@@ -334,8 +357,20 @@ const styles = StyleSheet.create({
     fontSize: 13.5,
     fontWeight: '700',
   },
+  recommendBadge: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  recommendBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.3,
+  },
   actionDesc: {
     fontSize: 11.5,
     marginTop: 2,
+    lineHeight: 16,
   },
 });
