@@ -134,6 +134,29 @@ export default function StudyNoteDetailScreen() {
     showAlert('Materi Diterapkan 🎉', 'Catatan berhasil diperbarui dari hasil analisis foto AI!');
   };
 
+  const handleUpdateAttachment = (updated: NoteAttachment) => {
+    setAttachments(prev => prev.map(a => a.id === updated.id ? updated : a));
+
+    if (noteId && user) {
+      getCachedNotes(user.id)
+        .then(currentNotes => {
+          const idx = currentNotes.findIndex(n => n.id === noteId);
+          if (idx >= 0) {
+            const currentAtts = currentNotes[idx].attachments || [];
+            const nextAtts = currentAtts.map(a => a.id === updated.id ? updated : a);
+            const updatedNote: StudyNote = {
+              ...currentNotes[idx],
+              attachments: nextAtts,
+              updated_at: new Date().toISOString(),
+            };
+            const nextNotes = [...currentNotes];
+            nextNotes[idx] = updatedNote;
+            cacheNotesLocally(user.id, nextNotes).catch(() => {});
+          }
+        })
+        .catch(() => {});
+    }
+  };
 
   const contentInputRef = useRef<TextInput>(null);
   const [editorFontSize, setEditorFontSize] = useState(14);
@@ -1204,6 +1227,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         <View style={{ marginTop: 20 }}>
                           <AttachmentManager
                             attachments={attachments}
+                            onUpdateAttachment={handleUpdateAttachment}
                             isEditable={false}
                             title="Lampiran Dokumen & Foto Materi"
                           />
@@ -1869,6 +1893,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                       <View style={{ marginTop: 20 }}>
                         <AttachmentManager
                           attachments={attachments}
+                          onUpdateAttachment={handleUpdateAttachment}
                           isEditable={false}
                           title="Lampiran Dokumen & Foto Materi"
                         />
@@ -2296,6 +2321,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                         attachments={attachments}
                         onAddAttachments={newItems => setAttachments(prev => [...prev, ...newItems])}
                         onRemoveAttachment={id => setAttachments(prev => prev.filter(a => a.id !== id))}
+                        onUpdateAttachment={handleUpdateAttachment}
                         isEditable={true}
                         title="Lampiran Dokumen & Foto Materi"
                       />
@@ -2659,6 +2685,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
                       attachments={attachments}
                       onAddAttachments={newItems => setAttachments(prev => [...prev, ...newItems])}
                       onRemoveAttachment={id => setAttachments(prev => prev.filter(a => a.id !== id))}
+                      onUpdateAttachment={handleUpdateAttachment}
                       isEditable={true}
                       title="Lampiran Dokumen & Foto Materi"
                     />
