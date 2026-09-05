@@ -10,12 +10,11 @@ import {
   Platform,
   Linking,
   TouchableWithoutFeedback,
-  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Sharing from 'expo-sharing';
 import * as Clipboard from 'expo-clipboard';
-import * as FileSystem from 'expo-file-system';
+import * as Print from 'expo-print';
 import { useTheme } from '../contexts/ThemeContext';
 import { NoteAttachment } from '../types';
 import {
@@ -25,8 +24,7 @@ import {
   formatFileSize,
 } from '../lib/attachmentPicker';
 import { showAlert } from '../lib/alert';
-import { sendMessageToGemini } from '../lib/gemini';
-import { uriToBase64, readTextFileContent, isTextFile, isPdfFile, isDocxFile, extractTextFromDocxRaw } from '../lib/fileReader';
+import { readTextFileContent, isTextFile, isPdfFile, isDocxFile, extractTextFromDocxRaw } from '../lib/fileReader';
 
 function getSafeWebDocumentUrl(doc: NoteAttachment): string {
   if (Platform.OS !== 'web') return doc.uri;
@@ -78,11 +76,7 @@ export default function AttachmentManager({
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<NoteAttachment | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
-  const [loadingDocContent, setLoadingDocContent] = useState(false);
-  const [extractingAi, setExtractingAi] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
-  const [docViewMode, setDocViewMode] = useState<'document' | 'ai_summary'>('document');
-  const [aiSummaryMap, setAiSummaryMap] = useState<Record<string, string>>({});
 
   const handlePickImages = async () => {
     if (!onAddAttachments) return;
@@ -123,42 +117,45 @@ export default function AttachmentManager({
     }
   };
 
-  const handleOpenFile = async (item: NoteAttachment) => {
+  // Open native high-resolution PDF reader directly on device (Zero AI)
+  const handleOpenPdfDirect = async (item: NoteAttachment) => {
     try {
       if (Platform.OS === 'web') {
         const safeUri = getSafeWebDocumentUrl(item);
         if (typeof window !== 'undefined') {
           window.open(safeUri, '_blank');
-          return;
         }
+        return;
+      }
+      // On Android / iOS Native: Expo Print opens the native full-page PDF viewer!
+      await Print.printAsync({ uri: item.uri });
+    } catch (e: any) {
+      handleOpenExternalApp(item);
+    }
+  };
+
+  // Open in external dedicated app (Google Drive PDF / WPS Office / MS Word)
+  const handleOpenExternalApp = async (item: NoteAttachment) => {
+    try {
+      if (Platform.OS === 'web') {
+        const safeUri = getSafeWebDocumentUrl(item);
+        if (typeof window !== 'undefined') {
+          window.open(safeUri, '_blank');
+        }
+        return;
       }
       const canShare = await Sharing.isAvailableAsync();
       if (canShare) {
+        const isPdf = item.name.toLowerCase().endsWith('.pdf') || item.mimeType === 'application/pdf';
         await Sharing.shareAsync(item.uri, {
-          mimeType: item.mimeType || (item.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+          mimeType: item.mimeType || (isPdf ? 'application/pdf' : 'application/octet-stream'),
           dialogTitle: `Buka ${item.name}`,
         });
         return;
       }
       await Linking.openURL(item.uri);
     } catch (e: any) {
-      showAlert('Buka Dokumen', 'Tidak dapat membuka dokumen secara langsung. Pastikan ada aplikasi pembaca PDF atau dokumen di perangkatmu.');
-    }
-  };
-
-  const handleShareFile = async (item: NoteAttachment) => {
-    try {
-      const canShare = await Sharing.isAvailableAsync();
-      if (canShare) {
-        await Sharing.shareAsync(item.uri, {
-          mimeType: item.mimeType || 'application/pdf',
-          dialogTitle: `Bagikan ${item.name}`,
-        });
-      } else {
-        showAlert('Bagikan Dokumen', 'Fitur bagikan tidak tersedia pada perangkat atau browser ini.');
-      }
-    } catch (e: any) {
-      showAlert('Bagikan Dokumen', 'Gagal membagikan dokumen.');
+      showAlert('Buka Dokumen', 'Pastikan ada aplikasi pembaca dokumen (seperti Google Drive / WPS Office) di perangkatmu.');
     }
   };
 
@@ -172,156 +169,45 @@ export default function AttachmentManager({
     } catch (e) {}
   };
 
-  const handleExtractDocWithAi = async (doc: NoteAttachment) => {
-    setExtractingAi(true);
-    try {
-      let b64 = doc.base64 || '';
-      if (!b64 && doc.uri) {
-        b64 = await uriToBase64(doc.uri);
-      }
-
-      const isPdf = doc.name?.toLowerCase().endsWith('.pdf') || doc.mimeType === 'application/pdf';
-      const attachmentsToSend: any[] = [];
-      if (b64) {
-        attachmentsToSend.push({
-          type: 'document',
-          mimeType: isPdf ? 'application/pdf' : (doc.mimeType || 'application/pdf'),
-          base64: b64,
-          name: doc.name,
-        });
-      }
-
-      const prompt = `Kamu adalah Asisten Pembaca Dokumen Akademik Cerdas untuk mahasiswa.
-Tolong baca seluruh isi dokumen "${doc.name}" ini secara cermat.
-Sajikan isi teks dan materi dokumen ini secara terstruktur, jelas, dan komprehensif agar mahasiswa dapat membaca dan mempelajarinya langsung:
-1. Ringkasan Singkat / Topik Utama
-2. Poin-Poin Isi Lengkap Materi Dokumen (tuliskan isi pembahasan, bab, rumus, atau ketentuan yang ada secara detail)
-3. Kesimpulan Penting
-
-Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading rapi.`;
-
-      const aiReply = await sendMessageToGemini(
-        [],
-        prompt,
-        attachmentsToSend.length > 0 ? attachmentsToSend : undefined
-      );
-
-      if (aiReply && aiReply.trim()) {
-        const replyText = aiReply.trim();
-        setAiSummaryMap(prev => ({ ...prev, [doc.id]: replyText }));
-        const updatedDoc: NoteAttachment = {
-          ...doc,
-          textContent: replyText,
-          base64: b64 || doc.base64,
-        };
-        setPreviewDoc(updatedDoc);
-        if (onUpdateAttachment) {
-          onUpdateAttachment(updatedDoc);
-        }
-        setDocViewMode('ai_summary');
-        showAlert('Ekstraksi Berhasil ✨', 'Isi dokumen berhasil dibaca dan dirangkum secara lengkap oleh AI!');
-      } else {
-        throw new Error('AI tidak menghasilkan teks ekstraksi.');
-      }
-    } catch (e: any) {
-      showAlert('Gagal Membaca Dokumen', e?.message || 'Server AI tidak dapat mengekstrak teks dari file ini. Silakan gunakan tombol "Buka Dokumen Asli" untuk membacanya.');
-    } finally {
-      setExtractingAi(false);
-    }
-  };
-
-  const autoExtractFullDocumentContent = async (doc: NoteAttachment): Promise<string> => {
-    // 1. If text file
-    if (isTextFile(doc.name, doc.mimeType)) {
-      try {
-        const txt = await readTextFileContent(doc.uri);
-        if (txt && txt.trim()) return txt.trim();
-      } catch (e) {}
-    }
-
-    // 2. If docx file
-    if (isDocxFile(doc.name, doc.mimeType)) {
-      try {
-        const raw = await readTextFileContent(doc.uri);
-        const extracted = extractTextFromDocxRaw(raw);
-        if (extracted && extracted.trim().length > 20) return extracted.trim();
-      } catch (e) {}
-    }
-
-    // 3. For PDF or other documents, extract with AI
-    let b64 = doc.base64 || '';
-    if (!b64 && doc.uri) {
-      try {
-        b64 = await uriToBase64(doc.uri);
-      } catch (e) {}
-    }
-
-    const isPdf = isPdfFile(doc.name, doc.mimeType);
-    const attachmentsToSend: any[] = [];
-    if (b64) {
-      attachmentsToSend.push({
-        type: 'document',
-        mimeType: isPdf ? 'application/pdf' : (doc.mimeType || 'application/pdf'),
-        base64: b64,
-        name: doc.name,
-      });
-    }
-
-    const prompt = `Tolong baca dan sajikan SELURUH isi materi dokumen "${doc.name}" ini secara LENGKAP, UTUH, dan TERPERINCI dari halaman awal sampai akhir.
-Tuliskan semua judul bab, sub-bab, penjelasan materi, rumus-rumus, contoh soal, dan konsep-konsep yang ada di dalam dokumen ini tanpa dipotong agar pengguna dapat membaca dokumen aslinya secara langsung di dalam aplikasi.
-Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
-
-    const aiReply = await sendMessageToGemini(
-      [],
-      prompt,
-      attachmentsToSend.length > 0 ? attachmentsToSend : undefined
-    );
-
-    return aiReply ? aiReply.trim() : '';
-  };
-
   const handleItemPress = (item: NoteAttachment) => {
     if (item.type === 'image') {
       setPreviewImageUri(item.uri);
-    } else {
-      setPreviewDoc(item);
-      setDocViewMode('document'); // Always show original document directly!
+      return;
+    }
 
-      // If document already has text content loaded, display immediately!
-      if (item.textContent && item.textContent.trim()) {
-        return;
-      }
+    setPreviewDoc(item);
 
-      // On Web: If PDF, iframe renders directly natively.
-      if (Platform.OS === 'web' && isPdfFile(item.name, item.mimeType)) {
-        if (!item.base64 && item.uri) {
-          uriToBase64(item.uri).then(b64 => {
-            if (b64) {
-              const updated = { ...item, base64: b64 };
-              setPreviewDoc(updated);
-              if (onUpdateAttachment) onUpdateAttachment(updated);
-            }
-          }).catch(() => {});
-        }
-        return;
-      }
+    // If PDF on Mobile: automatically open native full-page PDF reader immediately!
+    if (Platform.OS !== 'web' && isPdfFile(item.name, item.mimeType)) {
+      handleOpenPdfDirect(item);
+      return;
+    }
 
-      // Automatically load and display all the contents of the document!
-      setLoadingDocContent(true);
-      autoExtractFullDocumentContent(item)
-        .then(fullText => {
-          if (fullText && fullText.trim()) {
-            const updated = { ...item, textContent: fullText.trim() };
+    // If text file (.txt, .md, .csv, .json, .py, etc.) and text not loaded yet, read file directly!
+    if (!item.textContent && isTextFile(item.name, item.mimeType)) {
+      readTextFileContent(item.uri)
+        .then(txt => {
+          if (txt && txt.trim()) {
+            const updated = { ...item, textContent: txt.trim() };
             setPreviewDoc(updated);
             if (onUpdateAttachment) onUpdateAttachment(updated);
           }
         })
-        .catch(err => {
-          console.log('Error auto-loading doc content:', err);
+        .catch(() => {});
+    }
+
+    // If docx file and text not loaded yet, extract raw docx text directly!
+    if (!item.textContent && isDocxFile(item.name, item.mimeType)) {
+      readTextFileContent(item.uri)
+        .then(raw => {
+          const extracted = extractTextFromDocxRaw(raw);
+          if (extracted && extracted.trim()) {
+            const updated = { ...item, textContent: extracted.trim() };
+            setPreviewDoc(updated);
+            if (onUpdateAttachment) onUpdateAttachment(updated);
+          }
         })
-        .finally(() => {
-          setLoadingDocContent(false);
-        });
+        .catch(() => {});
     }
   };
 
@@ -399,6 +285,7 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
         >
           {attachments.map((item, idx) => {
             const isImg = item.type === 'image';
+            const isPdf = isPdfFile(item.name, item.mimeType);
             return (
               <View
                 key={item.id || `att-${idx}`}
@@ -415,11 +302,14 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                   {isImg ? (
                     <Image source={{ uri: item.uri }} style={styles.imageThumbnail} resizeMode="cover" />
                   ) : (
-                    <View style={[styles.docThumbnail, { backgroundColor: isLightMode ? '#F1F5F9' : '#1E293B' }]}>
+                    <View style={[
+                      styles.docThumbnail,
+                      { backgroundColor: isPdf ? (isLightMode ? '#FEE2E2' : '#450A0A') : (isLightMode ? '#F1F5F9' : '#1E293B') }
+                    ]}>
                       <Ionicons
                         name={getDocIconName(item.name, item.mimeType)}
-                        size={22}
-                        color={theme.accentLight}
+                        size={26}
+                        color={isPdf ? '#EF4444' : theme.accentLight}
                       />
                     </View>
                   )}
@@ -511,7 +401,7 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                       {previewDoc?.name}
                     </Text>
                     <Text style={[styles.docPreviewMeta, { color: theme.subtext }]}>
-                      {formatFileSize(previewDoc?.size)} • {previewDoc?.name.split('.').pop()?.toUpperCase() || 'DOKUMEN'}
+                      {formatFileSize(previewDoc?.size)} • Dokumen Asli ({previewDoc?.name.split('.').pop()?.toUpperCase() || 'FILE'})
                     </Text>
                   </View>
 
@@ -520,7 +410,7 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                     {Platform.OS === 'web' && previewDoc && (
                       <TouchableOpacity
                         style={[styles.headerActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                        onPress={() => handleOpenFile(previewDoc)}
+                        onPress={() => handleOpenExternalApp(previewDoc)}
                       >
                         <Ionicons name="open-outline" size={14} color={theme.accentLight} />
                         <Text style={[styles.headerActionBtnText, { color: theme.accentLight }]}>
@@ -539,99 +429,9 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                   </View>
                 </View>
 
-                {/* Tab Switcher: Dokumen Asli (Default) vs Rangkuman AI (Opsional) */}
-                {previewDoc && (
-                  <View style={styles.webTabRow}>
-                    <TouchableOpacity
-                      style={[
-                        styles.webTabBtn,
-                        { borderColor: theme.border, backgroundColor: docViewMode === 'document' ? theme.accentBg : theme.cardInner },
-                        docViewMode === 'document' && { borderColor: theme.accent }
-                      ]}
-                      onPress={() => setDocViewMode('document')}
-                    >
-                      <Ionicons name="document-text" size={14} color={docViewMode === 'document' ? theme.accentLight : theme.subtext} />
-                      <Text style={[styles.webTabText, { color: docViewMode === 'document' ? theme.accentLight : theme.subtext }, docViewMode === 'document' && { fontWeight: '700' }]}>
-                        📄 Dokumen Asli
-                      </Text>
-                    </TouchableOpacity>
-
-                    <TouchableOpacity
-                      style={[
-                        styles.webTabBtn,
-                        { borderColor: theme.border, backgroundColor: docViewMode === 'ai_summary' ? theme.accentBg : theme.cardInner },
-                        docViewMode === 'ai_summary' && { borderColor: theme.accent }
-                      ]}
-                      onPress={() => {
-                        setDocViewMode('ai_summary');
-                        if (!aiSummaryMap[previewDoc.id] && !previewDoc.textContent) {
-                          handleExtractDocWithAi(previewDoc);
-                        }
-                      }}
-                    >
-                      <Ionicons name="sparkles" size={14} color={docViewMode === 'ai_summary' ? '#F59E0B' : theme.subtext} />
-                      <Text style={[styles.webTabText, { color: docViewMode === 'ai_summary' ? '#F59E0B' : theme.subtext }, docViewMode === 'ai_summary' && { fontWeight: '700' }]}>
-                        ✨ Rangkuman AI
-                      </Text>
-                    </TouchableOpacity>
-                  </View>
-                )}
-
                 {/* Modal Body Content */}
-                {(loadingDocContent || extractingAi) ? (
-                  <View style={styles.docLoadingBox}>
-                    <ActivityIndicator size="large" color={theme.primary} />
-                    <Text style={[styles.docLoadingTitle, { color: theme.text }]}>
-                      {loadingDocContent ? '📄 Membuka Isi Dokumen...' : '🤖 Membaca Dokumen dengan Gemini AI...'}
-                    </Text>
-                    <Text style={[styles.docLoadingSub, { color: theme.subtext }]}>
-                      {loadingDocContent
-                        ? ('Sedang memuat seluruh lembar materi "' + (previewDoc?.name || 'Dokumen') + '" agar langsung tampil di aplikasi...')
-                        : ('Sedang mengekstrak intisari materi dari "' + (previewDoc?.name || 'Dokumen') + '"')}
-                    </Text>
-                  </View>
-                ) : docViewMode === 'ai_summary' ? (
-                  /* AI Summary View */
-                  <View style={{ flex: 1, marginVertical: 8 }}>
-                    <View style={styles.docContentHeaderRow}>
-                      <Text style={[styles.docContentLabel, { color: theme.subtext }]}>
-                        Intisari Materi Dokumen (AI):
-                      </Text>
-                      <View style={{ flexDirection: 'row', gap: 6 }}>
-                        <TouchableOpacity
-                          style={[styles.copyTextBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                          onPress={() => handleCopyDocText(aiSummaryMap[previewDoc?.id || ''] || previewDoc?.textContent || '')}
-                          activeOpacity={0.7}
-                        >
-                          <Ionicons name={copiedText ? 'checkmark' : 'copy-outline'} size={13} color={copiedText ? '#10B981' : theme.accentLight} />
-                          <Text style={[styles.copyTextBtnLabel, { color: copiedText ? '#10B981' : theme.accentLight }]}>
-                            {copiedText ? 'Tersalin' : 'Salin'}
-                          </Text>
-                        </TouchableOpacity>
-
-                        {previewDoc && (
-                          <TouchableOpacity
-                            style={[styles.copyTextBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                            onPress={() => handleExtractDocWithAi(previewDoc)}
-                            activeOpacity={0.7}
-                          >
-                            <Ionicons name="sparkles" size={12} color="#F59E0B" />
-                            <Text style={[styles.copyTextBtnLabel, { color: '#F59E0B' }]}>
-                              Baca Ulang
-                            </Text>
-                          </TouchableOpacity>
-                        )}
-                      </View>
-                    </View>
-
-                    <ScrollView style={styles.docContentScroll}>
-                      <Text style={[styles.docContentText, { color: theme.text }]} selectable>
-                        {aiSummaryMap[previewDoc?.id || ''] || previewDoc?.textContent || 'Belum ada rangkuman AI. Klik "Baca Ulang" untuk merangkum.'}
-                      </Text>
-                    </ScrollView>
-                  </View>
-                ) : Platform.OS === 'web' && previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType) ? (
-                  /* WEB NATIVE PDF VIEWER - Renders original PDF directly inside the app */
+                {Platform.OS === 'web' && previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType) ? (
+                  /* WEB NATIVE PDF VIEWER - 100% Real Original PDF in iframe, Zero AI */
                   <View style={styles.iframeContainer}>
                     {/* @ts-ignore - Web iframe for native direct PDF reading */}
                     <iframe
@@ -648,11 +448,11 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                     />
                   </View>
                 ) : previewDoc?.textContent ? (
-                  /* TEXT / CODE / DOCX CONTENT VIEWER - Directly displays original text */
+                  /* TEXT / CODE / DOCX CONTENT VIEWER - Exact raw file content from disk, Zero AI */
                   <View style={{ flex: 1, marginVertical: 8 }}>
                     <View style={styles.docContentHeaderRow}>
                       <Text style={[styles.docContentLabel, { color: theme.subtext }]}>
-                        Lembar Dokumen Asli ({previewDoc.textContent.split('\n').length} baris):
+                        Isi Asli Dokumen ({previewDoc.textContent.split('\n').length} baris):
                       </Text>
                       <TouchableOpacity
                         style={[styles.copyTextBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
@@ -673,12 +473,12 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                     </ScrollView>
                   </View>
                 ) : (
-                  /* FALLBACK VIEWER CARD */
+                  /* MOBILE PDF VIEWER CARD - 100% Original Document */
                   <View style={styles.docUnextractedCard}>
                     <View style={[styles.docUnextractedIconBox, { backgroundColor: (previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? (isLightMode ? '#FEE2E2' : '#7F1D1D') : theme.accentBg }]}>
                       <Ionicons
                         name={previewDoc ? getDocIconName(previewDoc.name, previewDoc.mimeType) : 'document-text'}
-                        size={36}
+                        size={46}
                         color={(previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? '#EF4444' : theme.accentLight}
                       />
                     </View>
@@ -686,42 +486,29 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                       {previewDoc?.name}
                     </Text>
                     <Text style={[styles.docUnextractedDesc, { color: theme.subtext }]}>
-                      Dokumen lampiran ({formatFileSize(previewDoc?.size)}).
+                      Dokumen PDF Asli ({formatFileSize(previewDoc?.size)}).
                     </Text>
 
                     <View style={styles.docActionGrid}>
                       <TouchableOpacity
-                        style={[styles.primaryAiBtn, { backgroundColor: theme.primary }]}
-                        onPress={() => {
-                          if (previewDoc) {
-                            setLoadingDocContent(true);
-                            autoExtractFullDocumentContent(previewDoc)
-                              .then(fullText => {
-                                if (fullText && fullText.trim()) {
-                                  const updated = { ...previewDoc, textContent: fullText.trim() };
-                                  setPreviewDoc(updated);
-                                  if (onUpdateAttachment) onUpdateAttachment(updated);
-                                }
-                              })
-                              .finally(() => setLoadingDocContent(false));
-                          }
-                        }}
+                        style={[styles.primaryAiBtn, { backgroundColor: (previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? '#EF4444' : theme.primary }]}
+                        onPress={() => previewDoc && handleOpenPdfDirect(previewDoc)}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
+                        <Ionicons name="book-outline" size={20} color="#FFFFFF" />
                         <Text style={styles.primaryAiBtnText}>
-                          Tampilkan Seluruh Isi Dokumen 📄
+                          Buka Halaman Dokumen Asli 📄
                         </Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
                         style={[styles.secondaryOpenBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                        onPress={() => previewDoc && handleOpenFile(previewDoc)}
+                        onPress={() => previewDoc && handleOpenExternalApp(previewDoc)}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="open-outline" size={15} color={theme.accentLight} />
+                        <Ionicons name="open-outline" size={16} color={theme.accentLight} />
                         <Text style={[styles.secondaryOpenBtnText, { color: theme.text }]}>
-                          Buka di Pembaca PDF Eksternal ↗️
+                          Buka dengan Google Drive / WPS Office ↗️
                         </Text>
                       </TouchableOpacity>
                     </View>
@@ -733,24 +520,13 @@ Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
                   {previewDoc && (
                     <TouchableOpacity
                       style={[styles.footerOpenBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                      onPress={() => handleOpenFile(previewDoc)}
+                      onPress={() => handleOpenPdfDirect(previewDoc)}
                       activeOpacity={0.7}
                     >
-                      <Ionicons name="open-outline" size={15} color={theme.text} />
+                      <Ionicons name="reader-outline" size={15} color={theme.text} />
                       <Text style={[styles.footerOpenBtnText, { color: theme.text }]}>
-                        {Platform.OS === 'web' ? 'Layar Penuh' : 'Buka Dokumen'}
+                        {Platform.OS === 'web' ? 'Layar Penuh' : 'Buka Dokumen Asli'}
                       </Text>
-                    </TouchableOpacity>
-                  )}
-
-                  {Platform.OS !== 'web' && previewDoc && (
-                    <TouchableOpacity
-                      style={[styles.footerOpenBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                      onPress={() => handleShareFile(previewDoc)}
-                      activeOpacity={0.7}
-                    >
-                      <Ionicons name="share-outline" size={15} color={theme.text} />
-                      <Text style={[styles.footerOpenBtnText, { color: theme.text }]}>Bagikan</Text>
                     </TouchableOpacity>
                   )}
 
@@ -904,12 +680,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'center',
     alignItems: 'center',
-    padding: 20,
+    padding: 16,
   },
   docPreviewCard: {
     width: '100%',
-    maxWidth: 540,
-    maxHeight: '85%',
     borderRadius: 16,
     borderWidth: 1,
     padding: 18,
@@ -921,6 +695,29 @@ const styles = StyleSheet.create({
     maxHeight: '92%',
     display: 'flex',
     flexDirection: 'column',
+  },
+  docPreviewHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(150,150,150,0.2)',
+  },
+  docIconBox: {
+    width: 42,
+    height: 42,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  docPreviewTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  docPreviewMeta: {
+    fontSize: 11,
+    marginTop: 2,
   },
   headerActionBtn: {
     flexDirection: 'row',
@@ -941,48 +738,6 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  docPreviewHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 10,
-    paddingBottom: 14,
-    borderBottomWidth: 1,
-    borderBottomColor: 'rgba(150,150,150,0.2)',
-  },
-  docIconBox: {
-    width: 42,
-    height: 42,
-    borderRadius: 10,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: 'rgba(150,150,150,0.1)',
-  },
-  docPreviewTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  docPreviewMeta: {
-    fontSize: 11,
-    marginTop: 2,
-  },
-  webTabRow: {
-    flexDirection: 'row',
-    gap: 8,
-    marginTop: 12,
-    marginBottom: 4,
-  },
-  webTabBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: 8,
-    borderWidth: 1,
-  },
-  webTabText: {
-    fontSize: 12,
-  },
   iframeContainer: {
     flex: 1,
     width: '100%',
@@ -990,24 +745,6 @@ const styles = StyleSheet.create({
     marginVertical: 10,
     borderRadius: 10,
     overflow: 'hidden',
-  },
-  docLoadingBox: {
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 36,
-    gap: 10,
-  },
-  docLoadingTitle: {
-    fontSize: 14,
-    fontWeight: '700',
-    textAlign: 'center',
-    marginTop: 6,
-  },
-  docLoadingSub: {
-    fontSize: 12,
-    textAlign: 'center',
-    maxWidth: 360,
-    lineHeight: 18,
   },
   docContentHeaderRow: {
     flexDirection: 'row',
@@ -1035,10 +772,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   docContentScroll: {
-    maxHeight: 280,
-    backgroundColor: 'rgba(150,150,150,0.05)',
+    flex: 1,
+    minHeight: 220,
     borderRadius: 10,
-    padding: 12,
+    padding: 14,
     borderWidth: 1,
     borderColor: 'rgba(150,150,150,0.15)',
   },
@@ -1048,32 +785,35 @@ const styles = StyleSheet.create({
   },
   docUnextractedCard: {
     alignItems: 'center',
-    paddingVertical: 20,
-    paddingHorizontal: 10,
+    justifyContent: 'center',
+    flex: 1,
+    paddingVertical: 24,
+    paddingHorizontal: 16,
   },
   docUnextractedIconBox: {
-    width: 60,
-    height: 60,
-    borderRadius: 16,
+    width: 76,
+    height: 76,
+    borderRadius: 20,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
   docUnextractedTitle: {
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
     marginBottom: 6,
     textAlign: 'center',
   },
   docUnextractedDesc: {
-    fontSize: 12,
+    fontSize: 12.5,
     lineHeight: 18,
     textAlign: 'center',
-    marginBottom: 16,
-    maxWidth: 420,
+    marginBottom: 20,
+    maxWidth: 380,
   },
   docActionGrid: {
     width: '100%',
+    maxWidth: 360,
     gap: 10,
   },
   primaryAiBtn: {
@@ -1081,7 +821,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 12,
+    paddingVertical: 13,
     paddingHorizontal: 16,
     borderRadius: 10,
   },
@@ -1095,7 +835,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     gap: 8,
-    paddingVertical: 10,
+    paddingVertical: 11,
     paddingHorizontal: 16,
     borderRadius: 10,
     borderWidth: 1,
