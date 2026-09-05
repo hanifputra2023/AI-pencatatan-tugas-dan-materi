@@ -674,105 +674,123 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
                       onPress={flipCard}
                       style={[styles.flipTouchWrap, { zIndex: 5 }]}
                     >
-                      {/* Front Face of Card */}
-                      <Animated.View
+                      {/* Front Face Wrapper — shadow stays here, does NOT rotate */}
+                      <View
                         pointerEvents={isFlipped ? 'none' : 'auto'}
                         style={[
-                          styles.flipCardFace,
+                          styles.flipCardShadowWrap,
                           {
-                            backgroundColor: isLightMode ? '#FFFFFF' : theme.cardInner,
-                            borderColor: theme.border,
                             zIndex: isFlipped ? 0 : 10,
                             shadowColor: isLightMode ? '#0F172A' : '#000000',
                             shadowOffset: { width: 0, height: 8 },
-                            shadowOpacity: isLightMode ? 0.12 : 0.55,
+                            shadowOpacity: isLightMode ? 0.12 : 0.45,
                             shadowRadius: 16,
-                            elevation: 8,
-                            transform: [
-                              { perspective: 1200 },
-                              { rotateY: frontInterpolate },
-                            ],
-                            opacity: frontOpacity,
+                            elevation: isFlipped ? 0 : 8,
                             ...(Platform.OS === 'web' ? {
-                              boxShadow: isLightMode
+                              boxShadow: isFlipped ? 'none' : (isLightMode
                                 ? '0 10px 25px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05)'
-                                : '0 14px 30px -4px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.05)',
+                                : '0 14px 30px -4px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.05)'),
                             } : {}),
                           }
                         ]}
                       >
-                        <View style={styles.cardFaceHeader}>
-                          <View style={[styles.cardTagBadge, { backgroundColor: theme.accentBg }]}>
-                            <Text style={[styles.cardTagText, { color: theme.accentLight }]}>Pertanyaan / Konsep</Text>
+                        {/* Front Face — only rotates, no shadow */}
+                        <Animated.View
+                          style={[
+                            styles.flipCardFace,
+                            {
+                              backgroundColor: isLightMode ? '#FFFFFF' : theme.cardInner,
+                              borderColor: theme.border,
+                              transform: [
+                                { perspective: 1200 },
+                                { rotateY: frontInterpolate },
+                              ],
+                              opacity: frontOpacity,
+                            }
+                          ]}
+                        >
+                          <View style={styles.cardFaceHeader}>
+                            <View style={[styles.cardTagBadge, { backgroundColor: theme.accentBg }]}>
+                              <Text style={[styles.cardTagText, { color: theme.accentLight }]}>Pertanyaan / Konsep</Text>
+                            </View>
+                            <Text style={[styles.cardCounterText, { color: theme.muted }]}>
+                              {currentIndex + 1} / {cards.length}
+                            </Text>
                           </View>
-                          <Text style={[styles.cardCounterText, { color: theme.muted }]}>
-                            {currentIndex + 1} / {cards.length}
-                          </Text>
-                        </View>
 
-                        <View style={styles.cardBodyCenter}>
-                          <Text style={[styles.cardMainText, { color: theme.text }]}>
-                            {currentCard.front}
-                          </Text>
-                        </View>
-
-                        {currentCard.hint && (
-                          <View style={styles.hintContainer}>
-                            {showHint ? (
-                              <View style={[styles.hintCard, { backgroundColor: isLightMode ? '#FEF3C7' : '#2B2012', borderColor: isLightMode ? '#FDE68A' : '#4C3B18' }]}>
-                                <Ionicons name="bulb-outline" size={13} color={isLightMode ? '#B45309' : '#FBBF24'} />
-                                <Text style={[styles.hintText, { color: isLightMode ? '#92400E' : '#FDE68A' }]}>
-                                  {currentCard.hint}
-                                </Text>
-                              </View>
-                            ) : (
-                              <TouchableOpacity
-                                onPress={(e) => { e.stopPropagation(); setShowHint(true); }}
-                                style={[styles.showHintBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                              >
-                                <Ionicons name="bulb-outline" size={12} color={theme.subtext} />
-                                <Text style={[styles.showHintBtnText, { color: theme.subtext }]}>Lihat Petunjuk</Text>
-                              </TouchableOpacity>
-                            )}
+                          <View style={styles.cardBodyCenter}>
+                            <Text style={[styles.cardMainText, { color: theme.text }]}>
+                              {currentCard.front}
+                            </Text>
                           </View>
-                        )}
 
-                        <View style={styles.cardFooterNotice}>
-                          <Ionicons name="repeat-outline" size={13} color={theme.muted} />
-                          <Text style={[styles.cardFooterNoticeText, { color: theme.muted }]}>
-                            Ketuk kartu untuk melihat jawaban
-                          </Text>
-                        </View>
-                      </Animated.View>
+                          {currentCard.hint && (
+                            <View style={styles.hintContainer}>
+                              {showHint ? (
+                                <View style={[styles.hintCard, { backgroundColor: isLightMode ? '#FEF3C7' : '#2B2012', borderColor: isLightMode ? '#FDE68A' : '#4C3B18' }]}>
+                                  <Ionicons name="bulb-outline" size={13} color={isLightMode ? '#B45309' : '#FBBF24'} />
+                                  <Text style={[styles.hintText, { color: isLightMode ? '#92400E' : '#FDE68A' }]}>
+                                    {currentCard.hint}
+                                  </Text>
+                                </View>
+                              ) : (
+                                <TouchableOpacity
+                                  onPress={(e) => { e.stopPropagation(); setShowHint(true); }}
+                                  style={[styles.showHintBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                                >
+                                  <Ionicons name="bulb-outline" size={12} color={theme.subtext} />
+                                  <Text style={[styles.showHintBtnText, { color: theme.subtext }]}>Lihat Petunjuk</Text>
+                                </TouchableOpacity>
+                              )}
+                            </View>
+                          )}
 
-                      {/* Back Face of Card */}
-                      <Animated.View
+                          <View style={styles.cardFooterNotice}>
+                            <Ionicons name="repeat-outline" size={13} color={theme.muted} />
+                            <Text style={[styles.cardFooterNoticeText, { color: theme.muted }]}>
+                              Ketuk kartu untuk melihat jawaban
+                            </Text>
+                          </View>
+                        </Animated.View>
+                      </View>
+
+                      {/* Back Face Wrapper — shadow stays here, does NOT rotate */}
+                      <View
                         pointerEvents={isFlipped ? 'auto' : 'none'}
                         style={[
-                          styles.flipCardFace,
-                          styles.flipCardBack,
+                          styles.flipCardShadowWrap,
                           {
-                            backgroundColor: isLightMode ? '#F8FAFC' : theme.cardInner,
-                            borderColor: theme.accent,
                             zIndex: isFlipped ? 10 : 0,
                             shadowColor: theme.accent || (isLightMode ? '#10B981' : '#34D399'),
                             shadowOffset: { width: 0, height: 8 },
-                            shadowOpacity: isLightMode ? 0.2 : 0.45,
+                            shadowOpacity: isFlipped ? (isLightMode ? 0.2 : 0.4) : 0,
                             shadowRadius: 18,
-                            elevation: 8,
-                            transform: [
-                              { perspective: 1200 },
-                              { rotateY: backInterpolate },
-                            ],
-                            opacity: backOpacity,
+                            elevation: isFlipped ? 8 : 0,
                             ...(Platform.OS === 'web' ? {
-                              boxShadow: isLightMode
+                              boxShadow: isFlipped ? (isLightMode
                                 ? `0 10px 25px -3px rgba(15, 23, 42, 0.1), 0 0 20px -2px ${theme.accent}33`
-                                : `0 14px 30px -4px rgba(0, 0, 0, 0.7), 0 0 24px -2px ${theme.accent}4D`,
+                                : `0 14px 30px -4px rgba(0, 0, 0, 0.7), 0 0 24px -2px ${theme.accent}4D`)
+                                : 'none',
                             } : {}),
                           }
                         ]}
                       >
+                        {/* Back Face — only rotates, no shadow */}
+                        <Animated.View
+                          style={[
+                            styles.flipCardFace,
+                            styles.flipCardBack,
+                            {
+                              backgroundColor: isLightMode ? '#F8FAFC' : theme.cardInner,
+                              borderColor: theme.accent,
+                              transform: [
+                                { perspective: 1200 },
+                                { rotateY: backInterpolate },
+                              ],
+                              opacity: backOpacity,
+                            }
+                          ]}
+                        >
                         <View style={styles.cardFaceHeader}>
                           <View style={[styles.cardTagBadge, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F261E' }]}>
                             <Text style={[styles.cardTagText, { color: isLightMode ? '#15803D' : '#34D399' }]}>Penjelasan / Jawaban</Text>
@@ -794,7 +812,8 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
                             Ketuk kartu untuk kembali ke pertanyaan
                           </Text>
                         </View>
-                      </Animated.View>
+                        </Animated.View>
+                      </View>
                     </TouchableOpacity>
                   </View>
                 ) : (
@@ -1262,6 +1281,15 @@ const styles = StyleSheet.create({
     flex: 1,
     width: '100%',
     height: '100%',
+  },
+  // Non-rotating shadow wrapper — keeps shadow stable during 3D flip
+  flipCardShadowWrap: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    borderRadius: 18,
   },
   flipCardFace: {
     position: 'absolute',
