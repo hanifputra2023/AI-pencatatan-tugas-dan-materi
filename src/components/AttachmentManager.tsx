@@ -26,7 +26,7 @@ import {
 } from '../lib/attachmentPicker';
 import { showAlert } from '../lib/alert';
 import { sendMessageToGemini } from '../lib/gemini';
-import { uriToBase64, readTextFileContent, isTextFile, isPdfFile } from '../lib/fileReader';
+import { uriToBase64, readTextFileContent, isTextFile, isPdfFile, isDocxFile, extractTextFromDocxRaw } from '../lib/fileReader';
 
 function getSafeWebDocumentUrl(doc: NoteAttachment): string {
   if (Platform.OS !== 'web') return doc.uri;
@@ -78,6 +78,7 @@ export default function AttachmentManager({
   const [previewImageUri, setPreviewImageUri] = useState<string | null>(null);
   const [previewDoc, setPreviewDoc] = useState<NoteAttachment | null>(null);
   const [loadingAction, setLoadingAction] = useState(false);
+  const [loadingDocContent, setLoadingDocContent] = useState(false);
   const [extractingAi, setExtractingAi] = useState(false);
   const [copiedText, setCopiedText] = useState(false);
   const [docViewMode, setDocViewMode] = useState<'document' | 'ai_summary'>('document');
@@ -131,17 +132,13 @@ export default function AttachmentManager({
           return;
         }
       }
-      if (Platform.OS === 'android') {
-        try {
-          const contentUri = await FileSystem.getContentUriAsync(item.uri);
-          await Linking.openURL(contentUri);
-          return;
-        } catch (err) {
-          try {
-            await Linking.openURL(item.uri);
-            return;
-          } catch (err2) {}
-        }
+      const canShare = await Sharing.isAvailableAsync();
+      if (canShare) {
+        await Sharing.shareAsync(item.uri, {
+          mimeType: item.mimeType || (item.name.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'application/octet-stream'),
+          dialogTitle: `Buka ${item.name}`,
+        });
+        return;
       }
       await Linking.openURL(item.uri);
     } catch (e: any) {
@@ -233,6 +230,56 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
     }
   };
 
+  const autoExtractFullDocumentContent = async (doc: NoteAttachment): Promise<string> => {
+    // 1. If text file
+    if (isTextFile(doc.name, doc.mimeType)) {
+      try {
+        const txt = await readTextFileContent(doc.uri);
+        if (txt && txt.trim()) return txt.trim();
+      } catch (e) {}
+    }
+
+    // 2. If docx file
+    if (isDocxFile(doc.name, doc.mimeType)) {
+      try {
+        const raw = await readTextFileContent(doc.uri);
+        const extracted = extractTextFromDocxRaw(raw);
+        if (extracted && extracted.trim().length > 20) return extracted.trim();
+      } catch (e) {}
+    }
+
+    // 3. For PDF or other documents, extract with AI
+    let b64 = doc.base64 || '';
+    if (!b64 && doc.uri) {
+      try {
+        b64 = await uriToBase64(doc.uri);
+      } catch (e) {}
+    }
+
+    const isPdf = isPdfFile(doc.name, doc.mimeType);
+    const attachmentsToSend: any[] = [];
+    if (b64) {
+      attachmentsToSend.push({
+        type: 'document',
+        mimeType: isPdf ? 'application/pdf' : (doc.mimeType || 'application/pdf'),
+        base64: b64,
+        name: doc.name,
+      });
+    }
+
+    const prompt = `Tolong baca dan sajikan SELURUH isi materi dokumen "${doc.name}" ini secara LENGKAP, UTUH, dan TERPERINCI dari halaman awal sampai akhir.
+Tuliskan semua judul bab, sub-bab, penjelasan materi, rumus-rumus, contoh soal, dan konsep-konsep yang ada di dalam dokumen ini tanpa dipotong agar pengguna dapat membaca dokumen aslinya secara langsung di dalam aplikasi.
+Sajikan dengan format Markdown yang rapi, terstruktur, dan nyaman dibaca.`;
+
+    const aiReply = await sendMessageToGemini(
+      [],
+      prompt,
+      attachmentsToSend.length > 0 ? attachmentsToSend : undefined
+    );
+
+    return aiReply ? aiReply.trim() : '';
+  };
+
   const handleItemPress = (item: NoteAttachment) => {
     if (item.type === 'image') {
       setPreviewImageUri(item.uri);
@@ -240,27 +287,41 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
       setPreviewDoc(item);
       setDocViewMode('document'); // Always show original document directly!
 
-      // Auto-read plain text files immediately if not already read
-      if (!item.textContent && isTextFile(item.name, item.mimeType)) {
-        readTextFileContent(item.uri).then(txt => {
-          if (txt && txt.trim()) {
-            const updated = { ...item, textContent: txt.trim() };
-            setPreviewDoc(updated);
-            if (onUpdateAttachment) onUpdateAttachment(updated);
-          }
-        }).catch(() => {});
+      // If document already has text content loaded, display immediately!
+      if (item.textContent && item.textContent.trim()) {
+        return;
       }
 
-      // If on Web and PDF has no base64, cache base64 in background
-      if (Platform.OS === 'web' && !item.base64 && isPdfFile(item.name, item.mimeType) && item.uri) {
-        uriToBase64(item.uri).then(b64 => {
-          if (b64) {
-            const updated = { ...item, base64: b64 };
+      // On Web: If PDF, iframe renders directly natively.
+      if (Platform.OS === 'web' && isPdfFile(item.name, item.mimeType)) {
+        if (!item.base64 && item.uri) {
+          uriToBase64(item.uri).then(b64 => {
+            if (b64) {
+              const updated = { ...item, base64: b64 };
+              setPreviewDoc(updated);
+              if (onUpdateAttachment) onUpdateAttachment(updated);
+            }
+          }).catch(() => {});
+        }
+        return;
+      }
+
+      // Automatically load and display all the contents of the document!
+      setLoadingDocContent(true);
+      autoExtractFullDocumentContent(item)
+        .then(fullText => {
+          if (fullText && fullText.trim()) {
+            const updated = { ...item, textContent: fullText.trim() };
             setPreviewDoc(updated);
             if (onUpdateAttachment) onUpdateAttachment(updated);
           }
-        }).catch(() => {});
-      }
+        })
+        .catch(err => {
+          console.log('Error auto-loading doc content:', err);
+        })
+        .finally(() => {
+          setLoadingDocContent(false);
+        });
     }
   };
 
@@ -517,14 +578,16 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
                 )}
 
                 {/* Modal Body Content */}
-                {extractingAi ? (
+                {(loadingDocContent || extractingAi) ? (
                   <View style={styles.docLoadingBox}>
                     <ActivityIndicator size="large" color={theme.primary} />
                     <Text style={[styles.docLoadingTitle, { color: theme.text }]}>
-                      🤖 Membaca Dokumen dengan Gemini AI...
+                      {loadingDocContent ? '📄 Membuka Isi Dokumen...' : '🤖 Membaca Dokumen dengan Gemini AI...'}
                     </Text>
                     <Text style={[styles.docLoadingSub, { color: theme.subtext }]}>
-                      Sedang mengekstrak materi, bab, rumus, dan konsep penting dari "{previewDoc?.name}"
+                      {loadingDocContent
+                        ? ('Sedang memuat seluruh lembar materi "' + (previewDoc?.name || 'Dokumen') + '" agar langsung tampil di aplikasi...')
+                        : ('Sedang mengekstrak intisari materi dari "' + (previewDoc?.name || 'Dokumen') + '"')}
                     </Text>
                   </View>
                 ) : docViewMode === 'ai_summary' ? (
@@ -610,7 +673,7 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
                     </ScrollView>
                   </View>
                 ) : (
-                  /* MOBILE PDF / BINARY VIEWER CARD */
+                  /* FALLBACK VIEWER CARD */
                   <View style={styles.docUnextractedCard}>
                     <View style={[styles.docUnextractedIconBox, { backgroundColor: (previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? (isLightMode ? '#FEE2E2' : '#7F1D1D') : theme.accentBg }]}>
                       <Ionicons
@@ -623,32 +686,42 @@ Sajikan dengan bahasa Indonesia yang jelas, gunakan bullet points dan heading ra
                       {previewDoc?.name}
                     </Text>
                     <Text style={[styles.docUnextractedDesc, { color: theme.subtext }]}>
-                      Dokumen lampiran asli ({formatFileSize(previewDoc?.size)}). Buka langsung menggunakan aplikasi pembaca dokumen di perangkatmu.
+                      Dokumen lampiran ({formatFileSize(previewDoc?.size)}).
                     </Text>
 
                     <View style={styles.docActionGrid}>
                       <TouchableOpacity
-                        style={[styles.primaryAiBtn, { backgroundColor: (previewDoc && isPdfFile(previewDoc.name, previewDoc.mimeType)) ? '#EF4444' : theme.primary }]}
-                        onPress={() => previewDoc && handleOpenFile(previewDoc)}
+                        style={[styles.primaryAiBtn, { backgroundColor: theme.primary }]}
+                        onPress={() => {
+                          if (previewDoc) {
+                            setLoadingDocContent(true);
+                            autoExtractFullDocumentContent(previewDoc)
+                              .then(fullText => {
+                                if (fullText && fullText.trim()) {
+                                  const updated = { ...previewDoc, textContent: fullText.trim() };
+                                  setPreviewDoc(updated);
+                                  if (onUpdateAttachment) onUpdateAttachment(updated);
+                                }
+                              })
+                              .finally(() => setLoadingDocContent(false));
+                          }
+                        }}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="reader-outline" size={18} color="#FFFFFF" />
+                        <Ionicons name="document-text-outline" size={18} color="#FFFFFF" />
                         <Text style={styles.primaryAiBtnText}>
-                          Buka Dokumen Asli
+                          Tampilkan Seluruh Isi Dokumen 📄
                         </Text>
                       </TouchableOpacity>
 
                       <TouchableOpacity
                         style={[styles.secondaryOpenBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                        onPress={() => {
-                          setDocViewMode('ai_summary');
-                          if (previewDoc) handleExtractDocWithAi(previewDoc);
-                        }}
+                        onPress={() => previewDoc && handleOpenFile(previewDoc)}
                         activeOpacity={0.8}
                       >
-                        <Ionicons name="sparkles" size={15} color="#F59E0B" />
+                        <Ionicons name="open-outline" size={15} color={theme.accentLight} />
                         <Text style={[styles.secondaryOpenBtnText, { color: theme.text }]}>
-                          Rangkum Isi dengan AI
+                          Buka di Pembaca PDF Eksternal ↗️
                         </Text>
                       </TouchableOpacity>
                     </View>
