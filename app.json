@@ -19,6 +19,7 @@
       "bundleIdentifier": "com.studybot.app",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
+        "NSMicrophoneUsageDescription": "Aplikasi membutuhkan izin mikrofon untuk fitur obrolan suara langsung Gemini Live.",
         "UIBackgroundModes": [
           "fetch",
           "remote-notification"
@@ -33,6 +34,7 @@
       "package": "com.studybot.app",
       "permissions": [
         "android.permission.RECORD_AUDIO",
+        "android.permission.MODIFY_AUDIO_SETTINGS",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM",
@@ -46,6 +48,12 @@
         {
           "icon": "./assets/icon.png",
           "color": "#2563EB"
+        }
+      ],
+      [
+        "expo-av",
+        {
+          "microphonePermission": "Aplikasi membutuhkan izin mikrofon untuk fitur obrolan suara langsung Gemini Live."
         }
       ],
       "expo-video",

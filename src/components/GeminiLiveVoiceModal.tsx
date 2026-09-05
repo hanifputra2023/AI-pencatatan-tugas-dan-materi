@@ -9,9 +9,12 @@ import {
   Easing,
   Platform,
   SafeAreaView,
+  ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
 import { ChatMessage } from '../types';
@@ -26,8 +29,9 @@ interface GeminiLiveVoiceModalProps {
 }
 
 type LiveState = 'idle' | 'listening' | 'thinking' | 'speaking' | 'muted';
+type PermissionState = 'checking' | 'prompt' | 'granted' | 'denied' | 'unsupported';
 
-// Pembersih teks agar terdengar luwes dan natural (tanpa simbol kaku)
+// Pembersih teks agar terdengar luwes dan natural saat disuarakan TTS
 const cleanTextForNaturalVoice = (raw: string): string => {
   return raw
     .replace(/```[\s\S]*?```/g, ' ')
@@ -88,11 +92,13 @@ export default function GeminiLiveVoiceModal({
   const { theme, isLightMode } = useTheme();
 
   // State
-  const [liveState, setLiveState] = useState<LiveState>('listening');
+  const [liveState, setLiveState] = useState<LiveState>('idle');
+  const [permissionState, setPermissionState] = useState<PermissionState>('checking');
   const [userTranscript, setUserTranscript] = useState<string>('');
   const [displayedAiSpeech, setDisplayedAiSpeech] = useState<string>('');
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isRequestingPermission, setIsRequestingPermission] = useState(false);
 
   // Gemini Live Aurora Wave Animations (4 Dynamic Bars)
   const bar1 = useRef(new Animated.Value(0.3)).current;
@@ -101,8 +107,9 @@ export default function GeminiLiveVoiceModal({
   const bar4 = useRef(new Animated.Value(0.8)).current;
   const auraScale = useRef(new Animated.Value(1)).current;
 
-  // Lifecycle Refs
+  // Lifecycle & Voice Recording Refs
   const recognitionRef = useRef<any>(null);
+  const nativeRecordingRef = useRef<Audio.Recording | null>(null);
   const isComponentMounted = useRef(true);
   const isListeningRef = useRef(false);
   const isAiSpeakingRef = useRef(false);
@@ -119,7 +126,116 @@ export default function GeminiLiveVoiceModal({
     isMicMutedRef.current = isMicMuted;
   }, [isMicMuted]);
 
-  // Init session when modal opens
+  // -------------------------------------------------------------
+  // PERMISSION CHECK & REQUEST ENGINE (Web & Native)
+  // -------------------------------------------------------------
+  const requestMicrophonePermission = useCallback(async (isManualTrigger = false): Promise<boolean> => {
+    if (isManualTrigger) {
+      setIsRequestingPermission(true);
+    }
+    setErrorMessage(null);
+
+    // 1. WEB BROWSER PERMISSION
+    if (Platform.OS === 'web') {
+      if (typeof window === 'undefined') {
+        setIsRequestingPermission(false);
+        return false;
+      }
+
+      // Check if getUserMedia is supported
+      if (navigator?.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Stop stream tracks immediately after permission check
+          stream.getTracks().forEach((track) => track.stop());
+
+          if (isComponentMounted.current) {
+            setPermissionState('granted');
+            setErrorMessage(null);
+            setIsRequestingPermission(false);
+          }
+          return true;
+        } catch (err: any) {
+          console.warn('Web Microphone permission rejected:', err);
+          if (isComponentMounted.current) {
+            if (err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError') {
+              setPermissionState('denied');
+              setErrorMessage('Akses mikrofon diblokir. Klik ikon gembok 🔒 di bilah alamat browser lalu ubah izin Mikrofon menjadi "Izinkan".');
+            } else if (err.name === 'NotFoundError' || err.name === 'DevicesNotFoundError') {
+              setPermissionState('unsupported');
+              setErrorMessage('Perangkat mikrofon tidak ditemukan. Pastikan headset atau mikrofon terhubung.');
+            } else {
+              setPermissionState('denied');
+              setErrorMessage(err.message || 'Izin mikrofon diperlukan.');
+            }
+            setIsRequestingPermission(false);
+          }
+          return false;
+        }
+      } else {
+        // Fallback for older browsers or non-secure contexts
+        const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+        if (SR) {
+          if (isComponentMounted.current) {
+            setPermissionState('granted');
+            setIsRequestingPermission(false);
+          }
+          return true;
+        } else {
+          if (isComponentMounted.current) {
+            setPermissionState('unsupported');
+            setErrorMessage('Browser ini belum mendukung mikrofon atau pengenalan suara. Disarankan menggunakan Google Chrome atau Microsoft Edge.');
+            setIsRequestingPermission(false);
+          }
+          return false;
+        }
+      }
+    }
+
+    // 2. NATIVE PLATFORMS (Android / iOS)
+    try {
+      const { status, canAskAgain } = await Audio.requestPermissionsAsync();
+      if (status === 'granted') {
+        await Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        });
+
+        if (isComponentMounted.current) {
+          setPermissionState('granted');
+          setErrorMessage(null);
+          setIsRequestingPermission(false);
+        }
+        return true;
+      } else {
+        if (isComponentMounted.current) {
+          setPermissionState('denied');
+          setErrorMessage(
+            canAskAgain
+              ? 'Izin mikrofon belum diberikan. Ketuk "Izinkan Mikrofon" untuk memulai.'
+              : 'Izin mikrofon dinonaktifkan di pengaturan HP. Buka Pengaturan > Aplikasi > Izin untuk mengaktifkannya.'
+          );
+          setIsRequestingPermission(false);
+        }
+        return false;
+      }
+    } catch (err: any) {
+      console.warn('Native Audio permission error:', err);
+      if (isComponentMounted.current) {
+        setPermissionState('denied');
+        setErrorMessage('Gagal meminta izin mikrofon: ' + (err.message || 'Izin ditolak'));
+        setIsRequestingPermission(false);
+      }
+      return false;
+    }
+  }, []);
+
+  // -------------------------------------------------------------
+  // INITIALIZATION ON MODAL OPEN
+  // -------------------------------------------------------------
   useEffect(() => {
     if (visible) {
       isComponentMounted.current = true;
@@ -135,7 +251,13 @@ export default function GeminiLiveVoiceModal({
       setUserTranscript('');
       const greeting = `Halo! Ada yang lagi kamu pikirin? Cerita aja, aku dengerin.`;
       setDisplayedAiSpeech(greeting);
-      startListeningSession();
+
+      // Check permission first
+      requestMicrophonePermission(false).then((granted) => {
+        if (granted && isComponentMounted.current) {
+          startListeningSession();
+        }
+      });
     } else {
       stopAllAudio();
     }
@@ -144,10 +266,10 @@ export default function GeminiLiveVoiceModal({
       isComponentMounted.current = false;
       stopAllAudio();
     };
-  }, [visible]);
+  }, [visible, requestMicrophonePermission]);
 
-  // Clean stop of all audio & recognition
-  const stopAllAudio = useCallback(() => {
+  // Clean stop of all audio, recognition & native recording
+  const stopAllAudio = useCallback(async () => {
     isListeningRef.current = false;
     isAiSpeakingRef.current = false;
 
@@ -155,25 +277,36 @@ export default function GeminiLiveVoiceModal({
     if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
     if (streamTimerRef.current) clearInterval(streamTimerRef.current);
 
+    // Stop Native Recording
+    if (nativeRecordingRef.current) {
+      try {
+        await nativeRecordingRef.current.stopAndUnloadAsync();
+      } catch (e) {}
+      nativeRecordingRef.current = null;
+    }
+
+    // Stop Web Recognition
     if (recognitionRef.current) {
       try {
         recognitionRef.current.onresult = null;
         recognitionRef.current.onerror = null;
         recognitionRef.current.onend = null;
         recognitionRef.current.abort();
-      } catch (e) { }
+      } catch (e) {}
       recognitionRef.current = null;
     }
 
+    // Stop Web TTS
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.speechSynthesis) {
       try {
         window.speechSynthesis.cancel();
-      } catch (e) { }
+      } catch (e) {}
     }
 
+    // Stop Expo Speech
     try {
       Speech.stop();
-    } catch (e) { }
+    } catch (e) {}
   }, []);
 
   // -------------------------------------------------------------
@@ -254,29 +387,30 @@ export default function GeminiLiveVoiceModal({
     return () => {
       if (animLoop) animLoop.stop();
     };
-  }, [liveState]);
+  }, [liveState, bar1, bar2, bar3, bar4, auraScale]);
 
   // -------------------------------------------------------------
-  // SPEECH RECOGNITION (Multi-Turn Resilient Instance Creator)
+  // SPEECH RECOGNITION (Multi-Turn Voice Listener)
   // -------------------------------------------------------------
   const startListeningSession = useCallback(() => {
     if (!isComponentMounted.current || isAiSpeakingRef.current || isMicMutedRef.current) return;
 
-    // Safely cleanup any previous recognition instance
-    if (recognitionRef.current) {
-      try {
-        recognitionRef.current.onresult = null;
-        recognitionRef.current.onerror = null;
-        recognitionRef.current.onend = null;
-        recognitionRef.current.abort();
-      } catch (e) { }
-      recognitionRef.current = null;
-    }
-
+    // WEB PLATFORM: Web Speech Recognition
     if (Platform.OS === 'web' && typeof window !== 'undefined') {
+      // Safely cleanup any previous recognition instance
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.onresult = null;
+          recognitionRef.current.onerror = null;
+          recognitionRef.current.onend = null;
+          recognitionRef.current.abort();
+        } catch (e) {}
+        recognitionRef.current = null;
+      }
+
       const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
       if (!SR) {
-        setErrorMessage('Browser ini belum mendukung Web Speech Recognition. Gunakan Google Chrome atau Edge ya.');
+        setErrorMessage('Browser ini belum mendukung Web Speech Recognition. Gunakan Google Chrome atau Microsoft Edge.');
         setLiveState('idle');
         return;
       }
@@ -329,7 +463,8 @@ export default function GeminiLiveVoiceModal({
         rec.onerror = (e: any) => {
           console.log('Recognition event error:', e.error);
           if (e.error === 'not-allowed') {
-            setErrorMessage('Izin mikrofon belum aktif. Izinkan akses mikrofon di browser.');
+            setPermissionState('denied');
+            setErrorMessage('Izin mikrofon belum aktif atau diblokir. Izinkan akses mikrofon di browser.');
             setLiveState('idle');
           } else if (e.error !== 'no-speech' && e.error !== 'aborted') {
             // Auto restart on transient glitch
@@ -355,8 +490,128 @@ export default function GeminiLiveVoiceModal({
       } catch (err) {
         console.log('Error creating/starting speech recognition:', err);
       }
+      return;
     }
+
+    // NATIVE PLATFORM: Expo AV Audio Recording
+    startNativeRecordingSession();
   }, []);
+
+  // -------------------------------------------------------------
+  // NATIVE AUDIO RECORDING SESSION (Android & iOS)
+  // -------------------------------------------------------------
+  const startNativeRecordingSession = async () => {
+    if (!isComponentMounted.current || isAiSpeakingRef.current || isMicMutedRef.current) return;
+    try {
+      if (nativeRecordingRef.current) {
+        try {
+          await nativeRecordingRef.current.stopAndUnloadAsync();
+        } catch (e) {}
+        nativeRecordingRef.current = null;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync({
+        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+        isMeteringEnabled: true,
+      });
+
+      recording.setOnRecordingStatusUpdate((status) => {
+        if (!isComponentMounted.current) return;
+        if (status.isRecording && typeof status.metering === 'number') {
+          // Metering ranges from -160 dB to 0 dB
+          const norm = Math.max(0, Math.min(1, (status.metering + 50) / 50));
+          bar1.setValue(0.2 + norm * 0.7);
+          bar2.setValue(0.3 + norm * 0.9);
+          bar3.setValue(0.25 + norm * 0.85);
+          bar4.setValue(0.2 + norm * 0.65);
+        }
+      });
+
+      await recording.startAsync();
+      nativeRecordingRef.current = recording;
+      isListeningRef.current = true;
+      setLiveState('listening');
+      setErrorMessage(null);
+    } catch (e: any) {
+      console.warn('Native recording error:', e);
+      setLiveState('idle');
+      setErrorMessage('Gagal memulai perekaman audio: ' + (e.message || ''));
+    }
+  };
+
+  const stopNativeRecordingAndProcess = async () => {
+    if (!nativeRecordingRef.current) return;
+    try {
+      const recording = nativeRecordingRef.current;
+      nativeRecordingRef.current = null;
+      isListeningRef.current = false;
+      setLiveState('thinking');
+
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+      if (uri) {
+        // Read base64 audio and send to Gemini Multimodal Audio
+        const base64Data = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const userMsg = 'Halo!';
+        setUserTranscript('Suara terkirim...');
+        
+        const audioAttachment = {
+          id: Date.now().toString(),
+          name: 'audio_record.m4a',
+          type: 'audio' as const,
+          uri,
+          mimeType: 'audio/m4a',
+          base64: base64Data,
+        };
+
+        const humanVoicePrompt =
+          `[INSTRUKSI KHUSUS]: Kamu adalah ${botName}, teman ngobrol yang asik, ramah, empatik, dan santai. ` +
+          `Kamu sedang berbicara langsung lewat panggilan suara dengan user. Dengarkan audio dari user dan jawab langsung. ` +
+          `ATURAN GAYA BICARA:\n` +
+          `1. Bicara dengan bahasa Indonesia santai, akrab, dan luwes (seperti teman sebaya).\n` +
+          `2. Jawab SANGAT SINGKAT dan PADAT (cukup 1 sampai 3 kalimat saja).\n` +
+          `3. JANGAN gunakan salam formal pembuka/penutup klise ala robot (seperti "Tentu saja!", "Halo!", "Ada lagi yang bisa dibantu?").\n` +
+          `4. Langsung berikan respon yang hangat, relate, dan mengalir natural.\n` +
+          (personaPrompt ? `Persona: ${personaPrompt}` : '');
+
+        const historyWithPrompt: GeminiMessage[] = [
+          { role: 'user', parts: [{ text: humanVoicePrompt }] },
+          { role: 'model', parts: [{ text: 'Siap, aku bakal ngobrol santai dan natural banget kayak teman ngopi.' }] },
+          ...convoHistoryRef.current,
+        ];
+
+        const reply = await sendMessageToGemini(historyWithPrompt, 'Dengarkan pesan suara saya ini dan tanggapi dengan santai.', audioAttachment);
+        const cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
+
+        convoHistoryRef.current = [
+          ...convoHistoryRef.current,
+          { role: 'user', parts: [{ text: 'Pesan Suara' }] },
+          { role: 'model', parts: [{ text: cleanReply }] },
+        ];
+
+        if (onNewMessagePair) {
+          onNewMessagePair('Pesan Suara', cleanReply);
+        }
+
+        speakAiVoice(cleanReply);
+      }
+    } catch (e: any) {
+      console.warn('Native recording process error:', e);
+      setLiveState('listening');
+      startListeningSession();
+    }
+  };
 
   // -------------------------------------------------------------
   // AI QUERY & NATURAL VOICE RESPONSE
@@ -369,7 +624,7 @@ export default function GeminiLiveVoiceModal({
     if (recognitionRef.current) {
       try {
         recognitionRef.current.abort();
-      } catch (e) { }
+      } catch (e) {}
     }
 
     setLiveState('thinking');
@@ -424,7 +679,7 @@ export default function GeminiLiveVoiceModal({
 
     const speechText = cleanTextForNaturalVoice(rawText);
 
-    // Synchronized progressive word streamer in sync with audio pace (~250ms/word)
+    // Synchronized progressive word streamer in sync with audio pace
     const words = rawText.split(' ');
     let currentWordIdx = 0;
     if (streamTimerRef.current) clearInterval(streamTimerRef.current);
@@ -530,11 +785,11 @@ export default function GeminiLiveVoiceModal({
     if (Platform.OS === 'web' && typeof window !== 'undefined' && window.speechSynthesis) {
       try {
         window.speechSynthesis.cancel();
-      } catch (e) { }
+      } catch (e) {}
     }
     try {
       Speech.stop();
-    } catch (e) { }
+    } catch (e) {}
 
     isAiSpeakingRef.current = false;
     if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
@@ -558,17 +813,25 @@ export default function GeminiLiveVoiceModal({
       if (recognitionRef.current) {
         try {
           recognitionRef.current.abort();
-        } catch (e) { }
+        } catch (e) {}
       }
       setLiveState('muted');
     }
   };
 
   const handleManualTapToTalk = () => {
+    if (permissionState !== 'granted') {
+      requestMicrophonePermission(true);
+      return;
+    }
+
     if (liveState === 'speaking') {
       handleInterruptAi();
     } else if (liveState === 'muted') {
       toggleMute();
+    } else if (Platform.OS !== 'web' && liveState === 'listening') {
+      // On Native: Tap stops recording & sends to AI
+      stopNativeRecordingAndProcess();
     } else {
       setUserTranscript('');
       setLiveState('listening');
@@ -582,9 +845,18 @@ export default function GeminiLiveVoiceModal({
   };
 
   const getStatusText = () => {
+    if (permissionState === 'checking' || isRequestingPermission) {
+      return 'Memeriksa izin mikrofon...';
+    }
+    if (permissionState === 'denied' || permissionState === 'unsupported') {
+      return 'Izin mikrofon dibutuhkan';
+    }
+
     switch (liveState) {
       case 'listening':
-        return 'Mendengarkan suaramu...';
+        return Platform.OS === 'web'
+          ? 'Mendengarkan suaramu...'
+          : 'Sedang merekam suara... (Ketuk untuk kirim)';
       case 'thinking':
         return 'Menghubungkan pikiran...';
       case 'speaking':
@@ -617,194 +889,254 @@ export default function GeminiLiveVoiceModal({
           </TouchableOpacity>
         </View>
 
-        {/* Central Gemini Live Aurora Fluid Wave Visualizer */}
-        <View style={styles.visualizerContainer}>
-          {/* Ambient Glow Aura */}
-          <Animated.View
-            style={[
-              styles.ambientAura,
-              {
-                transform: [{ scale: auraScale }],
-                opacity: liveState === 'speaking' ? (isLightMode ? 0.45 : 0.7) : liveState === 'listening' ? (isLightMode ? 0.3 : 0.4) : (isLightMode ? 0.15 : 0.2),
-                backgroundColor:
-                  liveState === 'speaking'
-                    ? (theme.accentLight || '#38BDF8')
-                    : liveState === 'thinking'
-                      ? '#A855F7'
-                      : liveState === 'muted'
-                        ? '#F59E0B'
-                        : (theme.primary || '#00E5FF'),
-              },
-            ]}
-          />
-
-          {/* Gemini Live Fluid Soundwave Aurora Bars */}
-          <TouchableOpacity
-            style={styles.waveTouchable}
-            activeOpacity={0.85}
-            onPress={handleManualTapToTalk}
-          >
-            <View style={styles.auroraBarsRow}>
-              {/* Bar 1: Primary Accent */}
-              <Animated.View
-                style={[
-                  styles.auroraBar,
-                  {
-                    backgroundColor: theme.primary || '#4285F4',
-                    shadowColor: theme.primary || '#4285F4',
-                    height: bar1.interpolate({ inputRange: [0, 1.5], outputRange: [18, 120] }),
-                  },
-                ]}
-              />
-              {/* Bar 2: Cyan / Light Accent */}
-              <Animated.View
-                style={[
-                  styles.auroraBar,
-                  {
-                    backgroundColor: theme.accentLight || '#00E5FF',
-                    shadowColor: theme.accentLight || '#00E5FF',
-                    height: bar2.interpolate({ inputRange: [0, 1.5], outputRange: [24, 150] }),
-                  },
-                ]}
-              />
-              {/* Bar 3: Gemini Purple */}
-              <Animated.View
-                style={[
-                  styles.auroraBar,
-                  {
-                    backgroundColor: '#A855F7',
-                    shadowColor: '#A855F7',
-                    height: bar3.interpolate({ inputRange: [0, 1.5], outputRange: [20, 135] }),
-                  },
-                ]}
-              />
-              {/* Bar 4: Gemini Coral Pink */}
-              <Animated.View
-                style={[
-                  styles.auroraBar,
-                  {
-                    backgroundColor: '#FF5252',
-                    shadowColor: '#FF5252',
-                    height: bar4.interpolate({ inputRange: [0, 1.5], outputRange: [16, 110] }),
-                  },
-                ]}
-              />
+        {/* ========================================================================= */}
+        {/* PERMISSION REQUIRED SCREEN OR MAIN LIVE AURORA VIEW */}
+        {/* ========================================================================= */}
+        {permissionState === 'denied' || permissionState === 'unsupported' ? (
+          <View style={styles.permissionCard}>
+            <View style={[styles.permissionIconCircle, { backgroundColor: isLightMode ? '#FEE2E2' : 'rgba(239, 68, 68, 0.15)' }]}>
+              <Ionicons name="mic-off" size={36} color="#EF4444" />
             </View>
-          </TouchableOpacity>
 
-          {/* Status Label */}
-          <Text style={[styles.statusIndicatorText, { color: theme.subtext }]}>{getStatusText()}</Text>
+            <Text style={[styles.permissionTitle, { color: theme.text }]}>
+              {permissionState === 'unsupported' ? 'Mikrofon Tidak Didukung' : 'Izin Mikrofon Diperlukan'}
+            </Text>
 
-          {liveState === 'speaking' && (
+            <Text style={[styles.permissionDesc, { color: theme.subtext }]}>
+              {errorMessage ||
+                'Fitur Gemini Live membutuhkan izin akses mikrofon agar kamu dapat mengobrol langsung secara real-time lewat suara.'}
+            </Text>
+
+            {Platform.OS === 'web' && (
+              <View style={[styles.permissionHelpBox, { backgroundColor: isLightMode ? '#F1F5F9' : '#131823', borderColor: theme.border }]}>
+                <Ionicons name="information-circle-outline" size={18} color={theme.primary} />
+                <Text style={[styles.permissionHelpText, { color: theme.subtext }]}>
+                  Di browser, klik ikon gembok 🔒 di sebelah kiri URL address bar lalu aktifkan pilihan <Text style={{ fontWeight: '700', color: theme.text }}>Mikrofon</Text>.
+                </Text>
+              </View>
+            )}
+
             <TouchableOpacity
+              style={[styles.permissionGrantBtn, { backgroundColor: theme.primary }]}
+              onPress={() => requestMicrophonePermission(true)}
+              disabled={isRequestingPermission}
+              activeOpacity={0.8}
+            >
+              {isRequestingPermission ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <>
+                  <Ionicons name="mic" size={18} color="#FFFFFF" style={{ marginRight: 8 }} />
+                  <Text style={styles.permissionGrantBtnText}>Izinkan Akses Mikrofon</Text>
+                </>
+              )}
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.permissionCancelBtn, { borderColor: theme.border }]}
+              onPress={handleClose}
+              activeOpacity={0.7}
+            >
+              <Text style={[styles.permissionCancelBtnText, { color: theme.subtext }]}>Tutup</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            {/* Central Gemini Live Aurora Fluid Wave Visualizer */}
+            <View style={styles.visualizerContainer}>
+              {/* Ambient Glow Aura */}
+              <Animated.View
+                style={[
+                  styles.ambientAura,
+                  {
+                    transform: [{ scale: auraScale }],
+                    opacity:
+                      liveState === 'speaking'
+                        ? isLightMode ? 0.45 : 0.7
+                        : liveState === 'listening'
+                          ? isLightMode ? 0.3 : 0.4
+                          : isLightMode ? 0.15 : 0.2,
+                    backgroundColor:
+                      liveState === 'speaking'
+                        ? theme.accentLight || '#38BDF8'
+                        : liveState === 'thinking'
+                          ? '#A855F7'
+                          : liveState === 'muted'
+                            ? '#F59E0B'
+                            : theme.primary || '#00E5FF',
+                  },
+                ]}
+              />
+
+              {/* Gemini Live Fluid Soundwave Aurora Bars */}
+              <TouchableOpacity
+                style={styles.waveTouchable}
+                activeOpacity={0.85}
+                onPress={handleManualTapToTalk}
+              >
+                <View style={styles.auroraBarsRow}>
+                  {/* Bar 1: Primary Accent */}
+                  <Animated.View
+                    style={[
+                      styles.auroraBar,
+                      {
+                        backgroundColor: theme.primary || '#4285F4',
+                        shadowColor: theme.primary || '#4285F4',
+                        height: bar1.interpolate({ inputRange: [0, 1.5], outputRange: [18, 120] }),
+                      },
+                    ]}
+                  />
+                  {/* Bar 2: Cyan / Light Accent */}
+                  <Animated.View
+                    style={[
+                      styles.auroraBar,
+                      {
+                        backgroundColor: theme.accentLight || '#00E5FF',
+                        shadowColor: theme.accentLight || '#00E5FF',
+                        height: bar2.interpolate({ inputRange: [0, 1.5], outputRange: [24, 150] }),
+                      },
+                    ]}
+                  />
+                  {/* Bar 3: Gemini Purple */}
+                  <Animated.View
+                    style={[
+                      styles.auroraBar,
+                      {
+                        backgroundColor: '#A855F7',
+                        shadowColor: '#A855F7',
+                        height: bar3.interpolate({ inputRange: [0, 1.5], outputRange: [20, 135] }),
+                      },
+                    ]}
+                  />
+                  {/* Bar 4: Gemini Coral Pink */}
+                  <Animated.View
+                    style={[
+                      styles.auroraBar,
+                      {
+                        backgroundColor: '#FF5252',
+                        shadowColor: '#FF5252',
+                        height: bar4.interpolate({ inputRange: [0, 1.5], outputRange: [16, 110] }),
+                      },
+                    ]}
+                  />
+                </View>
+              </TouchableOpacity>
+
+              {/* Status Label */}
+              <Text style={[styles.statusIndicatorText, { color: theme.subtext }]}>{getStatusText()}</Text>
+
+              {liveState === 'speaking' && (
+                <TouchableOpacity
+                  style={[
+                    styles.interruptPill,
+                    {
+                      backgroundColor: isLightMode ? theme.card : 'rgba(255, 255, 255, 0.08)',
+                      borderColor: theme.border,
+                      borderWidth: 1,
+                    },
+                  ]}
+                  onPress={handleInterruptAi}
+                  activeOpacity={0.7}
+                >
+                  <Ionicons name="pause" size={11} color={theme.subtext} />
+                  <Text style={[styles.interruptPillText, { color: theme.subtext }]}>Ketuk untuk menyela</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+
+            {/* Floating Minimalist Captions */}
+            <View style={styles.captionsContainer}>
+              {userTranscript ? (
+                <Text
+                  style={[
+                    styles.userCaptionText,
+                    { color: isLightMode ? theme.primary : (theme.accentLight || '#38BDF8') },
+                  ]}
+                  numberOfLines={3}
+                >
+                  "{userTranscript}"
+                </Text>
+              ) : displayedAiSpeech ? (
+                <Text style={[styles.aiCaptionText, { color: theme.text }]} numberOfLines={4}>
+                  {displayedAiSpeech}
+                </Text>
+              ) : null}
+
+              {errorMessage && <Text style={styles.errorCaptionText}>{errorMessage}</Text>}
+            </View>
+
+            {/* Gemini Live Sleek Floating Controls Dock */}
+            <View
               style={[
-                styles.interruptPill,
+                styles.bottomDock,
                 {
-                  backgroundColor: isLightMode ? theme.card : 'rgba(255, 255, 255, 0.08)',
+                  backgroundColor: isLightMode ? theme.card : 'rgba(19, 24, 35, 0.85)',
                   borderColor: theme.border,
                   borderWidth: 1,
                 },
               ]}
-              onPress={handleInterruptAi}
-              activeOpacity={0.7}
             >
-              <Ionicons name="pause" size={11} color={theme.subtext} />
-              <Text style={[styles.interruptPillText, { color: theme.subtext }]}>Ketuk untuk menyela</Text>
-            </TouchableOpacity>
-          )}
-        </View>
+              {/* Mic Toggle */}
+              <TouchableOpacity
+                style={[
+                  styles.dockBtn,
+                  {
+                    backgroundColor: isLightMode ? theme.cardInner : '#1E2536',
+                    borderColor: theme.border,
+                    borderWidth: 1,
+                  },
+                  isMicMuted && styles.dockBtnMuted,
+                ]}
+                onPress={toggleMute}
+                activeOpacity={0.8}
+                accessibilityLabel="Mute Mikrofon"
+              >
+                <Ionicons
+                  name={isMicMuted ? 'mic-off' : 'mic'}
+                  size={22}
+                  color={isMicMuted ? '#EF4444' : isLightMode ? theme.text : '#FFFFFF'}
+                />
+              </TouchableOpacity>
 
-        {/* Floating Minimalist Captions */}
-        <View style={styles.captionsContainer}>
-          {userTranscript ? (
-            <Text
-              style={[
-                styles.userCaptionText,
-                { color: isLightMode ? theme.primary : (theme.accentLight || '#38BDF8') },
-              ]}
-              numberOfLines={3}
-            >
-              "{userTranscript}"
-            </Text>
-          ) : displayedAiSpeech ? (
-            <Text style={[styles.aiCaptionText, { color: theme.text }]} numberOfLines={4}>
-              {displayedAiSpeech}
-            </Text>
-          ) : null}
+              {/* End Call Button */}
+              <TouchableOpacity
+                style={styles.dockEndCallBtn}
+                onPress={handleClose}
+                activeOpacity={0.8}
+                accessibilityLabel="Akhiri Panggilan"
+              >
+                <Ionicons name="call" size={24} color="#FFFFFF" style={{ transform: [{ rotate: '135deg' }] }} />
+              </TouchableOpacity>
 
-          {errorMessage && <Text style={styles.errorCaptionText}>{errorMessage}</Text>}
-        </View>
-
-        {/* Gemini Live Sleek Floating Controls Dock */}
-        <View
-          style={[
-            styles.bottomDock,
-            {
-              backgroundColor: isLightMode ? theme.card : 'rgba(19, 24, 35, 0.85)',
-              borderColor: theme.border,
-              borderWidth: 1,
-            },
-          ]}
-        >
-          {/* Mic Toggle */}
-          <TouchableOpacity
-            style={[
-              styles.dockBtn,
-              {
-                backgroundColor: isLightMode ? theme.cardInner : '#1E2536',
-                borderColor: theme.border,
-                borderWidth: 1,
-              },
-              isMicMuted && styles.dockBtnMuted,
-            ]}
-            onPress={toggleMute}
-            activeOpacity={0.8}
-            accessibilityLabel="Mute Mikrofon"
-          >
-            <Ionicons
-              name={isMicMuted ? 'mic-off' : 'mic'}
-              size={22}
-              color={isMicMuted ? '#EF4444' : isLightMode ? theme.text : '#FFFFFF'}
-            />
-          </TouchableOpacity>
-
-          {/* End Call Button */}
-          <TouchableOpacity
-            style={styles.dockEndCallBtn}
-            onPress={handleClose}
-            activeOpacity={0.8}
-            accessibilityLabel="Akhiri Panggilan"
-          >
-            <Ionicons name="call" size={24} color="#FFFFFF" style={{ transform: [{ rotate: '135deg' }] }} />
-          </TouchableOpacity>
-
-          {/* Interrupt / Action Button */}
-          <TouchableOpacity
-            style={[
-              styles.dockBtn,
-              {
-                backgroundColor: isLightMode ? theme.cardInner : '#1E2536',
-                borderColor: theme.border,
-                borderWidth: 1,
-              },
-            ]}
-            onPress={() => {
-              if (liveState === 'speaking') {
-                handleInterruptAi();
-              } else if (displayedAiSpeech) {
-                speakAiVoice(displayedAiSpeech);
-              }
-            }}
-            activeOpacity={0.8}
-            accessibilityLabel="Ulangi Ucapan"
-          >
-            <Ionicons
-              name={liveState === 'speaking' ? 'hand-left' : 'refresh'}
-              size={20}
-              color={isLightMode ? theme.text : '#FFFFFF'}
-            />
-          </TouchableOpacity>
-        </View>
+              {/* Interrupt / Action Button */}
+              <TouchableOpacity
+                style={[
+                  styles.dockBtn,
+                  {
+                    backgroundColor: isLightMode ? theme.cardInner : '#1E2536',
+                    borderColor: theme.border,
+                    borderWidth: 1,
+                  },
+                ]}
+                onPress={() => {
+                  if (liveState === 'speaking') {
+                    handleInterruptAi();
+                  } else if (displayedAiSpeech) {
+                    speakAiVoice(displayedAiSpeech);
+                  }
+                }}
+                activeOpacity={0.8}
+                accessibilityLabel="Ulangi Ucapan"
+              >
+                <Ionicons
+                  name={liveState === 'speaking' ? 'hand-left' : 'refresh'}
+                  size={20}
+                  color={isLightMode ? theme.text : '#FFFFFF'}
+                />
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
       </SafeAreaView>
     </Modal>
   );
@@ -970,5 +1302,76 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.5,
     shadowRadius: 14,
     elevation: 8,
+  },
+  // Permission Card Styles
+  permissionCard: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 20,
+    maxWidth: 420,
+    alignSelf: 'center',
+    width: '100%',
+  },
+  permissionIconCircle: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 20,
+  },
+  permissionTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    marginBottom: 10,
+    textAlign: 'center',
+  },
+  permissionDesc: {
+    fontSize: 14,
+    lineHeight: 22,
+    textAlign: 'center',
+    marginBottom: 20,
+  },
+  permissionHelpBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 24,
+    width: '100%',
+  },
+  permissionHelpText: {
+    flex: 1,
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  permissionGrantBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 14,
+    borderRadius: 16,
+    marginBottom: 12,
+  },
+  permissionGrantBtnText: {
+    color: '#FFFFFF',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  permissionCancelBtn: {
+    width: '100%',
+    paddingVertical: 12,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  permissionCancelBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
   },
 });

@@ -1,9 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
 import {
   Modal, View, Text, TextInput, TouchableOpacity, StyleSheet,
-  TouchableWithoutFeedback, Animated, Platform, ActivityIndicator, ScrollView
+  TouchableWithoutFeedback, Animated, Platform, ActivityIndicator, ScrollView, Alert
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { Audio } from 'expo-av';
+import * as FileSystem from 'expo-file-system';
 import { FlashcardItem } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
@@ -41,11 +43,14 @@ export default function Flashcard3DModal({
   // Active Recall state
   const [userAnswerText, setUserAnswerText] = useState('');
   const [isRecordingVoice, setIsRecordingVoice] = useState(false);
+  const [isProcessingVoice, setIsProcessingVoice] = useState(false);
+  const [voiceErrorMessage, setVoiceErrorMessage] = useState<string | null>(null);
   const [evaluatingAnswer, setEvaluatingAnswer] = useState(false);
   const [evaluationResult, setEvaluationResult] = useState<AiEvaluationResult | null>(null);
 
   // Speech Recognition & Scroll references
   const recognitionRef = useRef<any>(null);
+  const nativeRecordingRef = useRef<Audio.Recording | null>(null);
   const scrollViewRef = useRef<ScrollView>(null);
   const autoAdvanceTimerRef = useRef<any>(null);
 
@@ -211,40 +216,117 @@ export default function Flashcard3DModal({
     }
   };
 
-  // Voice Input Speech Recognition Handler (Web & Native)
-  const toggleVoiceRecording = () => {
-    if (typeof window === 'undefined') return;
+  // Stop all audio & voice recognitions
+  const stopAllVoice = async () => {
+    setIsRecordingVoice(false);
+    if (recognitionRef.current) {
+      try {
+        recognitionRef.current.onresult = null;
+        recognitionRef.current.onerror = null;
+        recognitionRef.current.onend = null;
+        recognitionRef.current.stop();
+      } catch (e) {}
+      recognitionRef.current = null;
+    }
+    if (nativeRecordingRef.current) {
+      try {
+        await nativeRecordingRef.current.stopAndUnloadAsync();
+      } catch (e) {}
+      nativeRecordingRef.current = null;
+    }
+  };
 
-    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-    if (!SpeechRecognition) {
-      alert('Peramban Anda belum mendukung Speech Recognition. Anda dapat mengetik jawaban secara langsung.');
+  // Voice Input Speech Recognition Handler (Web & Native)
+  const toggleVoiceRecording = async () => {
+    setVoiceErrorMessage(null);
+
+    // If currently recording, stop it
+    if (isRecordingVoice) {
+      if (Platform.OS === 'web') {
+        if (recognitionRef.current) {
+          try {
+            recognitionRef.current.stop();
+          } catch (e) {}
+        }
+        setIsRecordingVoice(false);
+      } else {
+        // Native: stop recording and process audio with Gemini
+        await stopNativeRecordingAndTranscribe();
+      }
       return;
     }
 
-    if (isRecordingVoice) {
-      if (recognitionRef.current) {
-        recognitionRef.current.stop();
+    // 1. WEB PLATFORM: Request mic permission & start Web Speech Recognition
+    if (Platform.OS === 'web') {
+      if (typeof window === 'undefined') return;
+
+      // First, request microphone permission via getUserMedia
+      if (navigator?.mediaDevices?.getUserMedia) {
+        try {
+          const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+          // Immediately release tracks
+          stream.getTracks().forEach((track) => track.stop());
+        } catch (err: any) {
+          console.warn('Web Mic permission error:', err);
+          const msg = err.name === 'NotAllowedError' || err.name === 'PermissionDeniedError'
+            ? 'Izin mikrofon diblokir. Klik ikon gembok 🔒 di bilah alamat browser lalu ubah izin Mikrofon menjadi "Izinkan".'
+            : 'Gagal mengakses mikrofon: ' + (err.message || 'Izin ditolak');
+          setVoiceErrorMessage(msg);
+          if (Platform.OS === 'web' && typeof alert !== 'undefined') {
+            alert(msg);
+          }
+          return;
+        }
       }
-      setIsRecordingVoice(false);
-    } else {
+
+      const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+      if (!SpeechRecognition) {
+        const unsupportedMsg = 'Peramban ini belum mendukung Web Speech Recognition. Gunakan Google Chrome atau Edge, atau ketik langsung jawabanmu.';
+        setVoiceErrorMessage(unsupportedMsg);
+        alert(unsupportedMsg);
+        return;
+      }
+
       try {
         const recognition = new SpeechRecognition();
         recognition.lang = 'id-ID'; // Bahasa Indonesia
         recognition.continuous = true;
         recognition.interimResults = true;
 
+        recognition.onstart = () => {
+          setIsRecordingVoice(true);
+          setVoiceErrorMessage(null);
+        };
+
         recognition.onresult = (event: any) => {
-          let transcript = '';
+          let interim = '';
+          let final = '';
+
           for (let i = event.resultIndex; i < event.results.length; i++) {
-            transcript += event.results[i][0].transcript;
+            const transcript = event.results[i][0].transcript;
+            if (event.results[i].isFinal) {
+              final += transcript;
+            } else {
+              interim += transcript;
+            }
           }
-          if (transcript.trim()) {
-            setUserAnswerText(prev => (prev ? `${prev} ${transcript.trim()}` : transcript.trim()));
+
+          const currentChunk = (final || interim).trim();
+          if (currentChunk) {
+            setUserAnswerText((prev) => {
+              const base = prev ? prev.trim() : '';
+              if (!base) return currentChunk;
+              if (base.endsWith(currentChunk) || currentChunk.startsWith(base)) return currentChunk;
+              return `${base} ${currentChunk}`;
+            });
           }
         };
 
         recognition.onerror = (err: any) => {
           console.log('Speech recognition error:', err);
+          if (err.error === 'not-allowed') {
+            setVoiceErrorMessage('Izin mikrofon belum aktif. Izinkan akses mikrofon di browser.');
+          }
           setIsRecordingVoice(false);
         };
 
@@ -255,10 +337,91 @@ export default function Flashcard3DModal({
         recognitionRef.current = recognition;
         recognition.start();
         setIsRecordingVoice(true);
-      } catch (e) {
+      } catch (e: any) {
         console.log('Error starting speech recognition:', e);
+        setVoiceErrorMessage('Gagal memulai pengenalan suara: ' + (e.message || ''));
         setIsRecordingVoice(false);
       }
+      return;
+    }
+
+    // 2. NATIVE PLATFORMS (Android & iOS): Request permission & start Audio.Recording
+    try {
+      const { status } = await Audio.requestPermissionsAsync();
+      if (status !== 'granted') {
+        const msg = 'Izin mikrofon belum diberikan. Buka Pengaturan HP > Aplikasi > Izin untuk mengaktifkan mikrofon.';
+        setVoiceErrorMessage(msg);
+        Alert.alert('Izin Mikrofon Diperlukan', msg);
+        return;
+      }
+
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: true,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: true,
+      });
+
+      const recording = new Audio.Recording();
+      await recording.prepareToRecordAsync(Audio.RecordingOptionsPresets.HIGH_QUALITY);
+      await recording.startAsync();
+
+      nativeRecordingRef.current = recording;
+      setIsRecordingVoice(true);
+      setVoiceErrorMessage(null);
+    } catch (e: any) {
+      console.warn('Native recording error:', e);
+      setVoiceErrorMessage('Gagal merekam suara: ' + (e.message || ''));
+      setIsRecordingVoice(false);
+    }
+  };
+
+  const stopNativeRecordingAndTranscribe = async () => {
+    if (!nativeRecordingRef.current) {
+      setIsRecordingVoice(false);
+      return;
+    }
+
+    setIsRecordingVoice(false);
+    setIsProcessingVoice(true);
+    setVoiceErrorMessage(null);
+
+    try {
+      const recording = nativeRecordingRef.current;
+      nativeRecordingRef.current = null;
+      await recording.stopAndUnloadAsync();
+      const uri = recording.getURI();
+
+      if (uri) {
+        const base64Data = await FileSystem.readAsStringAsync(uri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        const audioAttachment = {
+          id: Date.now().toString(),
+          name: 'flashcard_answer.m4a',
+          type: 'audio' as const,
+          uri,
+          mimeType: 'audio/m4a',
+          base64: base64Data,
+        };
+
+        const transcribePrompt =
+          'Transkripsikan audio rekaman ini secara akurat ke dalam teks bahasa Indonesia. ' +
+          'HANYA keluarkan teks hasil ucapan pembicara tanpa tanda kutip, tanpa kata pengantar, dan tanpa komentar apapun.';
+
+        const transcription = await sendMessageToGemini([], transcribePrompt, audioAttachment);
+        const cleanTrans = (transcription || '').replace(/^["']|["']$/g, '').trim();
+
+        if (cleanTrans) {
+          setUserAnswerText((prev) => (prev ? `${prev.trim()} ${cleanTrans}` : cleanTrans));
+        }
+      }
+    } catch (err: any) {
+      console.warn('Voice transcription error:', err);
+      setVoiceErrorMessage('Gagal mentranskripsikan suara: ' + (err.message || ''));
+    } finally {
+      setIsProcessingVoice(false);
     }
   };
 
@@ -462,10 +625,54 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
               {studyMode === 'flip' ? (
                 currentCard ? (
                   <View style={styles.cardContainer}>
+                    {/* Layer 2 Tumpukan Kartu Belakang (Deck Depth - Lapisan Terbawah) */}
+                    {cards.length > currentIndex + 2 && (
+                      <View
+                        style={[
+                          styles.cardDeckLayer,
+                          {
+                            top: 10,
+                            bottom: -10,
+                            left: 14,
+                            right: 14,
+                            backgroundColor: isLightMode ? '#E2E8F0' : theme.card,
+                            borderColor: theme.border,
+                            opacity: isLightMode ? 0.6 : 0.45,
+                            zIndex: 1,
+                            ...(Platform.OS === 'web' ? {
+                              boxShadow: isLightMode ? '0 4px 12px rgba(0,0,0,0.06)' : '0 4px 14px rgba(0,0,0,0.45)',
+                            } : {}),
+                          }
+                        ]}
+                      />
+                    )}
+
+                    {/* Layer 1 Tumpukan Kartu Belakang (Deck Depth - Lapisan Tengah) */}
+                    {cards.length > currentIndex + 1 && (
+                      <View
+                        style={[
+                          styles.cardDeckLayer,
+                          {
+                            top: 5,
+                            bottom: -5,
+                            left: 7,
+                            right: 7,
+                            backgroundColor: isLightMode ? '#F1F5F9' : theme.cardInner,
+                            borderColor: theme.border,
+                            opacity: isLightMode ? 0.85 : 0.7,
+                            zIndex: 2,
+                            ...(Platform.OS === 'web' ? {
+                              boxShadow: isLightMode ? '0 6px 16px rgba(0,0,0,0.08)' : '0 6px 18px rgba(0,0,0,0.5)',
+                            } : {}),
+                          }
+                        ]}
+                      />
+                    )}
+
                     <TouchableOpacity
                       activeOpacity={0.92}
                       onPress={flipCard}
-                      style={styles.flipTouchWrap}
+                      style={[styles.flipTouchWrap, { zIndex: 5 }]}
                     >
                       {/* Front Face of Card */}
                       <Animated.View
@@ -476,11 +683,21 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
                             backgroundColor: isLightMode ? '#FFFFFF' : theme.cardInner,
                             borderColor: theme.border,
                             zIndex: isFlipped ? 0 : 10,
+                            shadowColor: isLightMode ? '#0F172A' : '#000000',
+                            shadowOffset: { width: 0, height: 8 },
+                            shadowOpacity: isLightMode ? 0.12 : 0.55,
+                            shadowRadius: 16,
+                            elevation: 8,
                             transform: [
                               { perspective: 1200 },
                               { rotateY: frontInterpolate },
                             ],
                             opacity: frontOpacity,
+                            ...(Platform.OS === 'web' ? {
+                              boxShadow: isLightMode
+                                ? '0 10px 25px -3px rgba(15, 23, 42, 0.1), 0 4px 6px -2px rgba(15, 23, 42, 0.05)'
+                                : '0 14px 30px -4px rgba(0, 0, 0, 0.7), 0 0 1px 1px rgba(255, 255, 255, 0.05)',
+                            } : {}),
                           }
                         ]}
                       >
@@ -538,11 +755,21 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
                             backgroundColor: isLightMode ? '#F8FAFC' : theme.cardInner,
                             borderColor: theme.accent,
                             zIndex: isFlipped ? 10 : 0,
+                            shadowColor: theme.accent || (isLightMode ? '#10B981' : '#34D399'),
+                            shadowOffset: { width: 0, height: 8 },
+                            shadowOpacity: isLightMode ? 0.2 : 0.45,
+                            shadowRadius: 18,
+                            elevation: 8,
                             transform: [
                               { perspective: 1200 },
                               { rotateY: backInterpolate },
                             ],
                             opacity: backOpacity,
+                            ...(Platform.OS === 'web' ? {
+                              boxShadow: isLightMode
+                                ? `0 10px 25px -3px rgba(15, 23, 42, 0.1), 0 0 20px -2px ${theme.accent}33`
+                                : `0 14px 30px -4px rgba(0, 0, 0, 0.7), 0 0 24px -2px ${theme.accent}4D`,
+                            } : {}),
                           }
                         ]}
                       >
@@ -585,7 +812,23 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
                 currentCard ? (
                   <ScrollView ref={scrollViewRef} style={styles.recallScrollView} showsVerticalScrollIndicator={false}>
                     {/* Question Card */}
-                    <View style={[styles.recallQuestionCard, { backgroundColor: isLightMode ? '#F8FAFC' : theme.cardInner, borderColor: theme.border }]}>
+                    <View style={[
+                      styles.recallQuestionCard,
+                      {
+                        backgroundColor: isLightMode ? '#F8FAFC' : theme.cardInner,
+                        borderColor: theme.border,
+                        shadowColor: isLightMode ? '#0F172A' : '#000',
+                        shadowOffset: { width: 0, height: 4 },
+                        shadowOpacity: isLightMode ? 0.08 : 0.4,
+                        shadowRadius: 10,
+                        elevation: 4,
+                        ...(Platform.OS === 'web' ? {
+                          boxShadow: isLightMode
+                            ? '0 4px 12px rgba(15, 23, 42, 0.06)'
+                            : '0 6px 16px rgba(0, 0, 0, 0.4)',
+                        } : {}),
+                      }
+                    ]}>
                       <View style={styles.cardFaceHeader}>
                         <View style={[styles.cardTagBadge, { backgroundColor: theme.accentBg }]}>
                           <Text style={[styles.cardTagText, { color: theme.accentLight }]}>Soal Ujian Lisan AI</Text>
@@ -601,6 +844,37 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
 
                     {/* Voice & Text Answer Input Box */}
                     <View style={[styles.answerInputWrap, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                      {isRecordingVoice && (
+                        <View style={[styles.recordingLiveBanner, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1619', borderColor: '#EF4444' }]}>
+                          <Animated.View style={{ transform: [{ scale: micPulse }] }}>
+                            <Ionicons name="radio" size={14} color="#EF4444" />
+                          </Animated.View>
+                          <Text style={[styles.recordingLiveBannerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>
+                            {Platform.OS === 'web'
+                              ? 'Mendengarkan suaramu... Bicara sekarang (otomatis tertulis di bawah)'
+                              : 'Sedang merekam suara... Ketuk tombol mikrofon lagi setelah selesai bicara'}
+                          </Text>
+                        </View>
+                      )}
+
+                      {isProcessingVoice && (
+                        <View style={[styles.recordingLiveBanner, { backgroundColor: isLightMode ? '#EFF6FF' : '#172554', borderColor: '#3B82F6' }]}>
+                          <ActivityIndicator size="small" color={theme.primary} />
+                          <Text style={[styles.recordingLiveBannerText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>
+                            AI sedang mengubah suara menjadi teks...
+                          </Text>
+                        </View>
+                      )}
+
+                      {voiceErrorMessage && (
+                        <View style={[styles.recordingErrorBanner, { backgroundColor: isLightMode ? '#FEF2F2' : '#2D1619', borderColor: '#FECACA' }]}>
+                          <Ionicons name="alert-circle" size={14} color="#EF4444" />
+                          <Text style={[styles.recordingErrorBannerText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>
+                            {voiceErrorMessage}
+                          </Text>
+                        </View>
+                      )}
+
                       <TextInput
                         style={[styles.answerInput, { color: theme.text }]}
                         placeholder="Ketik jawabanmu di sini, atau tekan tombol mikrofon untuk berbicara..."
@@ -616,37 +890,54 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
                         <TouchableOpacity
                           style={[
                             styles.voiceMicBtn,
-                            isRecordingVoice && { backgroundColor: '#DC2626', borderColor: '#EF4444' }
+                            isRecordingVoice && { backgroundColor: '#DC2626', borderColor: '#EF4444' },
+                            isProcessingVoice && { opacity: 0.6 }
                           ]}
                           onPress={toggleVoiceRecording}
+                          disabled={isProcessingVoice}
                           activeOpacity={0.8}
                         >
                           <Animated.View style={{ transform: [{ scale: micPulse }] }}>
-                            <Ionicons name={isRecordingVoice ? 'mic' : 'mic-outline'} size={16} color={isRecordingVoice ? '#FFFFFF' : theme.accentLight} />
+                            <Ionicons
+                              name={isRecordingVoice ? 'stop-circle' : 'mic'}
+                              size={16}
+                              color={isRecordingVoice ? '#FFFFFF' : theme.accentLight}
+                            />
                           </Animated.View>
                           <Text style={[styles.voiceMicText, { color: isRecordingVoice ? '#FFFFFF' : theme.accentLight }]}>
-                            {isRecordingVoice ? 'Mendengarkan...' : 'Jawab via Suara'}
+                            {isRecordingVoice ? 'Selesai Bicara' : 'Jawab via Suara'}
                           </Text>
                         </TouchableOpacity>
 
-                        <TouchableOpacity
-                          style={[
-                            styles.evalBtn,
-                            { backgroundColor: theme.primary },
-                            (!userAnswerText.trim() || evaluatingAnswer) && { opacity: 0.5 }
-                          ]}
-                          onPress={handleEvaluateAnswer}
-                          disabled={!userAnswerText.trim() || evaluatingAnswer}
-                        >
-                          {evaluatingAnswer ? (
-                            <ActivityIndicator size="small" color="#FFFFFF" />
-                          ) : (
-                            <>
-                              <Ionicons name="sparkles" size={14} color="#FFFFFF" />
-                              <Text style={styles.evalBtnText}>Periksa Jawaban</Text>
-                            </>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          {userAnswerText.trim().length > 0 && !evaluatingAnswer && (
+                            <TouchableOpacity
+                              style={[styles.clearTextBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+                              onPress={() => setUserAnswerText('')}
+                            >
+                              <Ionicons name="trash-outline" size={13} color={theme.subtext} />
+                            </TouchableOpacity>
                           )}
-                        </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[
+                              styles.evalBtn,
+                              { backgroundColor: theme.primary },
+                              (!userAnswerText.trim() || evaluatingAnswer || isRecordingVoice) && { opacity: 0.5 }
+                            ]}
+                            onPress={handleEvaluateAnswer}
+                            disabled={!userAnswerText.trim() || evaluatingAnswer || isRecordingVoice}
+                          >
+                            {evaluatingAnswer ? (
+                              <ActivityIndicator size="small" color="#FFFFFF" />
+                            ) : (
+                              <>
+                                <Ionicons name="sparkles" size={14} color="#FFFFFF" />
+                                <Text style={styles.evalBtnText}>Periksa Jawaban</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
 
@@ -954,6 +1245,18 @@ const styles = StyleSheet.create({
   cardContainer: {
     height: 260,
     width: '100%',
+    position: 'relative',
+    marginBottom: 12,
+  },
+  cardDeckLayer: {
+    position: 'absolute',
+    borderRadius: 18,
+    borderWidth: 1,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.1,
+    shadowRadius: 8,
+    elevation: 3,
   },
   flipTouchWrap: {
     flex: 1,
@@ -971,11 +1274,6 @@ const styles = StyleSheet.create({
     padding: 18,
     justifyContent: 'space-between',
     backfaceVisibility: 'hidden',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.15,
-    shadowRadius: 14,
-    elevation: 6,
   },
   flipCardBack: {},
   cardFaceHeader: {
@@ -1088,6 +1386,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'space-between',
     gap: 8,
+  },
+  recordingLiveBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  recordingLiveBannerText: {
+    flex: 1,
+    fontSize: 11.5,
+    fontWeight: '600',
+    lineHeight: 16,
+  },
+  recordingErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 8,
+  },
+  recordingErrorBannerText: {
+    flex: 1,
+    fontSize: 11.5,
+    fontWeight: '500',
+    lineHeight: 16,
+  },
+  clearTextBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   voiceMicBtn: {
     flexDirection: 'row',

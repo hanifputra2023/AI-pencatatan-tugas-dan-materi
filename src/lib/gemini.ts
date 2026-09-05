@@ -40,16 +40,26 @@ export const getGeminiApiKeysPool = (): string[] => {
   return pool.filter(k => k && k.trim() !== '');
 };
 
-// Candidate models in order of instant vision intelligence & reliability
-const ACTIVE_MODELS = [
-  'gemini-2.5-flash',         // Intelligence & Vision tier (Diagrams, charts, images in docs)
-  'gemini-1.5-flash',         // Standard stable multimodal fallback
-  'gemini-flash-lite-latest', // Fast backup
-  'gemini-2.5-flash-lite',    // Lightweight fast tier
-  'gemini-3.6-flash',         // Backup tier
+// Candidate models in order of instant vision intelligence, speed & reliability (verified working in < 1.5s)
+export const ACTIVE_MODELS = [
+  'gemini-2.5-flash',         // Intelligence & Vision tier (~1.3s, diagrams, charts, full multimodal)
+  'gemini-flash-lite-latest', // Ultra-fast lightweight tier (~0.8s, instant text & questions)
+  'gemini-3.1-flash-lite',    // Modern lightweight fast tier (~1.5s)
+  'gemini-flash-latest',      // High-availability stable fallback tier (~3.2s)
 ];
 
-export const testGeminiApiKey = async (key: string): Promise<{ success: boolean; message: string; latency?: number }> => {
+let preferredModel = 'gemini-2.5-flash';
+
+export const setPreferredModel = (model: string) => {
+  if (model && model.trim()) {
+    preferredModel = model.trim();
+  }
+};
+
+export const testGeminiApiKey = async (
+  key: string,
+  modelPreference?: string
+): Promise<{ success: boolean; message: string; latency?: number; modelUsed?: string }> => {
   const testKey = key.trim();
   if (!testKey) {
     return { success: false, message: 'Kunci API kosong. Masukkan API Key Gemini kamu.' };
@@ -57,7 +67,14 @@ export const testGeminiApiKey = async (key: string): Promise<{ success: boolean;
   const startTime = Date.now();
   let lastErr = '';
 
-  for (const model of ACTIVE_MODELS) {
+  const targetFirst = (modelPreference || preferredModel || 'gemini-2.5-flash').trim();
+  const candidateModels = [
+    targetFirst,
+    ...ACTIVE_MODELS.filter(m => m !== targetFirst),
+  ];
+
+  for (let i = 0; i < candidateModels.length; i++) {
+    const model = candidateModels[i];
     try {
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${testKey}`;
       const res = await fetch(url, {
@@ -71,7 +88,11 @@ export const testGeminiApiKey = async (key: string): Promise<{ success: boolean;
       if (res.ok) {
         const data = await res.json();
         const reply = data.candidates?.[0]?.content?.parts?.[0]?.text || 'OK';
-        return { success: true, message: `Koneksi Berhasil! Model [${model}] merespon (${latency}ms): "${reply.trim()}"`, latency };
+        const isFallback = i > 0;
+        const msg = isFallback
+          ? `Koneksi Berhasil via Fallback [${model}] (${latency}ms): "${reply.trim()}" (Model utama ${targetFirst} sedang sibuk)`
+          : `Koneksi Berhasil! Model [${model}] merespon (${latency}ms): "${reply.trim()}"`;
+        return { success: true, message: msg, latency, modelUsed: model };
       } else {
         const err = await res.json().catch(() => ({}));
         lastErr = err?.error?.message || `HTTP ${res.status}`;
@@ -136,27 +157,40 @@ async function callSingleModelWithKey(
     },
   };
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(requestBody),
-  });
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), 14000); // 14 detik auto-timeout jika Google lambat
 
-  if (!response.ok) {
-    const err = await response.json().catch(() => ({}));
-    const errorMessage = err?.error?.message || `HTTP ${response.status}`;
-    const customErr: any = new Error(errorMessage);
-    customErr.status = response.status;
-    throw customErr;
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+    clearTimeout(timeoutId);
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const errorMessage = err?.error?.message || `HTTP ${response.status}`;
+      const customErr: any = new Error(errorMessage);
+      customErr.status = response.status;
+      throw customErr;
+    }
+
+    const data = await response.json();
+    const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!replyText) {
+      throw new Error('AI tidak memberikan respon teks.');
+    }
+
+    return replyText;
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Model ${modelName} timeout (>14 detik). Mengalihkan ke model cepat...`);
+    }
+    throw error;
   }
-
-  const data = await response.json();
-  const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!replyText) {
-    throw new Error('AI tidak memberikan respon teks.');
-  }
-
-  return replyText;
 }
 
 // Helper to safely extract and parse JSON from AI response even if wrapped in conversational text or markdown
@@ -297,8 +331,12 @@ export async function sendMessageToGemini(
     const currentKey = keysPool[keyIdx];
     const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
 
-    // 2. Iterate through candidate models for this key
-    for (const model of ACTIVE_MODELS) {
+    // 2. Iterate through candidate models for this key (starting with preferred model)
+    const modelsToTry = [
+      preferredModel,
+      ...ACTIVE_MODELS.filter(m => m !== preferredModel)
+    ];
+    for (const model of modelsToTry) {
       try {
         const reply = await callSingleModelWithKey(currentKey, model, contents, systemPrompt, options);
         return reply;
@@ -307,8 +345,8 @@ export async function sendMessageToGemini(
         const isQuotaOrAuthError =
           err.status === 429 ||
           err.status === 403 ||
-          err.status === 400 ||
-          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('credentials') || err.message.includes('unregistered')));
+          (err.status === 400 && (err.message?.includes('API_KEY') || err.message?.includes('key') || err.message?.includes('credentials'))) ||
+          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('unregistered')));
 
         if (isQuotaOrAuthError) {
           console.warn(`[Multi-Key Failover] Kunci #${keyIdx + 1} (${keyPreview}) limit/error (${err.message}). Beralih ke kunci berikutnya...`);

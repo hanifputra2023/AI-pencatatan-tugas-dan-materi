@@ -11,7 +11,7 @@ import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
-import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey, setInMemoryApiKeys } from '../lib/gemini';
+import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey, setInMemoryApiKeys, setPreferredModel } from '../lib/gemini';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import { PersonaPreset, DEFAULT_PERSONAS, DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
@@ -77,7 +77,7 @@ export default function AdminScreen() {
     refreshMoodsAndSettings,
   } = useMoods();
 
-  const { isDesktop, isTablet } = useResponsive();
+  const { isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
 
   const [activeTab, setActiveTab] = useState<'stats' | 'gamification' | 'rewards' | 'ai' | 'branding' | 'features' | 'reminders' | 'moods' | 'broadcast' | 'users'>('stats');
@@ -146,6 +146,8 @@ export default function AdminScreen() {
   const [testingKeyIdx, setTestingKeyIdx] = useState<number | null>(null);
   const [keyTestResults, setKeyTestResults] = useState<Record<number, { success: boolean; message: string; latency?: number }>>({});
   const [savingKeysPool, setSavingKeysPool] = useState(false);
+  const [keysPage, setKeysPage] = useState(1);
+  const [keysPerPage, setKeysPerPage] = useState<number>(5);
 
   // AI Configuration State
   const [botNameInput, setBotNameInput] = useState(aiBotName || 'Ara');
@@ -740,6 +742,7 @@ export default function AdminScreen() {
     const updated = [...keysPool, trimmed];
     setKeysPool(updated);
     setNewKeyInput('');
+    setKeysPage(Math.ceil(updated.length / keysPerPage));
   };
 
   const handleRemoveKeyFromPool = (index: number) => {
@@ -752,6 +755,8 @@ export default function AdminScreen() {
         const updatedResults = { ...keyTestResults };
         delete updatedResults[index];
         setKeyTestResults(updatedResults);
+        const maxPage = Math.max(1, Math.ceil(updated.length / keysPerPage));
+        setKeysPage(p => Math.min(p, maxPage));
       },
       'Hapus'
     );
@@ -760,7 +765,7 @@ export default function AdminScreen() {
   const handleTestKeyInPool = async (key: string, index: number) => {
     setTestingKeyIdx(index);
     try {
-      const res = await testGeminiApiKey(key);
+      const res = await testGeminiApiKey(key, aiModelSelected);
       setKeyTestResults(prev => ({ ...prev, [index]: res }));
     } catch (e: any) {
       setKeyTestResults(prev => ({ ...prev, [index]: { success: false, message: e.message || 'Koneksi gagal' } }));
@@ -1106,12 +1111,12 @@ showAlert('Gagal', 'Gagal mereset logo.');
                 </TouchableOpacity>
               )}
 
-              <View>
-                <Text style={[styles.commandTitle, { color: theme.text }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.commandTitle, { color: theme.text }]} numberOfLines={1}>
                   {NAV_ITEMS.find(n => n.key === activeTab)?.label}
                 </Text>
-                <Text style={[styles.commandSub, { color: theme.subtext }]}>
-                  Pusat Konfigurasi Sistem, Model AI & Data Mahasiswa
+                <Text style={[styles.commandSub, { color: theme.subtext }]} numberOfLines={1}>
+                  {isWide ? 'Pusat Konfigurasi Sistem, Model AI & Data Mahasiswa' : 'Pusat Kontrol Superadmin'}
                 </Text>
               </View>
             </View>
@@ -1136,7 +1141,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
           <ScrollView
             style={styles.canvasScroll}
             showsVerticalScrollIndicator={false}
-            contentContainerStyle={styles.canvasScrollContent}
+            contentContainerStyle={[styles.canvasScrollContent, { paddingHorizontal: isMobile ? (isSmallPhone ? 10 : 14) : 18 }]}
           >
             
             {/* ========================================================================= */}
@@ -1245,8 +1250,9 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <TouchableOpacity
                       onPress={() => setActiveTab('broadcast')}
                       style={{
-                        flex: 1,
-                        minWidth: 140,
+                        width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%',
+                        minWidth: isSmallPhone ? '100%' : isMobile ? 140 : 180,
+                        flexGrow: 1,
                         backgroundColor: theme.card,
                         padding: 12,
                         borderRadius: 12,
@@ -1269,8 +1275,9 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <TouchableOpacity
                       onPress={() => setActiveTab('rewards')}
                       style={{
-                        flex: 1,
-                        minWidth: 140,
+                        width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%',
+                        minWidth: isSmallPhone ? '100%' : isMobile ? 140 : 180,
+                        flexGrow: 1,
                         backgroundColor: theme.card,
                         padding: 12,
                         borderRadius: 12,
@@ -1293,8 +1300,9 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <TouchableOpacity
                       onPress={() => setActiveTab('gamification')}
                       style={{
-                        flex: 1,
-                        minWidth: 140,
+                        width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%',
+                        minWidth: isSmallPhone ? '100%' : isMobile ? 140 : 180,
+                        flexGrow: 1,
                         backgroundColor: theme.card,
                         padding: 12,
                         borderRadius: 12,
@@ -1317,8 +1325,9 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <TouchableOpacity
                       onPress={() => setActiveTab('users')}
                       style={{
-                        flex: 1,
-                        minWidth: 140,
+                        width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%',
+                        minWidth: isSmallPhone ? '100%' : isMobile ? 140 : 180,
+                        flexGrow: 1,
                         backgroundColor: theme.card,
                         padding: 12,
                         borderRadius: 12,
@@ -1349,8 +1358,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                 {loadingStats ? (
                   <View style={styles.loaderBox}><ActivityIndicator size="small" color={theme.accentLight} /></View>
                 ) : (
-                  <View style={styles.metricsGrid}>
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#EFF6FF' : '#16233B' }]}>
                         <Ionicons name="people" size={18} color="#3B82F6" />
                       </View>
@@ -1359,7 +1368,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ fontSize: 10, color: '#10B981', fontWeight: '700', marginTop: 4 }}>● Database Terkoneksi</Text>
                     </View>
 
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#ECFDF5' : '#122B22' }]}>
                         <Ionicons name="chatbubbles" size={18} color="#10B981" />
                       </View>
@@ -1368,7 +1377,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ fontSize: 10, color: '#3B82F6', fontWeight: '700', marginTop: 4 }}>⚡ Gemini 2.5 Flash Engine</Text>
                     </View>
 
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#F5F3FF' : '#26203B' }]}>
                         <Ionicons name="document-text" size={18} color="#8B5CF6" />
                       </View>
@@ -1377,7 +1386,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ fontSize: 10, color: '#8B5CF6', fontWeight: '700', marginTop: 4 }}>📚 Knowledge Base</Text>
                     </View>
 
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FFFBEB' : '#2B2314' }]}>
                         <Ionicons name="checkbox" size={18} color="#F59E0B" />
                       </View>
@@ -1386,7 +1395,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ fontSize: 10, color: '#F59E0B', fontWeight: '700', marginTop: 4 }}>🎯 Target Selesai</Text>
                     </View>
 
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FDF2F8' : '#2B1A24' }]}>
                         <Ionicons name="book" size={18} color="#EC4899" />
                       </View>
@@ -1395,7 +1404,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ fontSize: 10, color: '#EC4899', fontWeight: '700', marginTop: 4 }}>❤️ Refleksi Diri</Text>
                     </View>
 
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#F0FDFA' : '#162828' }]}>
                         <Ionicons name="school" size={18} color="#14B8A6" />
                       </View>
@@ -1404,7 +1413,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ fontSize: 10, color: '#14B8A6', fontWeight: '700', marginTop: 4 }}>🏛️ Kurikulum Kampus</Text>
                     </View>
 
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#2E2210' }]}>
                         <Ionicons name="star" size={18} color="#D97706" />
                       </View>
@@ -1413,7 +1422,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ fontSize: 10, color: '#D97706', fontWeight: '700', marginTop: 4 }}>🏆 Akumulasi Mahasiswa</Text>
                     </View>
 
-                    <View style={[styles.metricCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                    <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
                       <View style={[styles.metricIconWrap, { backgroundColor: isLightMode ? '#EEF2FF' : '#1E1B4B' }]}>
                         <Ionicons name="diamond" size={18} color="#6366F1" />
                       </View>
@@ -1428,14 +1437,14 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                 {/* 4. VISUAL ANALYTICS: FEATURE USAGE BREAKDOWN */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <View>
+                  <View style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', marginBottom: 12, gap: 8 }}>
+                    <View style={{ flex: 1 }}>
                       <Text style={[styles.cardTitle, { color: theme.text }]}>Proporsi Aktivitas Fitur Mahasiswa</Text>
                       <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>
                         Estimasi distribusi interaksi mahasiswa antar modul pembelajaran
                       </Text>
                     </View>
-                    <View style={{ backgroundColor: theme.cardInner, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 }}>
+                    <View style={{ backgroundColor: theme.cardInner, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, alignSelf: 'flex-start' }}>
                       <Text style={{ fontSize: 11, color: theme.subtext, fontWeight: '700' }}>Rasio Aktivitas</Text>
                     </View>
                   </View>
@@ -1471,8 +1480,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                 {/* 5. TOP 3 ACTIVE STUDENTS SNAPSHOT */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
-                    <View>
+                  <View style={{ flexDirection: isMobile ? 'column' : 'row', alignItems: isMobile ? 'flex-start' : 'center', justifyContent: 'space-between', marginBottom: 12, gap: 8 }}>
+                    <View style={{ flex: 1 }}>
                       <Text style={[styles.cardTitle, { color: theme.text }]}>Top Leaderboard Mahasiswa Teraktif 🏆</Text>
                       <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>
                         Mahasiswa dengan perolehan XP dan keaktifan belajar tertinggi
@@ -1480,7 +1489,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     </View>
                     <TouchableOpacity
                       onPress={() => setActiveTab('users')}
-                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start' }}
                     >
                       <Text style={{ fontSize: 11.5, color: '#3B82F6', fontWeight: '700' }}>Lihat Semua ({usersList.length})</Text>
                       <Ionicons name="arrow-forward" size={12} color="#3B82F6" />
@@ -1599,17 +1608,17 @@ showAlert('Gagal', 'Gagal mereset logo.');
               <View style={styles.tabContent}>
                 
                 {/* Header Action Bar */}
-                <View style={styles.cardHeaderRow}>
-                  <View>
+                <View style={[styles.cardHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 10 }]}>
+                  <View style={{ flex: 1 }}>
                     <Text style={[styles.sectionTitle, { color: theme.text }]}>Pusat Kontrol Gamifikasi & Game Balancing</Text>
                     <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>
                       Atur tingkat kesulitan naik level, drop rate roda keberuntungan, dan event komunitas secara realtime.
                     </Text>
                   </View>
-                  <View style={{ flexDirection: 'row', gap: 8 }}>
+                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', width: isMobile ? '100%' : 'auto' }}>
                     <TouchableOpacity
                       onPress={handleResetGamification}
-                      style={[styles.refreshBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      style={[styles.refreshBtn, { backgroundColor: theme.cardInner, borderColor: theme.border, flex: isMobile ? 1 : undefined, justifyContent: 'center' }]}
                     >
                       <Ionicons name="refresh-outline" size={13} color="#EF4444" />
                       <Text style={[styles.refreshBtnText, { color: '#EF4444' }]}>Reset Standar</Text>
@@ -1618,7 +1627,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <TouchableOpacity
                       onPress={handleSaveGamification}
                       disabled={savingGameConfig}
-                      style={[styles.refreshBtn, { backgroundColor: theme.primary, borderColor: theme.primary }]}
+                      style={[styles.refreshBtn, { backgroundColor: theme.primary, borderColor: theme.primary, flex: isMobile ? 1 : undefined, justifyContent: 'center' }]}
                     >
                       {savingGameConfig ? (
                         <ActivityIndicator size="small" color="#FFFFFF" />
@@ -1634,12 +1643,12 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                 {/* 1. XP & Level Progression Card */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={[styles.cardHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                       <Ionicons name="trending-up" size={18} color="#8B5CF6" />
-                      <Text style={[styles.cardTitle, { color: theme.text }]}>Kurva Kesulitan XP & Level</Text>
+                      <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 0 }]}>Kurva Kesulitan XP & Level</Text>
                     </View>
-                    <View style={[styles.badgeKpi, { backgroundColor: '#8B5CF622' }]}>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#8B5CF622', alignSelf: isMobile ? 'flex-start' : 'auto' }]}>
                       <Text style={[styles.badgeKpiText, { color: '#8B5CF6' }]}>LEVEL PROGRESSION</Text>
                     </View>
                   </View>
@@ -1680,8 +1689,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   {/* Action Reward XP Inputs */}
                   <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14 }]}>Perolehan Base XP per Aktivitas:</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>📝 Buat Catatan Kuliah:</Text>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '31%' : '18.5%', minWidth: isSmallPhone ? '100%' : 130, flexGrow: 1 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>📝 Buat Catatan:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                         value={String(gameConfig.xpPerNote)}
@@ -1689,8 +1698,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>✅ Selesaikan Tugas/Soal:</Text>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '31%' : '18.5%', minWidth: isSmallPhone ? '100%' : 130, flexGrow: 1 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>✅ Tugas/Soal:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                         value={String(gameConfig.xpPerTask)}
@@ -1698,8 +1707,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>📖 Refleksi Jurnal Harian:</Text>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '31%' : '18.5%', minWidth: isSmallPhone ? '100%' : 130, flexGrow: 1 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>📖 Jurnal Harian:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                         value={String(gameConfig.xpPerJournal)}
@@ -1707,8 +1716,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>🎯 Jawab Kuis Benar:</Text>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '31%' : '18.5%', minWidth: isSmallPhone ? '100%' : 130, flexGrow: 1 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>🎯 Jawab Kuis:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                         value={String(gameConfig.xpPerQuiz)}
@@ -1716,8 +1725,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 140 }}>
-                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>🔥 Streak Belajar Harian:</Text>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '31%' : '18.5%', minWidth: isSmallPhone ? '100%' : 130, flexGrow: 1 }}>
+                      <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>🔥 Streak Belajar:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                         value={String(gameConfig.xpPerStreakDay)}
@@ -1730,12 +1739,12 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                 {/* 2. Lucky Wheel Balancing Card */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={[styles.cardHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                       <Ionicons name="refresh-circle" size={20} color="#F59E0B" />
-                      <Text style={[styles.cardTitle, { color: theme.text }]}>Probabilitas Sektor Lucky Wheel (Drop Rates)</Text>
+                      <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 0 }]}>Probabilitas Sektor Lucky Wheel (Drop Rates)</Text>
                     </View>
-                    <View style={[styles.badgeKpi, { backgroundColor: '#F59E0B22' }]}>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#F59E0B22', alignSelf: isMobile ? 'flex-start' : 'auto' }]}>
                       <Text style={[styles.badgeKpiText, { color: '#F59E0B' }]}>GACHA ENGINE</Text>
                     </View>
                   </View>
@@ -1744,10 +1753,10 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   </Text>
 
                   {/* Daily Free Tickets */}
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                  <View style={{ flexDirection: isSmallPhone ? 'column' : 'row', alignItems: isSmallPhone ? 'flex-start' : 'center', gap: 10, marginBottom: 14 }}>
                     <Text style={[styles.inputLabel, { color: theme.text, marginTop: 0 }]}>Jatah Tiket Putar Gratis Harian:</Text>
                     <TextInput
-                      style={[styles.textInput, { width: 80, textAlign: 'center', backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
+                      style={[styles.textInput, { width: isSmallPhone ? '100%' : 80, textAlign: 'center', backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
                       value={String(gameConfig.wheelDailyFreeTickets)}
                       onChangeText={(v) => setGameConfig(prev => ({ ...prev, wheelDailyFreeTickets: parseInt(v, 10) || 1 }))}
                       keyboardType="numeric"
@@ -1769,22 +1778,25 @@ showAlert('Gagal', 'Gagal mereset logo.');
                           borderWidth: 1,
                           borderColor: theme.border,
                           gap: 10,
+                          flexWrap: isSmallPhone ? 'wrap' : 'nowrap',
                         }}
                       >
                         <View style={{ width: 14, height: 14, borderRadius: 7, backgroundColor: sector.color }} />
-                        <Text style={{ flex: 1, color: theme.text, fontSize: 12.5, fontWeight: '600' }}>
+                        <Text style={{ flex: 1, color: theme.text, fontSize: 12.5, fontWeight: '600', minWidth: 120 }}>
                           {sector.label}
                         </Text>
-                        <Text style={{ color: theme.subtext, fontSize: 11 }}>Peluang Drop (Bobot):</Text>
-                        <TextInput
-                          style={[
-                            styles.textInput,
-                            { width: 65, textAlign: 'center', paddingVertical: 4, height: 32, backgroundColor: theme.card, color: theme.text, borderColor: theme.border }
-                          ]}
-                          value={String(sector.weight || 10)}
-                          onChangeText={(val) => handleUpdateSectorWeight(idx, val)}
-                          keyboardType="numeric"
-                        />
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <Text style={{ color: theme.subtext, fontSize: 11 }}>Bobot:</Text>
+                          <TextInput
+                            style={[
+                              styles.textInput,
+                              { width: 65, textAlign: 'center', paddingVertical: 4, height: 32, backgroundColor: theme.card, color: theme.text, borderColor: theme.border }
+                            ]}
+                            value={String(sector.weight || 10)}
+                            onChangeText={(val) => handleUpdateSectorWeight(idx, val)}
+                            keyboardType="numeric"
+                          />
+                        </View>
                       </View>
                     ))}
                   </View>
@@ -1792,12 +1804,12 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                 {/* 3. Peti Hadiah & Konfigurasi Loot Drop Rate */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={[styles.cardHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                       <Ionicons name="cube" size={18} color="#06B6D4" />
-                      <Text style={[styles.cardTitle, { color: theme.text }]}>Loot Vault — Drop Rate & Isi Hadiah</Text>
+                      <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 0 }]}>Loot Vault — Drop Rate & Isi Hadiah</Text>
                     </View>
-                    <View style={[styles.badgeKpi, { backgroundColor: '#06B6D422' }]}>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#06B6D422', alignSelf: isMobile ? 'flex-start' : 'auto' }]}>
                       <Text style={[styles.badgeKpiText, { color: '#06B6D4' }]}>LOOT VAULT</Text>
                     </View>
                   </View>
@@ -1815,7 +1827,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <Text style={[styles.inputLabel, { color: theme.text, marginTop: 10, marginBottom: 4, fontWeight: '800' }]}>🎲 Drop Rate per Raritas (%)</Text>
                   <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 10 }}>
                     {/* Mythic */}
-                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#EF444418', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#EF444455' }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '18.5%', minWidth: 0, backgroundColor: '#EF444418', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#EF444455' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#EF4444' }} />
                         <Text style={{ color: '#EF4444', fontWeight: '800', fontSize: 11 }}>🔮 Mitos (Mythic)</Text>
@@ -1831,7 +1843,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ color: '#EF4444', fontSize: 10, marginTop: 4 }}>Default: 4%</Text>
                     </View>
                     {/* Legendary */}
-                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#F59E0B18', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#F59E0B55' }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '18.5%', minWidth: 0, backgroundColor: '#F59E0B18', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#F59E0B55' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#F59E0B' }} />
                         <Text style={{ color: '#F59E0B', fontWeight: '800', fontSize: 11 }}>✨ Legendaris</Text>
@@ -1847,7 +1859,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ color: '#F59E0B', fontSize: 10, marginTop: 4 }}>Default: 12%</Text>
                     </View>
                     {/* Epic */}
-                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#8B5CF618', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#8B5CF655' }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '18.5%', minWidth: 0, backgroundColor: '#8B5CF618', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#8B5CF655' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#8B5CF6' }} />
                         <Text style={{ color: '#8B5CF6', fontWeight: '800', fontSize: 11 }}>⚡ Epik</Text>
@@ -1863,7 +1875,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ color: '#8B5CF6', fontSize: 10, marginTop: 4 }}>Default: 24%</Text>
                     </View>
                     {/* Water */}
-                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#38BDF818', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#38BDF855' }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '18.5%', minWidth: 0, backgroundColor: '#38BDF818', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#38BDF855' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#38BDF8' }} />
                         <Text style={{ color: '#38BDF8', fontWeight: '800', fontSize: 11 }}>💧 Tetes Air</Text>
@@ -1879,7 +1891,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={{ color: '#38BDF8', fontSize: 10, marginTop: 4 }}>Default: 25%</Text>
                     </View>
                     {/* XP Rare (auto) */}
-                    <View style={{ flex: 1, minWidth: 130, backgroundColor: '#3B82F618', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#3B82F655' }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '18.5%', minWidth: 0, backgroundColor: '#3B82F618', borderRadius: 10, padding: 10, borderWidth: 1, borderColor: '#3B82F655' }}>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 5, marginBottom: 5 }}>
                         <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6' }} />
                         <Text style={{ color: '#3B82F6', fontWeight: '800', fontSize: 11 }}>⭐ XP Langka (Sisa)</Text>
@@ -1896,7 +1908,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   {/* XP Bonus per Rarity Title Drop */}
                   <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14, marginBottom: 4, fontWeight: '800' }]}>💰 Bonus XP saat Gelar Drop</Text>
                   <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-                    <View style={{ flex: 1, minWidth: 120 }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '31.5%', minWidth: 0 }}>
                       <Text style={[styles.inputLabel, { color: '#EF4444', fontSize: 11 }]}>🔮 XP Mitos:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#EF444455' }]}
@@ -1905,7 +1917,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 120 }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '31.5%', minWidth: 0 }}>
                       <Text style={[styles.inputLabel, { color: '#F59E0B', fontSize: 11 }]}>✨ XP Legendaris:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#F59E0B55' }]}
@@ -1914,7 +1926,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 120 }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '31.5%' : '31.5%', minWidth: 0 }}>
                       <Text style={[styles.inputLabel, { color: '#8B5CF6', fontSize: 11 }]}>⚡ XP Epik:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#8B5CF655' }]}
@@ -1928,7 +1940,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   {/* XP Range for Rare + Water Range */}
                   <Text style={[styles.inputLabel, { color: theme.text, marginTop: 14, marginBottom: 4, fontWeight: '800' }]}>📊 Rentang XP Langka & Air</Text>
                   <View style={{ flexDirection: 'row', gap: 10, flexWrap: 'wrap' }}>
-                    <View style={{ flex: 1, minWidth: 110 }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '23%' : '23%', minWidth: 0 }}>
                       <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Min XP Langka:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
@@ -1937,7 +1949,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 110 }}>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '23%' : '23%', minWidth: 0 }}>
                       <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Max XP Langka:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
@@ -1946,8 +1958,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 110 }}>
-                      <Text style={[styles.inputLabel, { color: '#38BDF8', fontSize: 11 }]}>💧 Min Tetes Air:</Text>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '23%' : '23%', minWidth: 0 }}>
+                      <Text style={[styles.inputLabel, { color: '#38BDF8', fontSize: 11 }]}>💧 Min Air:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#38BDF855' }]}
                         value={String(gameConfig.chestWaterMin ?? 3)}
@@ -1955,8 +1967,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         keyboardType="numeric"
                       />
                     </View>
-                    <View style={{ flex: 1, minWidth: 110 }}>
-                      <Text style={[styles.inputLabel, { color: '#38BDF8', fontSize: 11 }]}>💧 Max Tetes Air:</Text>
+                    <View style={{ width: isMobile ? (isSmallPhone ? '100%' : '48.5%') : isTablet ? '23%' : '23%', minWidth: 0 }}>
+                      <Text style={[styles.inputLabel, { color: '#38BDF8', fontSize: 11 }]}>💧 Max Air:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: '#38BDF855' }]}
                         value={String(gameConfig.chestWaterMax ?? 5)}
@@ -1969,20 +1981,20 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                 {/* 4. Manajemen & Pembuatan Gelar RPG Custom */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={[styles.cardHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                       <Ionicons name="ribbon" size={18} color="#EC4899" />
-                      <Text style={[styles.cardTitle, { color: theme.text }]}>Manajemen & Pembuatan Gelar RPG</Text>
+                      <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 0 }]}>Manajemen & Pembuatan Gelar RPG</Text>
                     </View>
-                    <View style={[styles.badgeKpi, { backgroundColor: '#EC489922' }]}>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#EC489922', alignSelf: isMobile ? 'flex-start' : 'auto' }]}>
                       <Text style={[styles.badgeKpiText, { color: '#EC4899' }]}>GELAR RPG</Text>
                     </View>
                   </View>
 
                   {/* Form Tambah Gelar */}
                   <Text style={[styles.inputLabel, { color: theme.text, fontWeight: '800', marginTop: 8 }]}>➕ Tambah Gelar RPG Baru</Text>
-                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 4 }}>
-                    <View style={{ flex: 1, minWidth: 140 }}>
+                  <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 8, marginTop: 4 }}>
+                    <View style={{ flex: 1 }}>
                       <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>ID Unik (huruf kecil & garis bawah):</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
@@ -1993,7 +2005,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         autoCapitalize="none"
                       />
                     </View>
-                    <View style={{ flex: 2, minWidth: 200 }}>
+                    <View style={{ flex: isMobile ? 1 : 2 }}>
                       <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Nama Gelar:</Text>
                       <TextInput
                         style={[styles.textInput, { backgroundColor: theme.cardInner, color: theme.text, borderColor: theme.border }]}
@@ -2017,8 +2029,8 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   </View>
 
                   {/* Icon & Color Row */}
-                  <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
-                    <View style={{ flex: 1, minWidth: 140 }}>
+                  <View style={{ flexDirection: isMobile ? 'column' : 'row', gap: 8, flexWrap: 'wrap', marginTop: 2 }}>
+                    <View style={{ flex: 1, minWidth: isMobile ? '100%' : 140 }}>
                       <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Nama Icon (Ionicons):</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <TextInput
@@ -2034,7 +2046,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         </View>
                       </View>
                     </View>
-                    <View style={{ flex: 1, minWidth: 140 }}>
+                    <View style={{ flex: 1, minWidth: isMobile ? '100%' : 140 }}>
                       <Text style={[styles.inputLabel, { color: theme.subtext, fontSize: 11 }]}>Warna HEX:</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <TextInput
@@ -2260,12 +2272,12 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                 {/* 5. Event & Double XP Happy Hour */}
                 <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <View style={styles.cardHeaderRow}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={[styles.cardHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 8 }]}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
                       <Ionicons name="flash" size={18} color="#EF4444" />
-                      <Text style={[styles.cardTitle, { color: theme.text }]}>Event Khusus & Boost Jam Belajar</Text>
+                      <Text style={[styles.cardTitle, { color: theme.text, marginBottom: 0 }]}>Event Khusus & Boost Jam Belajar</Text>
                     </View>
-                    <View style={[styles.badgeKpi, { backgroundColor: '#EF444422' }]}>
+                    <View style={[styles.badgeKpi, { backgroundColor: '#EF444422', alignSelf: isMobile ? 'flex-start' : 'auto' }]}>
                       <Text style={[styles.badgeKpiText, { color: '#EF4444' }]}>LIVE EVENT</Text>
                     </View>
                   </View>
@@ -2729,10 +2741,35 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     </TouchableOpacity>
                   </View>
 
-                  {/* Registered Keys List in Pool */}
-                  <Text style={[styles.inputLabel, { marginTop: 12 }]}>
-                    Daftar Kunci Aktif di Routing Pool ({keysPool.length} Kunci Terdaftar):
-                  </Text>
+                  {/* Registered Keys List in Pool with Limit & Pagination */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14, marginBottom: 6, flexWrap: 'wrap', gap: 6 }}>
+                    <Text style={[styles.inputLabel, { marginVertical: 0 }]}>
+                      Daftar Kunci Aktif di Routing Pool ({keysPool.length} Kunci Terdaftar):
+                    </Text>
+                    {keysPool.length > 5 && (
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ fontSize: 11, color: theme.subtext }}>Limit:</Text>
+                        {[5, 10, 20].map(cnt => (
+                          <TouchableOpacity
+                            key={cnt}
+                            onPress={() => { setKeysPerPage(cnt); setKeysPage(1); }}
+                            style={{
+                              paddingHorizontal: 8,
+                              paddingVertical: 3,
+                              borderRadius: 6,
+                              backgroundColor: keysPerPage === cnt ? theme.accentBg : theme.cardInner,
+                              borderWidth: 1,
+                              borderColor: keysPerPage === cnt ? theme.accentLight : theme.border,
+                            }}
+                          >
+                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: keysPerPage === cnt ? theme.accentLight : theme.subtext }}>
+                              {cnt}
+                            </Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    )}
+                  </View>
 
                   {keysPool.length === 0 ? (
                     <View style={styles.emptyPoolBox}>
@@ -2740,64 +2777,171 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       <Text style={styles.emptyPoolText}>Belum ada API Key di pool. Tambahkan minimal 1 API Key di atas.</Text>
                     </View>
                   ) : (
-                    <View style={styles.keyPoolList}>
-                      {keysPool.map((k, idx) => {
-                        const isTesting = testingKeyIdx === idx;
-                        const result = keyTestResults[idx];
-                        const preview = k.substring(0, 10) + '••••••••' + k.substring(k.length - 4);
-                        return (
-                          <View key={`${k}-${idx}`} style={styles.keyItemCard}>
-                            <View style={styles.keyItemTop}>
-                              <View style={styles.keyIndexWrap}>
-                                <View style={[styles.keyIndexBadge, idx === 0 && styles.keyIndexBadgePrimary]}>
-                                  <Text style={[styles.keyIndexText, idx === 0 && styles.keyIndexTextPrimary]}>
-                                    {idx === 0 ? 'UTAMA #1' : `CADANGAN #${idx + 1}`}
-                                  </Text>
+                    <>
+                      <View style={styles.keyPoolList}>
+                        {keysPool
+                          .slice((keysPage - 1) * keysPerPage, keysPage * keysPerPage)
+                          .map((k, pIdx) => {
+                            const realIdx = (keysPage - 1) * keysPerPage + pIdx;
+                            const isTesting = testingKeyIdx === realIdx;
+                            const result = keyTestResults[realIdx];
+                            const preview = k.substring(0, 10) + '••••••••' + k.substring(k.length - 4);
+                            return (
+                              <View key={`${k}-${realIdx}`} style={styles.keyItemCard}>
+                                <View style={styles.keyItemTop}>
+                                  <View style={styles.keyIndexWrap}>
+                                    <View style={[styles.keyIndexBadge, realIdx === 0 && styles.keyIndexBadgePrimary]}>
+                                      <Text style={[styles.keyIndexText, realIdx === 0 && styles.keyIndexTextPrimary]}>
+                                        {realIdx === 0 ? 'UTAMA #1' : `CADANGAN #${realIdx + 1}`}
+                                      </Text>
+                                    </View>
+                                    <Text style={styles.keyPreviewText}>{preview}</Text>
+                                  </View>
+
+                                  <View style={styles.keyItemActions}>
+                                    <TouchableOpacity
+                                      style={styles.testSmallBtn}
+                                      onPress={() => handleTestKeyInPool(k, realIdx)}
+                                      disabled={isTesting}
+                                    >
+                                      {isTesting ? (
+                                        <ActivityIndicator size="small" color="#60A5FA" />
+                                      ) : (
+                                        <>
+                                          <Ionicons name="flash" size={12} color="#60A5FA" />
+                                          <Text style={styles.testSmallText}>Uji</Text>
+                                        </>
+                                      )}
+                                    </TouchableOpacity>
+
+                                    <TouchableOpacity
+                                      style={styles.deleteSmallBtn}
+                                      onPress={() => handleRemoveKeyFromPool(realIdx)}
+                                    >
+                                      <Ionicons name="trash-outline" size={14} color="#EF4444" />
+                                    </TouchableOpacity>
+                                  </View>
                                 </View>
-                                <Text style={styles.keyPreviewText}>{preview}</Text>
-                              </View>
 
-                              <View style={styles.keyItemActions}>
-                                <TouchableOpacity
-                                  style={styles.testSmallBtn}
-                                  onPress={() => handleTestKeyInPool(k, idx)}
-                                  disabled={isTesting}
-                                >
-                                  {isTesting ? (
-                                    <ActivityIndicator size="small" color="#60A5FA" />
-                                  ) : (
-                                    <>
-                                      <Ionicons name="flash" size={12} color="#60A5FA" />
-                                      <Text style={styles.testSmallText}>Uji</Text>
-                                    </>
-                                  )}
-                                </TouchableOpacity>
-
-                                <TouchableOpacity
-                                  style={styles.deleteSmallBtn}
-                                  onPress={() => handleRemoveKeyFromPool(idx)}
-                                >
-                                  <Ionicons name="trash-outline" size={14} color="#EF4444" />
-                                </TouchableOpacity>
+                                {result && (
+                                  <View style={[styles.keyItemResultBox, result.success ? styles.apiResultSuccess : styles.apiResultError]}>
+                                    <Ionicons
+                                      name={result.success ? 'checkmark-circle' : 'alert-circle'}
+                                      size={13}
+                                      color={result.success ? '#34D399' : '#F87171'}
+                                    />
+                                    <Text style={[styles.keyItemResultText, result.success ? styles.apiResultTextSuccess : styles.apiResultTextError]}>
+                                      {result.message}
+                                    </Text>
+                                  </View>
+                                )}
                               </View>
+                            );
+                          })}
+                      </View>
+
+                      {/* Pagination Controls - Rata Kanan-Kiri & Mewah */}
+                      <View
+                        style={{
+                          marginTop: 14,
+                          marginBottom: 4,
+                          padding: 12,
+                          borderRadius: 14,
+                          backgroundColor: theme.cardInner,
+                          borderWidth: 1,
+                          borderColor: theme.border,
+                          gap: 12,
+                        }}
+                      >
+                        {/* Baris Atas: Status Halaman & Total Kunci */}
+                        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                            <Ionicons name="layers-outline" size={15} color={theme.accentLight} />
+                            <Text style={{ fontSize: 12, fontWeight: '800', color: theme.text }}>
+                              Halaman {keysPage} dari {Math.max(1, Math.ceil(keysPool.length / keysPerPage))}
+                            </Text>
+                          </View>
+                          <View style={{ backgroundColor: theme.card, paddingHorizontal: 9, paddingVertical: 3.5, borderRadius: 6, borderWidth: 1, borderColor: theme.border }}>
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: theme.subtext }}>
+                              {keysPool.length} Kunci Terdaftar
+                            </Text>
+                          </View>
+                        </View>
+
+                        {/* Baris Bawah: Tombol Rata Kanan-Kiri (Sebelumnya di KIRI, Nomor di TENGAH, Selanjutnya di KANAN) */}
+                        {Math.ceil(keysPool.length / keysPerPage) > 1 && (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
+                            {/* Tombol Sebelumnya (Rata Kiri) */}
+                            <TouchableOpacity
+                              onPress={() => setKeysPage(p => Math.max(1, p - 1))}
+                              disabled={keysPage === 1}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 6,
+                                paddingHorizontal: 12,
+                                paddingVertical: 8,
+                                borderRadius: 8,
+                                backgroundColor: keysPage === 1 ? theme.card : theme.primary,
+                                borderWidth: 1,
+                                borderColor: keysPage === 1 ? theme.border : theme.primary,
+                              }}
+                            >
+                              <Ionicons name="chevron-back" size={14} color={keysPage === 1 ? '#64748B' : '#FFFFFF'} />
+                              <Text style={{ fontSize: 12, fontWeight: '800', color: keysPage === 1 ? '#64748B' : '#FFFFFF' }}>
+                                Sebelumnya
+                              </Text>
+                            </TouchableOpacity>
+
+                            {/* Tombol Nomor Halaman (Rata Tengah) */}
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              {Array.from({ length: Math.ceil(keysPool.length / keysPerPage) }, (_, i) => i + 1).map(num => (
+                                <TouchableOpacity
+                                  key={num}
+                                  onPress={() => setKeysPage(num)}
+                                  style={{
+                                    width: 34,
+                                    height: 34,
+                                    borderRadius: 8,
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    backgroundColor: keysPage === num ? theme.primary : theme.card,
+                                    borderWidth: 1,
+                                    borderColor: keysPage === num ? theme.primary : theme.border,
+                                  }}
+                                >
+                                  <Text style={{ fontSize: 12.5, fontWeight: '800', color: keysPage === num ? '#FFFFFF' : theme.text }}>
+                                    {num}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
                             </View>
 
-                            {result && (
-                              <View style={[styles.keyItemResultBox, result.success ? styles.apiResultSuccess : styles.apiResultError]}>
-                                <Ionicons
-                                  name={result.success ? 'checkmark-circle' : 'alert-circle'}
-                                  size={13}
-                                  color={result.success ? '#34D399' : '#F87171'}
-                                />
-                                <Text style={[styles.keyItemResultText, result.success ? styles.apiResultTextSuccess : styles.apiResultTextError]}>
-                                  {result.message}
-                                </Text>
-                              </View>
-                            )}
+                            {/* Tombol Selanjutnya (Rata Kanan) */}
+                            <TouchableOpacity
+                              onPress={() => setKeysPage(p => Math.min(Math.ceil(keysPool.length / keysPerPage), p + 1))}
+                              disabled={keysPage >= Math.ceil(keysPool.length / keysPerPage)}
+                              style={{
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: 6,
+                                paddingHorizontal: 12,
+                                paddingVertical: 8,
+                                borderRadius: 8,
+                                backgroundColor: keysPage >= Math.ceil(keysPool.length / keysPerPage) ? theme.card : theme.primary,
+                                borderWidth: 1,
+                                borderColor: keysPage >= Math.ceil(keysPool.length / keysPerPage) ? theme.border : theme.primary,
+                              }}
+                            >
+                              <Text style={{ fontSize: 12, fontWeight: '800', color: keysPage >= Math.ceil(keysPool.length / keysPerPage) ? '#64748B' : '#FFFFFF' }}>
+                                Selanjutnya
+                              </Text>
+                              <Ionicons name="chevron-forward" size={14} color={keysPage >= Math.ceil(keysPool.length / keysPerPage) ? '#64748B' : '#FFFFFF'} />
+                            </TouchableOpacity>
                           </View>
-                        );
-                      })}
-                    </View>
+                        )}
+                      </View>
+                    </>
                   )}
 
                   {/* Save All Pool Button */}
@@ -2840,9 +2984,10 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <Text style={styles.inputLabel}>Versi AI Model:</Text>
                   <View style={styles.paramChipsRow}>
                     {[
-                      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Rekomendasi Google 2026)' },
-                      { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite (Super Cepat)' },
-                      { id: 'gemini-1.5-flash', label: 'Gemini 1.5 Flash (Legacy)' },
+                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Vision & Analisis Tinggi ~1.3s)' },
+                      { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite (Ultra Kilat ~0.8s)' },
+                      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Hemat Kuota ~1.5s)' },
+                      { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Cadangan Stabil)' },
                     ].map(m => (
                       <TouchableOpacity
                         key={m.id}
@@ -3512,23 +3657,23 @@ showAlert('Gagal', 'Gagal mereset logo.');
             {/* ========================================================================= */}
             {activeTab === 'users' && (
               <View style={styles.tabContent}>
-                <View style={styles.card}>
-                  <View style={styles.cardHeaderRow}>
-                    <View>
-                      <Text style={styles.cardTitle}>Direktori Akun Mahasiswa ({usersList.length})</Text>
-                      <Text style={styles.cardSub}>Daftar seluruh mahasiswa yang terdaftar di database Supabase.</Text>
+                <View style={[styles.card, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={[styles.cardHeaderRow, isMobile && { flexDirection: 'column', alignItems: 'flex-start', gap: 10 }]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.cardTitle, { color: theme.text }]}>Direktori Akun Mahasiswa ({usersList.length})</Text>
+                      <Text style={[styles.cardSub, { color: theme.subtext, marginBottom: 0 }]}>Daftar seluruh mahasiswa yang terdaftar di database Supabase.</Text>
                     </View>
-                    <TouchableOpacity onPress={fetchUsers} style={styles.refreshBtn}>
+                    <TouchableOpacity onPress={fetchUsers} style={[styles.refreshBtn, { backgroundColor: theme.cardInner, borderColor: theme.border, alignSelf: isMobile ? 'flex-start' : 'auto' }]}>
                       <Ionicons name="refresh" size={13} color="#60A5FA" />
-                      <Text style={styles.refreshBtnText}>Muat Ulang</Text>
+                      <Text style={[styles.refreshBtnText, { color: '#60A5FA' }]}>Muat Ulang</Text>
                     </TouchableOpacity>
                   </View>
 
                   {/* Search User Bar */}
-                  <View style={styles.userSearchBar}>
+                  <View style={[styles.userSearchBar, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
                     <Ionicons name="search-outline" size={15} color="#9CA3AF" />
                     <TextInput
-                      style={styles.userSearchInput}
+                      style={[styles.userSearchInput, { color: theme.text, minWidth: 0 }]}
                       placeholder="Cari berdasarkan username atau ID akun..."
                       placeholderTextColor="#5A6578"
                       value={userSearch}
@@ -3545,26 +3690,29 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <View style={styles.loaderBox}><ActivityIndicator size="small" color="#60A5FA" /></View>
                   ) : filteredUsers.length === 0 ? (
                     <View style={styles.emptyWrap}>
-                      <Text style={styles.emptyText}>Tidak ditemukan pengguna yang cocok.</Text>
+                      <Text style={[styles.emptyText, { color: theme.muted }]}>Tidak ditemukan pengguna yang cocok.</Text>
                     </View>
                   ) : (
                     <View style={styles.userListWrap}>
                       {filteredUsers.map((u) => (
-                        <View key={u.id} style={[styles.userRowCard, { flexDirection: 'column', alignItems: 'stretch', gap: 10 }]}>
-                          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                            <View style={styles.userAvatarSquare}>
-                              <Text style={styles.userAvatarInitial}>
+                        <View key={u.id} style={[styles.userRowCard, { flexDirection: 'column', alignItems: 'stretch', gap: 10, padding: isSmallPhone ? 10 : 12, backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10 }}>
+                            <View style={[styles.userAvatarSquare, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                              <Text style={[styles.userAvatarInitial, { color: theme.accentLight }]}>
                                 {(u.username || 'M')[0].toUpperCase()}
                               </Text>
                             </View>
 
-                            <View style={{ flex: 1, marginLeft: 12 }}>
-                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                                <Text style={styles.userNameText}>{u.username || 'Pengguna Mahasiswa'}</Text>
+                            <View style={{ flex: 1, minWidth: 0 }}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6 }}>
+                                <Text style={[styles.userNameText, { color: theme.text, flexShrink: 1 }]} numberOfLines={1}>
+                                  {u.username || 'Pengguna Mahasiswa'}
+                                </Text>
                                 <View style={[
                                   styles.badgeKpi,
                                   {
-                                    backgroundColor: u.role === 'admin' ? '#EF444422' : u.role === 'vip' ? '#F59E0B22' : theme.cardInner,
+                                    backgroundColor: u.role === 'admin' ? '#EF444422' : u.role === 'vip' ? '#F59E0B22' : theme.card,
+                                    borderColor: u.role === 'admin' ? '#EF444455' : u.role === 'vip' ? '#F59E0B55' : theme.border,
                                     paddingHorizontal: 6,
                                     paddingVertical: 2,
                                   }
@@ -3578,21 +3726,24 @@ showAlert('Gagal', 'Gagal mereset logo.');
                                   </Text>
                                 </View>
                               </View>
-                              <Text style={styles.userIdText}>UUID: {u.id}</Text>
-                            </View>
-
-                            <View style={styles.userJoinedWrap}>
-                              <Ionicons name="time-outline" size={12} color="#6B7280" />
-                              <Text style={styles.userJoinedText}>
-                                {new Date(u.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                              
+                              <Text style={[styles.userIdText, { color: theme.muted, minWidth: 0 }]} numberOfLines={1} ellipsizeMode="middle">
+                                UUID: {u.id}
                               </Text>
+
+                              <View style={[styles.userJoinedWrap, { marginTop: 4 }]}>
+                                <Ionicons name="time-outline" size={12} color="#6B7280" />
+                                <Text style={[styles.userJoinedText, { color: theme.subtext }]}>
+                                  Bergabung: {new Date(u.created_at).toLocaleDateString('id-ID', { day: 'numeric', month: 'short', year: 'numeric' })}
+                                </Text>
+                              </View>
                             </View>
                           </View>
 
                           {/* Quick Admin Action Toolbar for User */}
                           <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingTop: 8, borderTopWidth: 1, borderTopColor: theme.border }}>
                             <TouchableOpacity
-                              style={[styles.refreshBtn, { backgroundColor: '#10B98122', borderColor: '#10B98155' }]}
+                              style={[styles.refreshBtn, { backgroundColor: '#10B98122', borderColor: '#10B98155', flex: isMobile ? 1 : undefined, minWidth: isSmallPhone ? '100%' : 110, justifyContent: 'center' }]}
                               onPress={() => {
                                 setSelectedUserForReward(u);
                                 setRewardRecipientType('single');
@@ -3605,7 +3756,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                             {u.role !== 'vip' && (
                               <TouchableOpacity
-                                style={[styles.refreshBtn, { backgroundColor: '#F59E0B22', borderColor: '#F59E0B55' }]}
+                                style={[styles.refreshBtn, { backgroundColor: '#F59E0B22', borderColor: '#F59E0B55', flex: isMobile ? 1 : undefined, minWidth: isSmallPhone ? '100%' : 100, justifyContent: 'center' }]}
                                 onPress={() => handlePromoteUser(u, 'vip')}
                               >
                                 <Ionicons name="star" size={12} color="#F59E0B" />
@@ -3615,7 +3766,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                             {u.role !== 'admin' && (
                               <TouchableOpacity
-                                style={[styles.refreshBtn, { backgroundColor: '#3B82F622', borderColor: '#3B82F655' }]}
+                                style={[styles.refreshBtn, { backgroundColor: '#3B82F622', borderColor: '#3B82F655', flex: isMobile ? 1 : undefined, minWidth: isSmallPhone ? '100%' : 110, justifyContent: 'center' }]}
                                 onPress={() => handlePromoteUser(u, 'admin')}
                               >
                                 <Ionicons name="shield-checkmark" size={12} color="#3B82F6" />
@@ -3625,7 +3776,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                             {u.role && u.role !== 'student' && (
                               <TouchableOpacity
-                                style={[styles.refreshBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                                style={[styles.refreshBtn, { backgroundColor: theme.cardInner, borderColor: theme.border, flex: isMobile ? 1 : undefined, minWidth: isSmallPhone ? '100%' : 120, justifyContent: 'center' }]}
                                 onPress={() => handlePromoteUser(u, 'student')}
                               >
                                 <Ionicons name="person-outline" size={12} color={theme.subtext} />
@@ -4011,6 +4162,37 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
     fontWeight: '600',
   },
 
+  /* Mobile Horizontal Quick Navigation Tab Bar */
+  mobileTabBarWrap: {
+    borderBottomWidth: 1,
+    paddingVertical: 8,
+  },
+  mobileTabBarScroll: {
+    paddingHorizontal: 14,
+    gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  mobileTabPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  mobileTabPillActive: {
+    borderWidth: 1.5,
+  },
+  mobileTabPillText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  mobileTabPillTextActive: {
+    fontWeight: '700',
+  },
+
   /* Canvas Scroll Area */
   canvasScroll: {
     flex: 1,
@@ -4028,6 +4210,8 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     marginBottom: 10,
+    flexWrap: 'wrap',
+    gap: 8,
   },
   sectionTitle: {
     color: theme.text,
@@ -4060,8 +4244,6 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
     gap: 12,
   },
   metricCard: {
-    flex: 1,
-    minWidth: 150,
     backgroundColor: theme.card,
     borderRadius: 14,
     padding: 14,
@@ -4894,21 +5076,21 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
     flex: 1,
   },
   keyIndexBadge: {
-    backgroundColor: theme.cardInner,
-    paddingHorizontal: 7,
-    paddingVertical: 2.5,
-    borderRadius: 5,
+    backgroundColor: isLightMode ? '#F1F5F9' : '#1E1B4B40',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
     borderWidth: 1,
-    borderColor: theme.border,
+    borderColor: isLightMode ? '#CBD5E1' : '#6366F155',
   },
   keyIndexBadgePrimary: {
-    backgroundColor: isLightMode ? '#ECFDF5' : '#101F1A',
-    borderColor: isLightMode ? '#A7F3D0' : '#19382B',
+    backgroundColor: isLightMode ? '#ECFDF5' : '#064E3B40',
+    borderColor: isLightMode ? '#A7F3D0' : '#10B98188',
   },
   keyIndexText: {
-    color: theme.subtext,
-    fontSize: 11,
-    fontWeight: '700',
+    color: isLightMode ? '#475569' : '#A5B4FC',
+    fontSize: 10.5,
+    fontWeight: '800',
     letterSpacing: 0.5,
   },
   keyIndexTextPrimary: {

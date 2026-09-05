@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { View, Animated, Easing, ScrollView, StyleSheet } from 'react-native';
+import { View, Animated, Easing, ScrollView, StyleSheet, Platform } from 'react-native';
 import { useTheme } from '../contexts/ThemeContext';
 
 interface BoneProps {
@@ -16,8 +16,8 @@ const Bone: React.FC<BoneProps> = ({ width, height, radius = 10, style }) => {
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulse, { toValue: 0.45, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulse, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
+        Animated.timing(pulse, { toValue: 0.45, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: Platform.OS !== 'web' }),
       ])
     );
     loop.start();

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+﻿import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View, Text, ScrollView, TouchableOpacity, TextInput,
   StyleSheet, SafeAreaView, ActivityIndicator, Animated, Easing, Platform, Modal
@@ -1556,7 +1556,7 @@ export default function HomeScreen() {
               style={{
                 flex: 1,
                 backgroundColor: theme.card,
-                borderColor: wheelTickets > 0 ? '#EC4899' : theme.border,
+                borderColor: wheelTickets > 0 ? theme.card : theme.border,
                 borderWidth: 1,
                 borderRadius: 14,
                 padding: 10,
@@ -1586,7 +1586,7 @@ export default function HomeScreen() {
               style={{
                 flex: 1,
                 backgroundColor: theme.card,
-                borderColor: '#7C3AED88',
+                borderColor: theme.card,
                 borderWidth: 1,
                 borderRadius: 14,
                 padding: 10,

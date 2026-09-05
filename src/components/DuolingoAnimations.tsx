@@ -14,10 +14,12 @@ import {
   Modal,
   TouchableOpacity,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
 
+const USE_NATIVE_DRIVER = Platform.OS !== 'web';
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -62,13 +64,13 @@ export function XpPopup({
 
     Animated.sequence([
       Animated.parallel([
-        Animated.spring(scale, { toValue: 1.3, tension: 200, friction: 8, useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 1, duration: 120, useNativeDriver: true }),
+        Animated.spring(scale, { toValue: 1.3, tension: 200, friction: 8, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(opacity, { toValue: 1, duration: 120, useNativeDriver: USE_NATIVE_DRIVER }),
       ]),
-      Animated.spring(scale, { toValue: 1, tension: 150, friction: 6, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, tension: 150, friction: 6, useNativeDriver: USE_NATIVE_DRIVER }),
       Animated.parallel([
-        Animated.timing(translateY, { toValue: -120, duration: 800, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-        Animated.timing(opacity, { toValue: 0, duration: 800, delay: 300, easing: Easing.in(Easing.quad), useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: -120, duration: 800, easing: Easing.out(Easing.quad), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(opacity, { toValue: 0, duration: 800, delay: 300, easing: Easing.in(Easing.quad), useNativeDriver: USE_NATIVE_DRIVER }),
       ]),
     ]).start(() => onDone?.());
   }, [visible]);
@@ -170,12 +172,12 @@ export function ConfettiBurst({ visible, count = 40, onDone }: ConfettiBurstProp
       return Animated.sequence([
         Animated.delay(delay),
         Animated.parallel([
-          Animated.timing(piece.x, { toValue: targetX, duration, easing: Easing.out(Easing.quad), useNativeDriver: true }),
-          Animated.timing(piece.y, { toValue: targetY, duration, easing: Easing.in(Easing.quad), useNativeDriver: true }),
-          Animated.timing(piece.rotate, { toValue: rotations, duration, useNativeDriver: true }),
+          Animated.timing(piece.x, { toValue: targetX, duration, easing: Easing.out(Easing.quad), useNativeDriver: USE_NATIVE_DRIVER }),
+          Animated.timing(piece.y, { toValue: targetY, duration, easing: Easing.in(Easing.quad), useNativeDriver: USE_NATIVE_DRIVER }),
+          Animated.timing(piece.rotate, { toValue: rotations, duration, useNativeDriver: USE_NATIVE_DRIVER }),
           Animated.sequence([
-            Animated.timing(piece.opacity, { toValue: 1, duration: 100, useNativeDriver: true }),
-            Animated.timing(piece.opacity, { toValue: 0, duration: duration * 0.4, delay: duration * 0.6, useNativeDriver: true }),
+            Animated.timing(piece.opacity, { toValue: 1, duration: 100, useNativeDriver: USE_NATIVE_DRIVER }),
+            Animated.timing(piece.opacity, { toValue: 0, duration: duration * 0.4, delay: duration * 0.6, useNativeDriver: USE_NATIVE_DRIVER }),
           ]),
         ]),
       ]);
@@ -229,8 +231,8 @@ export function StreakFlamePulse({ streak, color = '#F59E0B', size = 20, isActiv
   useEffect(() => {
     const loop = Animated.loop(
       Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.18, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: true }),
+        Animated.timing(pulseAnim, { toValue: 1.18, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(pulseAnim, { toValue: 1, duration: 800, easing: Easing.inOut(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
       ])
     );
     if (streak > 0) loop.start();
@@ -240,15 +242,15 @@ export function StreakFlamePulse({ streak, color = '#F59E0B', size = 20, isActiv
   useEffect(() => {
     if (!isActive) return;
     Animated.sequence([
-      Animated.timing(glowAnim, { toValue: 1, duration: 200, useNativeDriver: true }),
+      Animated.timing(glowAnim, { toValue: 1, duration: 200, useNativeDriver: USE_NATIVE_DRIVER }),
       Animated.sequence([
-        Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: -5, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: 5, duration: 60, useNativeDriver: true }),
-        Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+        Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(shakeAnim, { toValue: -5, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(shakeAnim, { toValue: 5, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+        Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
       ]),
-      Animated.timing(glowAnim, { toValue: 0, duration: 600, useNativeDriver: true }),
+      Animated.timing(glowAnim, { toValue: 0, duration: 600, useNativeDriver: USE_NATIVE_DRIVER }),
     ]).start();
   }, [isActive]);
 
@@ -285,8 +287,8 @@ export function QuestBounceWrapper({ completed, onPress, children, style }: Ques
 
   const handlePress = useCallback(() => {
     Animated.sequence([
-      Animated.timing(scaleAnim, { toValue: 0.92, duration: 80, useNativeDriver: true }),
-      Animated.spring(scaleAnim, { toValue: 1, tension: 300, friction: 8, useNativeDriver: true }),
+      Animated.timing(scaleAnim, { toValue: 0.92, duration: 80, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.spring(scaleAnim, { toValue: 1, tension: 300, friction: 8, useNativeDriver: USE_NATIVE_DRIVER }),
     ]).start();
     onPress();
   }, [onPress]);
@@ -353,14 +355,14 @@ export function MilestoneCelebrate({
       iconBounce.setValue(-30); streakScale.setValue(0);
 
       Animated.sequence([
-        Animated.timing(overlayOpacity, { toValue: 1, duration: 200, useNativeDriver: true }),
+        Animated.timing(overlayOpacity, { toValue: 1, duration: 200, useNativeDriver: USE_NATIVE_DRIVER }),
         Animated.parallel([
-          Animated.spring(cardScale, { toValue: 1, tension: 180, friction: 7, useNativeDriver: true }),
-          Animated.timing(cardOpacity, { toValue: 1, duration: 250, useNativeDriver: true }),
+          Animated.spring(cardScale, { toValue: 1, tension: 180, friction: 7, useNativeDriver: USE_NATIVE_DRIVER }),
+          Animated.timing(cardOpacity, { toValue: 1, duration: 250, useNativeDriver: USE_NATIVE_DRIVER }),
         ]),
         Animated.parallel([
-          Animated.spring(iconBounce, { toValue: 0, tension: 120, friction: 6, useNativeDriver: true }),
-          Animated.spring(streakScale, { toValue: 1, tension: 200, friction: 6, useNativeDriver: true }),
+          Animated.spring(iconBounce, { toValue: 0, tension: 120, friction: 6, useNativeDriver: USE_NATIVE_DRIVER }),
+          Animated.spring(streakScale, { toValue: 1, tension: 200, friction: 6, useNativeDriver: USE_NATIVE_DRIVER }),
         ]),
       ]).start();
     }
@@ -368,8 +370,8 @@ export function MilestoneCelebrate({
 
   const handleClose = () => {
     Animated.parallel([
-      Animated.timing(overlayOpacity, { toValue: 0, duration: 200, useNativeDriver: true }),
-      Animated.timing(cardScale, { toValue: 0.8, duration: 200, useNativeDriver: true }),
+      Animated.timing(overlayOpacity, { toValue: 0, duration: 200, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(cardScale, { toValue: 0.8, duration: 200, useNativeDriver: USE_NATIVE_DRIVER }),
     ]).start(() => onClose());
   };
 
@@ -429,12 +431,12 @@ export function PulseDot({ color = '#10B981', size = 8 }: PulseDotProps) {
     const loop = Animated.loop(
       Animated.sequence([
         Animated.parallel([
-          Animated.timing(pulseScale, { toValue: 2.2, duration: 700, easing: Easing.out(Easing.ease), useNativeDriver: true }),
-          Animated.timing(pulseOpacity, { toValue: 0, duration: 700, useNativeDriver: true }),
+          Animated.timing(pulseScale, { toValue: 2.2, duration: 700, easing: Easing.out(Easing.ease), useNativeDriver: USE_NATIVE_DRIVER }),
+          Animated.timing(pulseOpacity, { toValue: 0, duration: 700, useNativeDriver: USE_NATIVE_DRIVER }),
         ]),
         Animated.parallel([
-          Animated.timing(pulseScale, { toValue: 1, duration: 0, useNativeDriver: true }),
-          Animated.timing(pulseOpacity, { toValue: 0.7, duration: 0, useNativeDriver: true }),
+          Animated.timing(pulseScale, { toValue: 1, duration: 0, useNativeDriver: USE_NATIVE_DRIVER }),
+          Animated.timing(pulseOpacity, { toValue: 0.7, duration: 0, useNativeDriver: USE_NATIVE_DRIVER }),
         ]),
         Animated.delay(600),
       ])
@@ -511,12 +513,12 @@ export function FadeSlideIn({
           toValue: 0,
           duration,
           easing: Easing.out(Easing.back(1.4)),
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(opacity, {
           toValue: 1,
           duration: duration * 0.8,
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
       ]),
     ]).start();
@@ -554,19 +556,19 @@ export function FloatingBadge({
           toValue: -distance,
           duration: duration / 2,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(floatAnim, {
           toValue: distance,
           duration,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
         Animated.timing(floatAnim, {
           toValue: 0,
           duration: duration / 2,
           easing: Easing.inOut(Easing.sin),
-          useNativeDriver: true,
+          useNativeDriver: USE_NATIVE_DRIVER,
         }),
       ])
     );
@@ -597,13 +599,13 @@ export function ShakeView({ trigger, children, style }: ShakeViewProps) {
     if (!trigger) return;
     shakeAnim.setValue(0);
     Animated.sequence([
-      Animated.timing(shakeAnim, { toValue: -10, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 10, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: -4, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 4, duration: 60, useNativeDriver: true }),
-      Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: true }),
+      Animated.timing(shakeAnim, { toValue: -10, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(shakeAnim, { toValue: 10, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(shakeAnim, { toValue: -8, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(shakeAnim, { toValue: 8, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(shakeAnim, { toValue: -4, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(shakeAnim, { toValue: 4, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
+      Animated.timing(shakeAnim, { toValue: 0, duration: 60, useNativeDriver: USE_NATIVE_DRIVER }),
     ]).start();
   }, [trigger]);
 
