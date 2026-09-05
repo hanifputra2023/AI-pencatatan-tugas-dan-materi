@@ -121,6 +121,11 @@ export default function GeminiLiveVoiceModal({
   const activeUtteranceRef = useRef<any>(null);
   const fullAiTextRef = useRef<string>('');
 
+  // Native VAD (Voice Activity Detection) refs
+  const vadIsUserTalkingRef = useRef<boolean>(false);
+  const vadSilenceTimerRef = useRef<any>(null);
+  const lastMeteringUpdateRef = useRef<number>(0);
+
   // Sync mic mute ref
   useEffect(() => {
     isMicMutedRef.current = isMicMuted;
@@ -242,7 +247,7 @@ export default function GeminiLiveVoiceModal({
       isMicMutedRef.current = false;
       setIsMicMuted(false);
 
-      const history: GeminiMessage[] = existingMessages.slice(-6).map((m) => ({
+      const history: GeminiMessage[] = existingMessages.slice(-4).map((m) => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content }],
       }));
@@ -273,9 +278,12 @@ export default function GeminiLiveVoiceModal({
     isListeningRef.current = false;
     isAiSpeakingRef.current = false;
 
+    // Clear all timers including VAD
     if (silenceTimerRef.current) clearTimeout(silenceTimerRef.current);
     if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
     if (streamTimerRef.current) clearInterval(streamTimerRef.current);
+    if (vadSilenceTimerRef.current) { clearTimeout(vadSilenceTimerRef.current); vadSilenceTimerRef.current = null; }
+    vadIsUserTalkingRef.current = false;
 
     // Stop Native Recording
     if (nativeRecordingRef.current) {
@@ -502,6 +510,14 @@ export default function GeminiLiveVoiceModal({
   // -------------------------------------------------------------
   const startNativeRecordingSession = async () => {
     if (!isComponentMounted.current || isAiSpeakingRef.current || isMicMutedRef.current) return;
+
+    // Reset VAD state before new session
+    vadIsUserTalkingRef.current = false;
+    if (vadSilenceTimerRef.current) {
+      clearTimeout(vadSilenceTimerRef.current);
+      vadSilenceTimerRef.current = null;
+    }
+
     try {
       if (nativeRecordingRef.current) {
         try {
@@ -526,12 +542,41 @@ export default function GeminiLiveVoiceModal({
       recording.setOnRecordingStatusUpdate((status) => {
         if (!isComponentMounted.current) return;
         if (status.isRecording && typeof status.metering === 'number') {
-          // Metering ranges from -160 dB to 0 dB
+          // Metering ranges from -160 dB to 0 dB, normalized to 0-1
           const norm = Math.max(0, Math.min(1, (status.metering + 50) / 50));
-          bar1.setValue(0.2 + norm * 0.7);
-          bar2.setValue(0.3 + norm * 0.9);
-          bar3.setValue(0.25 + norm * 0.85);
-          bar4.setValue(0.2 + norm * 0.65);
+
+          // Throttle animation updates to ~10fps to reduce UI lag
+          const now = Date.now();
+          if (now - lastMeteringUpdateRef.current > 100) {
+            lastMeteringUpdateRef.current = now;
+            bar1.setValue(0.2 + norm * 0.7);
+            bar2.setValue(0.3 + norm * 0.9);
+            bar3.setValue(0.25 + norm * 0.85);
+            bar4.setValue(0.2 + norm * 0.65);
+          }
+
+          // ── VAD: Auto-detect speech vs silence ──────────────────────────
+          // Threshold ~0.18 normalized ≈ -41 dB — picks up clear speech
+          const SPEECH_THRESHOLD = 0.18;
+          const isTalking = norm > SPEECH_THRESHOLD;
+
+          if (isTalking && !isAiSpeakingRef.current) {
+            // User is speaking — mark as talking & cancel any pending silence timer
+            vadIsUserTalkingRef.current = true;
+            if (vadSilenceTimerRef.current) {
+              clearTimeout(vadSilenceTimerRef.current);
+              vadSilenceTimerRef.current = null;
+            }
+          } else if (!isTalking && vadIsUserTalkingRef.current && !vadSilenceTimerRef.current) {
+            // User went silent after speaking — start 1.5s countdown
+            vadSilenceTimerRef.current = setTimeout(() => {
+              vadSilenceTimerRef.current = null;
+              if (isComponentMounted.current && !isAiSpeakingRef.current && nativeRecordingRef.current) {
+                vadIsUserTalkingRef.current = false;
+                stopNativeRecordingAndProcess();
+              }
+            }, 1500);
+          }
         }
       });
 
@@ -548,6 +593,13 @@ export default function GeminiLiveVoiceModal({
   };
 
   const stopNativeRecordingAndProcess = async () => {
+    // Clear VAD state immediately to prevent double-trigger
+    if (vadSilenceTimerRef.current) {
+      clearTimeout(vadSilenceTimerRef.current);
+      vadSilenceTimerRef.current = null;
+    }
+    vadIsUserTalkingRef.current = false;
+
     if (!nativeRecordingRef.current) return;
     try {
       const recording = nativeRecordingRef.current;
@@ -594,11 +646,13 @@ export default function GeminiLiveVoiceModal({
         const reply = await sendMessageToGemini(historyWithPrompt, 'Dengarkan pesan suara saya ini dan tanggapi dengan santai.', audioAttachment);
         const cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
 
-        convoHistoryRef.current = [
+        // Keep history bounded to last 8 entries to reduce future payload size
+        const updatedHistory = [
           ...convoHistoryRef.current,
-          { role: 'user', parts: [{ text: 'Pesan Suara' }] },
-          { role: 'model', parts: [{ text: cleanReply }] },
+          { role: 'user', parts: [{ text: 'Pesan Suara' }] } as GeminiMessage,
+          { role: 'model', parts: [{ text: cleanReply }] } as GeminiMessage,
         ];
+        convoHistoryRef.current = updatedHistory.slice(-8);
 
         if (onNewMessagePair) {
           onNewMessagePair('Pesan Suara', cleanReply);
@@ -649,11 +703,13 @@ export default function GeminiLiveVoiceModal({
       const reply = await sendMessageToGemini(historyWithPrompt, queryText);
       const cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
 
-      convoHistoryRef.current = [
+      // Keep history bounded to last 8 entries to reduce future payload size
+      const updatedHistory = [
         ...convoHistoryRef.current,
-        { role: 'user', parts: [{ text: queryText }] },
-        { role: 'model', parts: [{ text: cleanReply }] },
+        { role: 'user', parts: [{ text: queryText }] } as GeminiMessage,
+        { role: 'model', parts: [{ text: cleanReply }] } as GeminiMessage,
       ];
+      convoHistoryRef.current = updatedHistory.slice(-8);
 
       if (onNewMessagePair) {
         onNewMessagePair(queryText, cleanReply);
@@ -830,7 +886,7 @@ export default function GeminiLiveVoiceModal({
     } else if (liveState === 'muted') {
       toggleMute();
     } else if (Platform.OS !== 'web' && liveState === 'listening') {
-      // On Native: Tap stops recording & sends to AI
+      // On Native: Manual tap = send immediately (shortcut; VAD handles auto-send)
       stopNativeRecordingAndProcess();
     } else {
       setUserTranscript('');
@@ -854,9 +910,7 @@ export default function GeminiLiveVoiceModal({
 
     switch (liveState) {
       case 'listening':
-        return Platform.OS === 'web'
-          ? 'Mendengarkan suaramu...'
-          : 'Sedang merekam suara... (Ketuk untuk kirim)';
+        return 'Mendengarkan suaramu...';
       case 'thinking':
         return 'Menghubungkan pikiran...';
       case 'speaking':
