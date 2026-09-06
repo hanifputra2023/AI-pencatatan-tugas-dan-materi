@@ -2,7 +2,8 @@ import React, { createContext, useContext, useState, useEffect, useCallback, Rea
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useAuth } from './AuthContext';
 import { showAlert } from '../lib/alert';
-import { getCachedNotes, getCachedTasks } from '../lib/offlineSync';
+import { getCachedNotes, getCachedTasks, cacheNotesLocally, cacheTasksLocally } from '../lib/offlineSync';
+import { supabase } from '../lib/supabase';
 
 export interface StudentSubject {
   id: string;
@@ -23,6 +24,7 @@ interface SubjectContextType {
   loading: boolean;
   addSubject: (name: string) => Promise<StudentSubject | null>;
   deleteSubject: (id: string) => Promise<boolean>;
+  renameSubject: (id: string, newName: string) => Promise<boolean>;
   refreshSubjects: () => Promise<void>;
 }
 
@@ -157,8 +159,83 @@ export function SubjectProvider({ children }: { children: ReactNode }) {
     return true;
   };
 
+  // Rename Subject (also updates existing notes/tasks referencing the old name)
+  const renameSubject = async (id: string, newName: string): Promise<boolean> => {
+    const trimmed = newName.trim();
+    if (!trimmed) {
+      showAlert('Perhatian', 'Nama mata kuliah tidak boleh kosong.');
+      return false;
+    }
+
+    const target = subjects.find(s => s.id === id);
+    if (!target) return false;
+
+    const oldName = target.name;
+    if (oldName.toLowerCase().trim() === trimmed.toLowerCase()) return true;
+
+    if (subjects.some(s => s.id !== id && s.name.toLowerCase().trim() === trimmed.toLowerCase())) {
+      showAlert('Sudah Ada', `Mata kuliah "${trimmed}" sudah ada di daftarmu.`);
+      return false;
+    }
+
+    const updated = subjects.map(s => (s.id === id ? { ...s, name: trimmed } : s));
+    setSubjects(updated);
+
+    const storageKey = getStorageKey(user?.id);
+    await AsyncStorage.setItem(storageKey, JSON.stringify(updated));
+
+    // Update existing notes & tasks that reference the old subject name
+    if (user?.id && oldName.toLowerCase().trim() !== trimmed.toLowerCase()) {
+      try {
+        const [cachedNotes, cachedTasks] = await Promise.all([
+          getCachedNotes(user.id),
+          getCachedTasks(user.id),
+        ]);
+        let changed = false;
+
+        const renamedNotes = cachedNotes.map(n => {
+          if (n.subject && n.subject.toLowerCase().trim() === oldName.toLowerCase().trim()) {
+            changed = true;
+            return { ...n, subject: trimmed };
+          }
+          return n;
+        });
+        if (changed) await cacheNotesLocally(user.id, renamedNotes);
+
+        changed = false;
+        const renamedTasks = cachedTasks.map(t => {
+          if (t.subject && t.subject.toLowerCase().trim() === oldName.toLowerCase().trim()) {
+            changed = true;
+            return { ...t, subject: trimmed };
+          }
+          return t;
+        });
+        if (changed) await cacheTasksLocally(user.id, renamedTasks);
+      } catch (e) {
+        console.log('Error renaming local notes/tasks subjects:', e);
+      }
+
+      try {
+        await supabase
+          .from('study_notes')
+          .update({ subject: trimmed })
+          .eq('user_id', user.id)
+          .ilike('subject', oldName);
+        await supabase
+          .from('student_tasks')
+          .update({ subject: trimmed })
+          .eq('user_id', user.id)
+          .ilike('subject', oldName);
+      } catch (e) {
+        console.log('Error renaming remote subject:', e);
+      }
+    }
+
+    return true;
+  };
+
   return (
-    <SubjectContext.Provider value={{ subjects, loading, addSubject, deleteSubject, refreshSubjects }}>
+    <SubjectContext.Provider value={{ subjects, loading, addSubject, deleteSubject, renameSubject, refreshSubjects }}>
       {children}
     </SubjectContext.Provider>
   );

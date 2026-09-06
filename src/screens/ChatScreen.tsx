@@ -64,7 +64,7 @@ export default function ChatScreen() {
   const { aiPersona, aiBotName, activePersona, customAiName, customAiAvatar } = useMoods();
   const effectiveBotName = customAiName || aiBotName || activePersona.botName || 'Ara';
   const { theme, isLightMode } = useTheme();
-  const { isDesktop, isTablet } = useResponsive();
+  const { isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
 
   // Multi-Session & Message States
@@ -877,7 +877,7 @@ export default function ChatScreen() {
         <View style={[styles.chatCanvas, isWide && { backgroundColor: isLightMode ? '#F8FAFC' : '#0B0F17' }]}>
 
           {/* ULTRA-CLEAN MODERN HEADER */}
-          <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border }]}>
+          <View style={[styles.header, { backgroundColor: theme.card, borderBottomColor: theme.border, ...(isSmallPhone ? { paddingHorizontal: 10, paddingVertical: 8 } : {})}]}>
             <View style={styles.headerLeft}>
               {/* Mobile Only: Session Drawer Button */}
               {!isWide && (
@@ -895,7 +895,7 @@ export default function ChatScreen() {
 
               {/* AI Avatar In Header */}
               <TouchableOpacity
-                style={[styles.headerAiAvatarWrap, { borderColor: theme.accentLight, backgroundColor: theme.cardInner }]}
+                style={[styles.headerAiAvatarWrap, { borderColor: theme.accentLight, backgroundColor: theme.cardInner, ...(isSmallPhone ? { width: 28, height: 28, borderRadius: 14, marginRight: 0 } : {})}]}
                 onPress={() => navigation.navigate('Main', { screen: 'Profile' })}
                 activeOpacity={0.8}
               >
@@ -912,9 +912,9 @@ export default function ChatScreen() {
                     {effectiveBotName}
                   </Text>
                   <PulseDot color="#10B981" size={7} />
-                  {activePersona?.name && (
-                    <View style={[styles.personaBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                      <Text style={[styles.personaBadgeText, { color: theme.accentLight }]}>
+                  {activePersona?.name && !isSmallPhone && (
+                    <View style={[styles.personaBadge, { backgroundColor: theme.accentBg, borderColor: theme.border, ...(isMobile ? { maxWidth: 80 } : {})}]}>
+                      <Text style={[styles.personaBadgeText, { color: theme.accentLight }]} numberOfLines={1} ellipsizeMode="tail">
                         {activePersona.name.split(' (')[0]}
                       </Text>
                     </View>
@@ -983,8 +983,12 @@ export default function ChatScreen() {
             keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
           >
             {messages.length === 0 ? (
-              <ScrollView contentContainerStyle={styles.emptyContainer} showsVerticalScrollIndicator={false}>
-                <FadeSlideIn delay={50}>
+              <ScrollView
+                style={isWide ? styles.emptyScrollWide : undefined}
+                contentContainerStyle={styles.emptyContainer}
+                showsVerticalScrollIndicator={false}
+              >
+                <FadeSlideIn delay={50} style={styles.emptyCardWrapper}>
                   <View style={[styles.emptyCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                     <FloatingBadge distance={5} duration={2200}>
                       <View style={[styles.emptyIconBox, { backgroundColor: theme.accentBg, borderColor: theme.border, overflow: 'hidden' }]}>
@@ -1417,6 +1421,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 10,
     flex: 1,
+    minWidth: 0,
   },
   mobileDrawerBtn: {
     width: 34,
@@ -1428,11 +1433,13 @@ const styles = StyleSheet.create({
   },
   headerInfoBlock: {
     flex: 1,
+    minWidth: 0,
   },
   headerTitleRow: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
+    overflow: 'hidden',
   },
   headerTitle: {
     fontSize: 14.5,
@@ -1522,9 +1529,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 24,
   },
+  emptyScrollWide: {
+    alignSelf: 'center',
+    width: '100%',
+    maxWidth: 860,
+  },
+  emptyCardWrapper: {
+    width: '100%',
+    alignItems: 'center',
+  },
   emptyCard: {
     width: '100%',
-    maxWidth: 520,
+    maxWidth: 560,
     padding: 24,
     borderRadius: 20,
     borderWidth: 1,

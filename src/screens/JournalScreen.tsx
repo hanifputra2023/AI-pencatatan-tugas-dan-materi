@@ -8,7 +8,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, isColorLight } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { JournalEntry } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -30,6 +30,7 @@ export default function JournalScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
+  const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
   const [entries, setEntries] = useState<JournalEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -154,9 +155,10 @@ export default function JournalScreen() {
         <TouchableOpacity
           style={[styles.addBtn, { backgroundColor: theme.primary }]}
           onPress={() => navigation.navigate('JournalEntry', {})}
+          activeOpacity={0.8}
         >
-          <Ionicons name="add" size={18} color="#FFFFFF" />
-          <Text style={styles.addBtnText}>Tulis Jurnal</Text>
+          <Ionicons name="add" size={16} color={primaryBtnTextColor} />
+          <Text style={[styles.addBtnText, { color: primaryBtnTextColor }]}>Tulis Jurnal</Text>
         </TouchableOpacity>
       </View>
 
@@ -295,18 +297,17 @@ const styles = StyleSheet.create({
   addBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1E2430',
-    paddingHorizontal: 14,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 10,
-    borderWidth: 1,
-    borderColor: '#2E384A',
-    gap: 6,
+    gap: 4,
+    flexShrink: 0,
   },
   addBtnText: {
     color: '#FFFFFF',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 12.5,
+    fontWeight: '700',
   },
   tabSegmentContainer: {
     flexDirection: 'row',

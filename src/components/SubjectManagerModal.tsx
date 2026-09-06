@@ -19,10 +19,13 @@ export default function SubjectManagerModal({
   onClose,
   onSelectSubject,
 }: SubjectManagerModalProps) {
-  const { subjects, addSubject, deleteSubject } = useSubjects();
+  const { subjects, addSubject, deleteSubject, renameSubject } = useSubjects();
   const { theme, isLightMode } = useTheme();
   const [newSubjName, setNewSubjName] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editingName, setEditingName] = useState('');
+  const [renaming, setRenaming] = useState(false);
 
   const primaryBtnTextColor = isColorLight(theme.primary) ? '#0F172A' : '#FFFFFF';
 
@@ -51,6 +54,29 @@ export default function SubjectManagerModal({
       },
       'Hapus'
     );
+  };
+
+  const startEdit = (id: string, name: string) => {
+    setEditingId(id);
+    setEditingName(name);
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditingName('');
+  };
+
+  const handleRename = async (id: string) => {
+    if (!editingName.trim()) {
+      showAlert('Perhatian', 'Ketik nama mata kuliah terlebih dahulu.');
+      return;
+    }
+    setRenaming(true);
+    const ok = await renameSubject(id, editingName.trim());
+    setRenaming(false);
+    if (ok) {
+      cancelEdit();
+    }
   };
 
   return (
@@ -111,25 +137,62 @@ export default function SubjectManagerModal({
                 ) : (
                   subjects.map((item, idx) => (
                     <View key={item.id || idx} style={[styles.subjItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                      <TouchableOpacity
-                        style={styles.subjItemLeft}
-                        onPress={() => {
-                          if (onSelectSubject) {
-                            onSelectSubject(item.name);
-                            onClose();
-                          }
-                        }}
-                      >
-                        <Ionicons name="book-outline" size={15} color={theme.accentLight} />
-                        <Text style={[styles.subjName, { color: theme.text }]}>{item.name}</Text>
-                      </TouchableOpacity>
-                      
-                      <TouchableOpacity
-                        style={[styles.deleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418' }]}
-                        onPress={() => handleDelete(item.id, item.name)}
-                      >
-                        <Ionicons name="trash-outline" size={15} color="#EF4444" />
-                      </TouchableOpacity>
+                      {editingId === item.id ? (
+                        <>
+                          <TextInput
+                            style={[styles.editInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
+                            placeholder="Nama baru..."
+                            placeholderTextColor={theme.muted}
+                            value={editingName}
+                            onChangeText={setEditingName}
+                            autoFocus
+                            onSubmitEditing={() => handleRename(item.id)}
+                            editable={!renaming}
+                          />
+                          <TouchableOpacity
+                            style={[styles.saveBtn, { backgroundColor: theme.primary }]}
+                            onPress={() => handleRename(item.id)}
+                            disabled={renaming}
+                          >
+                            <Ionicons name="checkmark" size={16} color={primaryBtnTextColor} />
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={[styles.editCancelBtn, { backgroundColor: isLightMode ? '#EEF2F7' : '#262B36' }]}
+                            onPress={cancelEdit}
+                          >
+                            <Ionicons name="close" size={16} color={theme.subtext} />
+                          </TouchableOpacity>
+                        </>
+                      ) : (
+                        <>
+                          <TouchableOpacity
+                            style={styles.subjItemLeft}
+                            onPress={() => {
+                              if (onSelectSubject) {
+                                onSelectSubject(item.name);
+                                onClose();
+                              }
+                            }}
+                          >
+                            <Ionicons name="book-outline" size={15} color={theme.accentLight} />
+                            <Text style={[styles.subjName, { color: theme.text }]} numberOfLines={1}>{item.name}</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.editBtn, { backgroundColor: isLightMode ? '#E0F2FE' : '#12314A' }]}
+                            onPress={() => startEdit(item.id, item.name)}
+                          >
+                            <Ionicons name="pencil" size={15} color={theme.accentLight} />
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            style={[styles.deleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2D1418' }]}
+                            onPress={() => handleDelete(item.id, item.name)}
+                          >
+                            <Ionicons name="trash-outline" size={15} color="#EF4444" />
+                          </TouchableOpacity>
+                        </>
+                      )}
                     </View>
                   ))
                 )}
@@ -268,6 +331,33 @@ const styles = StyleSheet.create({
     color: '#F3F4F6',
     fontSize: 12.5,
     fontWeight: '500',
+  },
+  editInput: {
+    flex: 1,
+    backgroundColor: '#141822',
+    borderRadius: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 7,
+    color: '#F3F4F6',
+    fontSize: 12.5,
+    borderWidth: 1,
+    borderColor: '#2A3346',
+  },
+  saveBtn: {
+    padding: 6,
+    backgroundColor: '#2563EB',
+    borderRadius: 6,
+  },
+  editCancelBtn: {
+    padding: 6,
+    backgroundColor: '#262B36',
+    borderRadius: 6,
+  },
+  editBtn: {
+    padding: 6,
+    backgroundColor: '#12314A',
+    borderRadius: 6,
+    marginLeft: 8,
   },
   deleteBtn: {
     padding: 6,
