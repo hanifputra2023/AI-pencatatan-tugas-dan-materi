@@ -129,7 +129,20 @@ export interface GeminiMessage {
 export interface SendMessageOptions {
   isJsonMode?: boolean;
   maxTokens?: number;
+  onToken?: (partialText: string) => void;
 }
+
+interface GeminiCallResult {
+  text: string;
+  finishReason?: string;
+}
+
+const CHAT_MAX_TOKENS = 8192;
+
+const CONTINUE_PROMPT =
+  'Jawabanmu terpotong karena mencapai batas token. ' +
+  'Lanjutkan persis dari kalimat terakhir yang kamu tulis, ' +
+  'jangan mengulang bagian yang sudah ditulis, dan selesaikan jawabanmu sampai tuntas hingga selesai.';
 
 async function callSingleModelWithKey(
   apiKey: string,
@@ -137,11 +150,16 @@ async function callSingleModelWithKey(
   contents: GeminiMessage[],
   systemPrompt: string,
   options?: SendMessageOptions
-): Promise<string> {
+): Promise<GeminiCallResult> {
+  // Use SSE streaming for progressive token delivery when a token callback is requested
+  if (options?.onToken && !options?.isJsonMode) {
+    return streamSingleModelWithKey(apiKey, modelName, contents, systemPrompt, options);
+  }
+
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
 
   const isJson = options?.isJsonMode === true;
-  const maxOutputTokens = options?.maxTokens || (isJson ? 4096 : 1200);
+  const maxOutputTokens = options?.maxTokens || (isJson ? 4096 : CHAT_MAX_TOKENS);
 
   const requestBody: any = {
     systemInstruction: {
@@ -178,12 +196,13 @@ async function callSingleModelWithKey(
     }
 
     const data = await response.json();
-    const replyText = data.candidates?.[0]?.content?.parts?.[0]?.text;
+    const candidate = data.candidates?.[0];
+    const replyText = candidate?.content?.parts?.[0]?.text;
     if (!replyText) {
       throw new Error('AI tidak memberikan respon teks.');
     }
 
-    return replyText;
+    return { text: replyText, finishReason: candidate?.finishReason };
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
@@ -193,7 +212,162 @@ async function callSingleModelWithKey(
   }
 }
 
-// Helper to safely extract and parse JSON from AI response even if wrapped in conversational text or markdown
+// Strip a duplicated tail sentence that the model re-emits at the start of a continuation
+function stripRepeatedTail(prev: string, next: string): string {
+  const cleanPrev = prev.trimEnd();
+  const cleanNext = next.trimStart();
+  if (!cleanPrev || !cleanNext) return cleanNext;
+
+  // Try the last 1-2 sentences of the previous piece first
+  const pieces = cleanPrev.match(/[^.!?\n]+[.!?\n]*/g);
+  if (pieces && pieces.length > 0) {
+    const candidates: string[] = [pieces[pieces.length - 1].trim()];
+    if (pieces.length >= 2) {
+      candidates.push((pieces[pieces.length - 2] + pieces[pieces.length - 1]).trim());
+    }
+    for (const candidate of candidates) {
+      if (candidate && candidate.length >= 4 && cleanNext.startsWith(candidate)) {
+        return cleanNext.slice(candidate.length).trimStart();
+      }
+    }
+  }
+
+  // Fallback: strip a long trailing chunk if it is repeated verbatim
+  const tail = cleanPrev.slice(-90);
+  if (tail.length >= 12 && cleanNext.startsWith(tail)) {
+    return cleanNext.slice(tail.length).trimStart();
+  }
+
+  return cleanNext;
+}
+
+// Streamed chat call using SSE (works on web; falls back to a full-body read on native)
+async function streamSingleModelWithKey(
+  apiKey: string,
+  modelName: string,
+  contents: GeminiMessage[],
+  systemPrompt: string,
+  options: SendMessageOptions
+): Promise<GeminiCallResult> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:streamGenerateContent?alt=sse&key=${apiKey}`;
+
+  const isJson = options?.isJsonMode === true;
+  const maxOutputTokens = options?.maxTokens || (isJson ? 4096 : CHAT_MAX_TOKENS);
+
+  const requestBody: any = {
+    systemInstruction: {
+      parts: [{ text: systemPrompt }],
+    },
+    contents,
+    generationConfig: {
+      temperature: isJson ? 0.2 : 0.85,
+      topK: 40,
+      topP: 0.95,
+      maxOutputTokens,
+      ...(isJson ? { responseMimeType: 'application/json' } : {}),
+    },
+  };
+
+  const controller = new AbortController();
+  // Streaming may legitimately take longer than a single-shot call
+  const timeoutId = setTimeout(() => controller.abort(), 60000);
+
+  try {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(requestBody),
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      const errorMessage = err?.error?.message || `HTTP ${response.status}`;
+      const customErr: any = new Error(errorMessage);
+      customErr.status = response.status;
+      throw customErr;
+    }
+
+    let fullText = '';
+    let finishReason: string | undefined;
+    const decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
+
+    const handleSseLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed.startsWith('data:')) return;
+      const payload = trimmed.slice(5).trim();
+      if (!payload || payload === '[DONE]') return;
+      try {
+        const data = JSON.parse(payload);
+        const candidate = data.candidates?.[0];
+        const delta = candidate?.content?.parts?.[0]?.text;
+        if (delta) {
+          fullText += delta;
+          options.onToken?.(fullText);
+        }
+        if (candidate?.finishReason) {
+          finishReason = candidate.finishReason;
+        }
+      } catch (e) {
+        // Ignore malformed/partial SSE chunks
+      }
+    };
+
+    const feedLines = (raw: string) => {
+      let buffer = raw;
+      let lineEnd;
+      while ((lineEnd = buffer.indexOf('\n')) !== -1) {
+        handleSseLine(buffer.slice(0, lineEnd));
+        buffer = buffer.slice(lineEnd + 1);
+      }
+      if (buffer.trim()) {
+        handleSseLine(buffer);
+      }
+    };
+
+    // Streaming requires a readable body stream + TextDecoder. When either is
+    // missing (e.g. older React Native), fall back to reading the full SSE text.
+    const body = response.body as unknown;
+    const reader =
+      decoder !== null &&
+      body !== null &&
+      typeof body === 'object' &&
+      'getReader' in body &&
+      typeof (body as { getReader: () => ReadableStreamDefaultReader<Uint8Array> }).getReader === 'function'
+        ? (body as { getReader: () => ReadableStreamDefaultReader<Uint8Array> }).getReader()
+        : null;
+
+    if (reader) {
+      let buffer = '';
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder!.decode(value, { stream: true });
+        let lineEnd;
+        while ((lineEnd = buffer.indexOf('\n')) !== -1) {
+          handleSseLine(buffer.slice(0, lineEnd));
+          buffer = buffer.slice(lineEnd + 1);
+        }
+      }
+      if (buffer.trim()) {
+        handleSseLine(buffer);
+      }
+    } else {
+      // Native fallback: full body read, then parse every SSE chunk in order
+      feedLines(await response.text());
+    }
+
+    return { text: fullText, finishReason };
+  } catch (error: any) {
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error(`Model ${modelName} timeout saat streaming (>60 detik). Mengalihkan ke model cepat...`);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
 export function extractJsonFromText<T>(text: string): T {
   if (!text) throw new Error('Respon AI kosong.');
 
@@ -244,6 +418,58 @@ export function extractJsonFromText<T>(text: string): T {
 // =========================================================================
 // MULTI-KEY & MULTI-MODEL SMART FAILOVER ROUTING ENGINE
 // =========================================================================
+
+// Auto-continue truncated responses (finishReason === 'MAX_TOKENS') until complete
+async function continueUntilComplete(
+  apiKey: string,
+  modelName: string,
+  contents: GeminiMessage[],
+  systemPrompt: string,
+  options: SendMessageOptions | undefined,
+  firstResult: GeminiCallResult
+): Promise<string> {
+  // JSON mode must not be extended (would corrupt the structure) - return as-is
+  if (options?.isJsonMode) {
+    return firstResult.text;
+  }
+
+  const MAX_CONTINUE_STEPS = 5;
+  let fullText = firstResult.text;
+  let lastPiece = firstResult.text;
+  let currentContents = contents;
+  let current = firstResult;
+
+  for (let step = 0; step < MAX_CONTINUE_STEPS && current.finishReason === 'MAX_TOKENS'; step++) {
+    try {
+      currentContents = [
+        ...currentContents,
+        { role: 'model', parts: [{ text: current.text }] },
+        { role: 'user', parts: [{ text: CONTINUE_PROMPT }] },
+      ];
+
+      // Keep streaming across continuations: report the full accumulated answer,
+      // stripping any tail sentence repeated from the previous piece.
+      const continuationOptions: SendMessageOptions | undefined = options?.onToken
+        ? {
+            ...options,
+            onToken: (partial: string) => {
+              options.onToken?.(fullText + '\n\n' + stripRepeatedTail(lastPiece, partial));
+            },
+          }
+        : options;
+
+      current = await callSingleModelWithKey(apiKey, modelName, currentContents, systemPrompt, continuationOptions);
+      fullText += '\n\n' + stripRepeatedTail(lastPiece, current.text);
+      lastPiece = current.text;
+    } catch (e: any) {
+      console.warn(`[Auto-Continue] Gagal melanjutkan respon (${e.message}). Memakai teks yang sudah ada.`);
+      break;
+    }
+  }
+
+  return fullText;
+}
+
 export async function sendMessageToGemini(
   history: GeminiMessage[],
   newMessage: string,
@@ -338,8 +564,8 @@ export async function sendMessageToGemini(
     ];
     for (const model of modelsToTry) {
       try {
-        const reply = await callSingleModelWithKey(currentKey, model, contents, systemPrompt, options);
-        return reply;
+        const result = await callSingleModelWithKey(currentKey, model, contents, systemPrompt, options);
+        return await continueUntilComplete(currentKey, model, contents, systemPrompt, options, result);
       } catch (err: any) {
         lastError = err;
         const isQuotaOrAuthError =

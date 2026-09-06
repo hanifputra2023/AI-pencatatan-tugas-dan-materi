@@ -61,8 +61,11 @@ export default function ChatScreen() {
 
   const { user } = useAuth();
   const effectiveUserId = user?.id || 'guest_user';
-  const { aiPersona, aiBotName, activePersona, customAiName, customAiAvatar } = useMoods();
+  const { aiPersona, aiBotName, activePersona, customAiName, customAiAvatar, appSettings } = useMoods();
   const effectiveBotName = customAiName || aiBotName || activePersona.botName || 'Ara';
+  const chatMaxTokens = parseInt(appSettings['ai_max_tokens'], 10) > 0
+    ? parseInt(appSettings['ai_max_tokens'], 10)
+    : undefined;
   const { theme, isLightMode } = useTheme();
   const { isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -78,6 +81,7 @@ export default function ChatScreen() {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [loading, setLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [initializing, setInitializing] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [editingMsg, setEditingMsg] = useState<ChatMessage | null>(null);
@@ -107,17 +111,22 @@ export default function ChatScreen() {
 
   const flatListRef = useRef<FlatList>(null);
   const inputRef = useRef<TextInput>(null);
+  const isPinnedToBottomRef = useRef(true);
+  const lastStreamScrollRef = useRef(0);
 
-  const scrollToBottom = useCallback((delay = 100) => {
+  const scrollToBottom = useCallback((delay = 100, animated = true) => {
     setTimeout(() => {
-      flatListRef.current?.scrollToEnd({ animated: true });
+      // Never fight the user: only auto-scroll when the user is already near the bottom
+      if (!isPinnedToBottomRef.current) return;
+      flatListRef.current?.scrollToEnd({ animated });
     }, delay);
   }, []);
 
   const handleScroll = (event: any) => {
     const { layoutMeasurement, contentOffset, contentSize } = event.nativeEvent;
-    const paddingToBottom = 150;
+    const paddingToBottom = 300; // forgiving threshold so auto-scroll isn't lost when the AI bubble grows between frames
     const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
+    isPinnedToBottomRef.current = isCloseToBottom;
     setShowScrollBottomBtn(!isCloseToBottom && contentOffset.y > 250);
   };
 
@@ -459,10 +468,27 @@ export default function ChatScreen() {
 
       const targetIndex = messages.findIndex(m => m.id === targetId);
       const updatedMessages = [...messages];
+      let replyId: string | null = null;
+      let insertedPlaceholder = false;
       if (targetIndex !== -1) {
         updatedMessages[targetIndex] = { ...updatedMessages[targetIndex], content: text };
-        setMessages(updatedMessages);
+        const nextMsgIndex = targetIndex + 1;
+        if (nextMsgIndex < updatedMessages.length && updatedMessages[nextMsgIndex].role === 'assistant') {
+          replyId = updatedMessages[nextMsgIndex].id;
+        } else {
+          replyId = 'ai_edit_' + Date.now();
+          insertedPlaceholder = true;
+          updatedMessages.splice(targetIndex + 1, 0, {
+            id: replyId,
+            session_id: activeSessionId,
+            user_id: effectiveUserId,
+            role: 'assistant',
+            content: '',
+            created_at: new Date().toISOString(),
+          });
+        }
       }
+      setMessages(updatedMessages);
 
       try {
         const priorMessages = targetIndex !== -1 ? messages.slice(0, targetIndex) : [];
@@ -471,21 +497,37 @@ export default function ChatScreen() {
           parts: [{ text: m.content }],
         }));
 
-        const newAiReply = await sendMessageToGemini(history, text, currentAttachment, aiPersona);
+        const newAiReply = await sendMessageToGemini(history, text, currentAttachment, aiPersona, {
+          maxTokens: chatMaxTokens,
+          onToken: (partial) => {
+            setIsStreaming(true);
+            if (replyId) {
+              setMessages(prev => prev.map(m => (m.id === replyId ? { ...m, content: partial } : m)));
+            }
+            const now = Date.now();
+            if (now - lastStreamScrollRef.current >= 200) {
+              lastStreamScrollRef.current = now;
+              scrollToBottom(0, false);
+            }
+          },
+        });
 
-        const nextMsgIndex = targetIndex !== -1 ? targetIndex + 1 : -1;
-        const nextMsg = nextMsgIndex < updatedMessages.length ? updatedMessages[nextMsgIndex] : null;
-
-        if (nextMsg && nextMsg.role === 'assistant') {
-          updatedMessages[nextMsgIndex] = { ...nextMsg, content: newAiReply };
-          setMessages([...updatedMessages]);
-          await safeSaveChatMessages(effectiveUserId, activeSessionId, updatedMessages);
+        const finalList = replyId
+          ? updatedMessages.map(m => (m.id === replyId ? { ...m, content: newAiReply } : m))
+          : updatedMessages;
+        setMessages(finalList);
+        if (replyId) {
+          await safeSaveChatMessages(effectiveUserId, activeSessionId, finalList);
         }
       } catch (err: any) {
         console.error('Edit error:', err);
         setErrorToast(err.message || 'Gagal memperbarui respons AI.');
+        if (insertedPlaceholder && replyId) {
+          setMessages(prev => prev.filter(m => m.id !== replyId));
+        }
       } finally {
         setLoading(false);
+        setIsStreaming(false);
         scrollToBottom(150);
       }
       return;
@@ -502,7 +544,17 @@ export default function ChatScreen() {
       created_at: new Date().toISOString(),
     };
 
-    setMessages(prev => [...prev, tempUserMsg]);
+    const tempAiId = 'ai_' + Date.now();
+    const streamingAiMsg: ChatMessage = {
+      id: tempAiId,
+      session_id: activeSessionId,
+      user_id: effectiveUserId,
+      role: 'assistant',
+      content: '',
+      created_at: new Date().toISOString(),
+    };
+
+    setMessages(prev => [...prev, tempUserMsg, streamingAiMsg]);
     setLoading(true);
     scrollToBottom(50);
 
@@ -513,10 +565,23 @@ export default function ChatScreen() {
       }));
 
       const customAiPrompt = `Nama kamu adalah "${effectiveBotName}". Sapa dirimu dengan nama ini jika pengguna menanyakan siapa namamu atau saat memperkenalkan diri.\n\n${aiPersona}`;
-      const aiReply = await sendMessageToGemini(history, text, currentAttachment, customAiPrompt);
+      const aiReply = await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, {
+        maxTokens: chatMaxTokens,
+        onToken: (partial) => {
+          setIsStreaming(true);
+          setMessages(prev => prev.map(m => (m.id === tempAiId ? { ...m, content: partial } : m)));
+          // Throttle: instant, non-animated scroll at most once every 200ms to avoid
+          // chaining scroll animations that cause up/down flickering
+          const now = Date.now();
+          if (now - lastStreamScrollRef.current >= 200) {
+            lastStreamScrollRef.current = now;
+            scrollToBottom(0, false);
+          }
+        },
+      });
 
       const tempAiMsg: ChatMessage = {
-        id: 'ai_' + Date.now(),
+        id: tempAiId,
         session_id: activeSessionId,
         user_id: effectiveUserId,
         role: 'assistant',
@@ -534,8 +599,10 @@ export default function ChatScreen() {
     } catch (err: any) {
       console.error('Chat error:', err);
       setErrorToast(err.message || 'Server AI sedang sibuk. Coba kirim ulang ya.');
+      setMessages(prev => prev.filter(m => m.id !== tempAiId));
     } finally {
       setLoading(false);
+      setIsStreaming(false);
       scrollToBottom(150);
     }
   };
@@ -1068,7 +1135,7 @@ export default function ChatScreen() {
             )}
 
             {/* Minimalist Typing Indicator */}
-            {loading && (
+            {loading && !isStreaming && (
               <View style={styles.typingContainer}>
                 <View style={[styles.typingDot, { backgroundColor: theme.accentLight }]} />
                 <Text style={[styles.typingText, { color: theme.subtext }]}>{aiBotName || 'Ara'} sedang mengetik...</Text>
@@ -1187,7 +1254,7 @@ export default function ChatScreen() {
                   value={inputText}
                   onChangeText={setInputText}
                   multiline
-                  maxLength={1000}
+                  maxLength={8000}
                   editable={!loading}
                   // @ts-ignore
                   onKeyDown={handleKeyDown}
