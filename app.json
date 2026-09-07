@@ -39,7 +39,8 @@
         "android.permission.SCHEDULE_EXACT_ALARM",
         "android.permission.USE_EXACT_ALARM",
         "android.permission.VIBRATE",
-        "android.permission.RECEIVE_BOOT_COMPLETED"
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.WAKE_LOCK"
       ]
     },
     "plugins": [
@@ -69,9 +70,9 @@
     },
     "extra": {
       "eas": {
-        "projectId": "8a9595d1-bfff-4b7c-85b4-dda92ea2ddc2"
+        "projectId": "11ec7439-61b8-4b10-8347-599e697dfcb8"
       }
     },
-    "owner": "hanifputra230607s-team"
+    "owner": "hanifkus-team"
   }
 }

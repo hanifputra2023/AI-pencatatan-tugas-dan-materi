@@ -88,6 +88,25 @@ export default function ChatScreen() {
   const [errorToast, setErrorToast] = useState<string | null>(null);
   const [copiedMsgId, setCopiedMsgId] = useState<string | null>(null);
   const [showLiveVoiceModal, setShowLiveVoiceModal] = useState(false);
+  const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
+  const [deepThinkEnabled, setDeepThinkEnabled] = useState(false);
+  const [factualEnabled, setFactualEnabled] = useState(false);
+
+  // Sampling parameters from Admin settings (ai_temp / ai_top_p)
+  const chatTemperature = parseFloat(appSettings['ai_temp']) > 0
+    ? parseFloat(appSettings['ai_temp'])
+    : 0.7;
+  const chatTopP = parseFloat(appSettings['ai_top_p']) > 0
+    ? parseFloat(appSettings['ai_top_p'])
+    : 0.95;
+
+  // Sampling parameters specifically for "Akurat" (factual) mode, set in Admin
+  const factualTemperature = parseFloat(appSettings['factual_temp']) > 0
+    ? parseFloat(appSettings['factual_temp'])
+    : 0.1;
+  const factualTopP = parseFloat(appSettings['factual_top_p']) > 0
+    ? parseFloat(appSettings['factual_top_p'])
+    : 0.2;
 
   // Lazy Load Older Messages on Scroll Up
   const CHAT_PAGE_SIZE = 25;
@@ -113,11 +132,14 @@ export default function ChatScreen() {
   const inputRef = useRef<TextInput>(null);
   const isPinnedToBottomRef = useRef(true);
   const lastStreamScrollRef = useRef(0);
+  const lastStreamPaintRef = useRef(0);
 
-  const scrollToBottom = useCallback((delay = 100, animated = true) => {
+  const scrollToBottom = useCallback((delay = 100, animated = true, force = false) => {
     setTimeout(() => {
-      // Never fight the user: only auto-scroll when the user is already near the bottom
-      if (!isPinnedToBottomRef.current) return;
+      // Never fight the user: only auto-scroll when the user is already near the bottom,
+      // unless the user explicitly tapped the scroll-to-bottom button (force = true)
+      if (!force && !isPinnedToBottomRef.current) return;
+      if (force) isPinnedToBottomRef.current = true;
       flatListRef.current?.scrollToEnd({ animated });
     }, delay);
   }, []);
@@ -484,11 +506,13 @@ export default function ChatScreen() {
             user_id: effectiveUserId,
             role: 'assistant',
             content: '',
+            mode: factualEnabled ? 'factual' as const : (deepThinkEnabled ? 'deep' as const : 'standard' as const),
             created_at: new Date().toISOString(),
           });
         }
       }
       setMessages(updatedMessages);
+      if (replyId) setStreamingMsgId(replyId);
 
       try {
         const priorMessages = targetIndex !== -1 ? messages.slice(0, targetIndex) : [];
@@ -499,14 +523,25 @@ export default function ChatScreen() {
 
         const newAiReply = await sendMessageToGemini(history, text, currentAttachment, aiPersona, {
           maxTokens: chatMaxTokens,
+          deepThink: deepThinkEnabled,
+          factual: factualEnabled,
+          temperature: factualEnabled ? factualTemperature : chatTemperature,
+          topP: factualEnabled ? factualTopP : chatTopP,
           onToken: (partial) => {
             setIsStreaming(true);
             if (replyId) {
-              setMessages(prev => prev.map(m => (m.id === replyId ? { ...m, content: partial } : m)));
+              // Throttle heavy Markdown re-renders so long Deep Thinking streams
+              // don't lag: only refresh the bubble ~10x/sec, final text is applied
+              // separately below.
+              const now = Date.now();
+              if (now - lastStreamPaintRef.current >= 100) {
+                lastStreamPaintRef.current = now;
+                setMessages(prev => prev.map(m => (m.id === replyId ? { ...m, content: partial } : m)));
+              }
             }
-            const now = Date.now();
-            if (now - lastStreamScrollRef.current >= 200) {
-              lastStreamScrollRef.current = now;
+            const now2 = Date.now();
+            if (now2 - lastStreamScrollRef.current >= 200) {
+              lastStreamScrollRef.current = now2;
               scrollToBottom(0, false);
             }
           },
@@ -528,6 +563,7 @@ export default function ChatScreen() {
       } finally {
         setLoading(false);
         setIsStreaming(false);
+        setStreamingMsgId(null);
         scrollToBottom(150);
       }
       return;
@@ -545,17 +581,20 @@ export default function ChatScreen() {
     };
 
     const tempAiId = 'ai_' + Date.now();
+    const activeMode: 'standard' | 'deep' | 'factual' = factualEnabled ? 'factual' : deepThinkEnabled ? 'deep' : 'standard';
     const streamingAiMsg: ChatMessage = {
       id: tempAiId,
       session_id: activeSessionId,
       user_id: effectiveUserId,
       role: 'assistant',
       content: '',
+      mode: activeMode,
       created_at: new Date().toISOString(),
     };
 
     setMessages(prev => [...prev, tempUserMsg, streamingAiMsg]);
     setLoading(true);
+    setStreamingMsgId(tempAiId);
     scrollToBottom(50);
 
     try {
@@ -567,14 +606,23 @@ export default function ChatScreen() {
       const customAiPrompt = `Nama kamu adalah "${effectiveBotName}". Sapa dirimu dengan nama ini jika pengguna menanyakan siapa namamu atau saat memperkenalkan diri.\n\n${aiPersona}`;
       const aiReply = await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, {
         maxTokens: chatMaxTokens,
+        deepThink: deepThinkEnabled,
+        factual: factualEnabled,
+        temperature: factualEnabled ? factualTemperature : chatTemperature,
+        topP: factualEnabled ? factualTopP : chatTopP,
         onToken: (partial) => {
           setIsStreaming(true);
-          setMessages(prev => prev.map(m => (m.id === tempAiId ? { ...m, content: partial } : m)));
+          // Throttle heavy Markdown re-renders so long streaming doesn't lag
+          const now = Date.now();
+          if (now - lastStreamPaintRef.current >= 100) {
+            lastStreamPaintRef.current = now;
+            setMessages(prev => prev.map(m => (m.id === tempAiId ? { ...m, content: partial } : m)));
+          }
           // Throttle: instant, non-animated scroll at most once every 200ms to avoid
           // chaining scroll animations that cause up/down flickering
-          const now = Date.now();
-          if (now - lastStreamScrollRef.current >= 200) {
-            lastStreamScrollRef.current = now;
+          const now2 = Date.now();
+          if (now2 - lastStreamScrollRef.current >= 200) {
+            lastStreamScrollRef.current = now2;
             scrollToBottom(0, false);
           }
         },
@@ -586,6 +634,7 @@ export default function ChatScreen() {
         user_id: effectiveUserId,
         role: 'assistant',
         content: aiReply,
+        mode: factualEnabled ? 'factual' : (deepThinkEnabled ? 'deep' : 'standard'),
         created_at: new Date().toISOString(),
       };
 
@@ -603,6 +652,7 @@ export default function ChatScreen() {
     } finally {
       setLoading(false);
       setIsStreaming(false);
+      setStreamingMsgId(null);
       scrollToBottom(150);
     }
   };
@@ -626,6 +676,7 @@ export default function ChatScreen() {
       user_id: effectiveUserId,
       role: 'assistant',
       content: aiText,
+      mode: factualEnabled ? 'factual' : (deepThinkEnabled ? 'deep' : 'standard'),
       created_at: new Date(Date.now() + 50).toISOString(),
     };
     const updated = [...messages, userMsg, aiMsg];
@@ -779,6 +830,38 @@ export default function ChatScreen() {
                 <Text style={[styles.msgAiBubbleName, { color: theme.accentLight }]}>
                   {effectiveBotName}
                 </Text>
+                {item.mode && item.mode !== 'standard' && streamingMsgId !== item.id && (
+                  <View style={[
+                    styles.modeBadge,
+                    { borderColor: item.mode === 'factual'
+                        ? (isLightMode ? '#F59E0B' : '#FBBF24')
+                        : (isLightMode ? '#8B5CF6' : '#A78BFA') }
+                  ]}>
+                    <Ionicons
+                      name={item.mode === 'factual' ? 'shield-checkmark-outline' : 'bulb-outline'}
+                      size={9}
+                      color={item.mode === 'factual'
+                        ? (isLightMode ? '#B45309' : '#FBBF24')
+                        : (isLightMode ? '#6D28D9' : '#A78BFA')}
+                    />
+                    <Text style={[
+                      styles.modeBadgeText,
+                      { color: item.mode === 'factual'
+                          ? (isLightMode ? '#B45309' : '#FBBF24')
+                          : (isLightMode ? '#6D28D9' : '#A78BFA') }
+                    ]}>
+                      {item.mode === 'factual' ? 'Akurat' : 'Deep'}
+                    </Text>
+                  </View>
+                )}
+                {streamingMsgId === item.id && deepThinkEnabled && (
+                  <View style={[styles.streamingBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <PulseDot color={theme.accentLight} size={6} />
+                    <Text style={[styles.streamingBadgeText, { color: theme.accentLight }]}>
+                      Deep Thinking...
+                    </Text>
+                  </View>
+                )}
               </View>
             )}
 
@@ -787,11 +870,21 @@ export default function ChatScreen() {
                 {item.content}
               </Text>
             ) : (
-              <MarkdownRenderer
-                content={item.content}
-                fontSize={13.5}
-                textColor={theme.text}
-              />
+              <View>
+                <MarkdownRenderer
+                  content={item.content}
+                  fontSize={13.5}
+                  textColor={theme.text}
+                />
+                {streamingMsgId === item.id && !deepThinkEnabled && (
+                  <View style={[styles.streamingStatusWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <PulseDot color={theme.accentLight} size={7} />
+                    <Text style={[styles.streamingStatusText, { color: theme.accentLight }]}>
+                      {`${aiBotName || 'Ara'} sedang mengetik...`}
+                    </Text>
+                  </View>
+                )}
+              </View>
             )}
           </View>
 
@@ -1124,7 +1217,10 @@ export default function ChatScreen() {
                 {showScrollBottomBtn && (
                   <TouchableOpacity
                     style={[styles.floatingScrollBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
-                    onPress={() => scrollToBottom(50)}
+                    onPress={() => {
+                      setShowScrollBottomBtn(false);
+                      scrollToBottom(0, true, true);
+                    }}
                     activeOpacity={0.8}
                     accessibilityLabel="Gulir ke Bawah"
                   >
@@ -1132,14 +1228,6 @@ export default function ChatScreen() {
                   </TouchableOpacity>
                 )}
               </>
-            )}
-
-            {/* Minimalist Typing Indicator */}
-            {loading && !isStreaming && (
-              <View style={styles.typingContainer}>
-                <View style={[styles.typingDot, { backgroundColor: theme.accentLight }]} />
-                <Text style={[styles.typingText, { color: theme.subtext }]}>{aiBotName || 'Ara'} sedang mengetik...</Text>
-              </View>
             )}
 
             {/* Inline Error Toast */}
@@ -1196,6 +1284,7 @@ export default function ChatScreen() {
             {/* Attachment Options Menu Popup */}
             {showAttachMenu && (
               <View style={[styles.attachMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.attachMenuContent}>
                 <TouchableOpacity style={styles.attachOption} onPress={pickImage}>
                   <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
                     <Ionicons name="images" size={16} color={theme.accentLight} />
@@ -1204,25 +1293,68 @@ export default function ChatScreen() {
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.attachOption} onPress={takePhoto}>
-                  <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#DCFCE7' : '#064E3B', borderColor: theme.border }]}>
-                    <Ionicons name="camera" size={16} color={isLightMode ? '#16A34A' : '#34D399'} />
+                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name="camera" size={16} color={theme.accentLight} />
                   </View>
                   <Text style={[styles.attachLabel, { color: theme.subtext }]}>Kamera</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.attachOption} onPress={pickAudio}>
-                  <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FCE7F3' : '#4C1D40', borderColor: theme.border }]}>
-                    <Ionicons name="mic" size={16} color={isLightMode ? '#EC4899' : '#F472B6'} />
+                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name="mic" size={16} color={theme.accentLight} />
                   </View>
                   <Text style={[styles.attachLabel, { color: theme.subtext }]}>Audio</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity style={styles.attachOption} onPress={pickDocument}>
-                  <View style={[styles.attachIconWrap, { backgroundColor: isLightMode ? '#FEF3C7' : '#78350F', borderColor: theme.border }]}>
-                    <Ionicons name="document-text" size={16} color={isLightMode ? '#D97706' : '#FBBF24'} />
+                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
+                    <Ionicons name="document-text" size={16} color={theme.accentLight} />
                   </View>
                   <Text style={[styles.attachLabel, { color: theme.subtext }]}>Dokumen</Text>
                 </TouchableOpacity>
+
+                {/* Deep Thinking Toggle */}
+                <TouchableOpacity
+                  style={styles.attachOption}
+                  onPress={() => setDeepThinkEnabled(prev => !prev)}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Mode Deep Thinking"
+                  accessibilityState={{ selected: deepThinkEnabled }}
+                >
+                  <View style={[styles.attachIconWrap, {
+                    backgroundColor: deepThinkEnabled ? (isLightMode ? '#EDE9FE' : '#241B38') : theme.accentBg,
+                    borderColor: deepThinkEnabled ? (isLightMode ? '#8B5CF6' : '#A78BFA') : theme.border,
+                  }]}>
+                    <Ionicons name="bulb-outline" size={16} color={deepThinkEnabled ? (isLightMode ? '#6D28D9' : '#A78BFA') : theme.accentLight} />
+                  </View>
+                  <View style={styles.attachLabelRow}>
+                    <Text style={[styles.attachLabel, { color: deepThinkEnabled ? (isLightMode ? '#6D28D9' : '#A78BFA') : theme.subtext }]}>Deep</Text>
+                    {deepThinkEnabled && <Ionicons name="checkmark-circle" size={12} color={isLightMode ? '#8B5CF6' : '#A78BFA'} />}
+                  </View>
+                </TouchableOpacity>
+
+                {/* Faktual / Akurat Toggle */}
+                <TouchableOpacity
+                  style={styles.attachOption}
+                  onPress={() => setFactualEnabled(prev => !prev)}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Mode Akurat / Faktual"
+                  accessibilityState={{ selected: factualEnabled }}
+                >
+                  <View style={[styles.attachIconWrap, {
+                    backgroundColor: factualEnabled ? (isLightMode ? '#FEF3C7' : '#3A2A0A') : theme.accentBg,
+                    borderColor: factualEnabled ? (isLightMode ? '#F59E0B' : '#FBBF24') : theme.border,
+                  }]}>
+                    <Ionicons name="shield-checkmark-outline" size={16} color={factualEnabled ? (isLightMode ? '#D97706' : '#FBBF24') : theme.accentLight} />
+                  </View>
+                  <View style={styles.attachLabelRow}>
+                    <Text style={[styles.attachLabel, { color: factualEnabled ? (isLightMode ? '#B45309' : '#FBBF24') : theme.subtext }]}>Akurat</Text>
+                    {factualEnabled && <Ionicons name="checkmark-circle" size={12} color={isLightMode ? '#F59E0B' : '#FBBF24'} />}
+                  </View>
+                </TouchableOpacity>
+                </View>
               </View>
             )}
 
@@ -1584,6 +1716,52 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
+  streamingBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  streamingBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+  },
+  streamingStatusWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    alignSelf: 'flex-start',
+    marginTop: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+  },
+  streamingStatusText: {
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  modeBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    paddingHorizontal: 6,
+    paddingVertical: 1.5,
+    borderRadius: 9,
+    borderWidth: 1,
+  },
+  modeBadgeText: {
+    fontSize: 8.5,
+    fontWeight: '700',
+  },
+  streamingCursorWrap: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 8,
+  },
 
   /* Content */
   keyboardContainer: {
@@ -1790,17 +1968,24 @@ const styles = StyleSheet.create({
 
   /* Attachment Popup Menu */
   attachMenu: {
-    flexDirection: 'row',
-    justifyContent: 'space-around',
-    paddingVertical: 12,
-    marginHorizontal: 14,
-    marginBottom: 8,
     borderRadius: 16,
     borderWidth: 1,
+    paddingVertical: 8,
+    marginHorizontal: 14,
+    marginBottom: 8,
+  },
+  attachMenuContent: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
   },
   attachOption: {
+    flexGrow: 1,
+    flexBasis: '16.66%',
     alignItems: 'center',
     gap: 4,
+    paddingVertical: 8,
+    minWidth: 58,
   },
   attachIconWrap: {
     width: 38,
@@ -1813,6 +1998,11 @@ const styles = StyleSheet.create({
   attachLabel: {
     fontSize: 11,
     fontWeight: '500',
+  },
+  attachLabelRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
   },
 
   /* Floating Capsule Input Bar */
@@ -1869,22 +2059,6 @@ const styles = StyleSheet.create({
   },
 
   /* Typing & Banners */
-  typingContainer: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 18,
-    paddingVertical: 6,
-  },
-  typingDot: {
-    width: 5,
-    height: 5,
-    borderRadius: 2.5,
-  },
-  typingText: {
-    fontSize: 11.5,
-    fontStyle: 'italic',
-  },
   errorToastWrap: {
     flexDirection: 'row',
     alignItems: 'center',

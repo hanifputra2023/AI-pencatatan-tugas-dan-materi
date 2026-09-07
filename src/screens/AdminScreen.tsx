@@ -155,6 +155,9 @@ export default function AdminScreen() {
   const [promptText, setPromptText] = useState(aiPersona || PRESET_PERSONAS[0].prompt);
   const [aiModelSelected, setAiModelSelected] = useState(appSettings['ai_model'] || 'gemini-2.5-flash');
   const [aiTempSelected, setAiTempSelected] = useState(appSettings['ai_temp'] || '0.7');
+  const [aiTopPSelected, setAiTopPSelected] = useState(appSettings['ai_top_p'] || '0.95');
+  const [factualTempSelected, setFactualTempSelected] = useState(appSettings['factual_temp'] || '0.1');
+  const [factualTopPSelected, setFactualTopPSelected] = useState(appSettings['factual_top_p'] || '0.2');
   const [aiMaxTokens, setAiMaxTokens] = useState(appSettings['ai_max_tokens'] || '1000');
   const [savingAi, setSavingAi] = useState(false);
 
@@ -700,6 +703,9 @@ export default function AdminScreen() {
         updateAiBotName(finalName),
         updateSetting('ai_model', aiModelSelected),
         updateSetting('ai_temp', aiTempSelected),
+        updateSetting('ai_top_p', aiTopPSelected),
+        updateSetting('factual_temp', factualTempSelected),
+        updateSetting('factual_top_p', factualTopPSelected),
         updateSetting('ai_max_tokens', aiMaxTokens),
       ]);
       await refreshMoodsAndSettings();
@@ -3098,6 +3104,66 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         onPress={() => setAiTempSelected(t.id)}
                       >
                         <Text style={[styles.paramChipText, aiTempSelected === t.id && styles.paramChipTextActive]}>
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Top-P / Nucleus Sampling Selector */}
+                  <Text style={styles.inputLabel}>Top-P (Nucleus Sampling):</Text>
+                  <View style={styles.paramChipsRow}>
+                    {[
+                      { id: '0.1', label: '0.1 - Paling Fokus (Sangat Akurat)' },
+                      { id: '0.5', label: '0.5 - Seimbang' },
+                      { id: '0.95', label: '0.95 - Lebih Bervariasi (Direkomendasikan)' },
+                    ].map(t => (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[styles.paramChip, aiTopPSelected === t.id && styles.paramChipActive]}
+                        onPress={() => setAiTopPSelected(t.id)}
+                      >
+                        <Text style={[styles.paramChipText, aiTopPSelected === t.id && styles.paramChipTextActive]}>
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Factual Mode Temperature Selector */}
+                  <Text style={styles.inputLabel}>Suhu Mode Akurat (Saat toggle Akurat ON):</Text>
+                  <View style={styles.paramChipsRow}>
+                    {[
+                      { id: '0.1', label: '0.1 - Paling Presisi (Direkomendasikan)' },
+                      { id: '0.3', label: '0.3 - Presisi & Agak Greget' },
+                      { id: '0.5', label: '0.5 - Seimbang' },
+                    ].map(t => (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[styles.paramChip, factualTempSelected === t.id && styles.paramChipActive]}
+                        onPress={() => setFactualTempSelected(t.id)}
+                      >
+                        <Text style={[styles.paramChipText, factualTempSelected === t.id && styles.paramChipTextActive]}>
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Factual Mode Top-P Selector */}
+                  <Text style={styles.inputLabel}>Top-P Mode Akurat:</Text>
+                  <View style={styles.paramChipsRow}>
+                    {[
+                      { id: '0.1', label: '0.1 - Paling Fokus' },
+                      { id: '0.2', label: '0.2 - Fokus (Direkomendasikan)' },
+                      { id: '0.4', label: '0.4 - Agak Lebih Luas' },
+                    ].map(t => (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[styles.paramChip, factualTopPSelected === t.id && styles.paramChipActive]}
+                        onPress={() => setFactualTopPSelected(t.id)}
+                      >
+                        <Text style={[styles.paramChipText, factualTopPSelected === t.id && styles.paramChipTextActive]}>
                           {t.label}
                         </Text>
                       </TouchableOpacity>

@@ -36,6 +36,7 @@ export interface ChatMessage {
   attachment?: ChatAttachment | null;
   session_id?: string | null;
   created_at: string;
+  mode?: 'standard' | 'deep' | 'factual' | null;
 }
 
 export interface JournalEntry {

@@ -130,6 +130,10 @@ export interface SendMessageOptions {
   isJsonMode?: boolean;
   maxTokens?: number;
   onToken?: (partialText: string) => void;
+  deepThink?: boolean;
+  temperature?: number;
+  topP?: number;
+  factual?: boolean;
 }
 
 interface GeminiCallResult {
@@ -143,6 +147,14 @@ const CONTINUE_PROMPT =
   'Jawabanmu terpotong karena mencapai batas token. ' +
   'Lanjutkan persis dari kalimat terakhir yang kamu tulis, ' +
   'jangan mengulang bagian yang sudah ditulis, dan selesaikan jawabanmu sampai tuntas hingga selesai.';
+
+const FACTUAL_GUARDRAIL =
+  '\n\nATURAN KETAT KEABSAHAN DATA (WAJIB DIPATUHI):\n' +
+  '1. Jawab HANYA berdasarkan fakta yang tersedia dalam konteks percakapan dan lampiran dokumen yang diberikan. Jangan menambahkan hal di luar itu.\n' +
+  '2. Jika pertanyaan tidak bisa dijawab dari konteks/lampiran yang tersedia, katakan jujur "Data tidak ditemukan di konteks yang tersedia." DILARANG menebak, mengarang, atau berasumsi.\n' +
+  '3. Jangan melakukan ekstrapolasi atau menambahkan angka, nama, tanggal, kutipan, atau pernyataan yang tidak tertulis dalam konteks.\n' +
+  '4. Jangan mengulang pernyataan dari dokumen secara keliru; kutip isi dokumen secara akurat jika diminta.\n' +
+  '5. Jawab secara bertahap dan terstruktur, serta bedakan jelas antara fakta dari konteks dan saran/penjelasan umum yang kamu berikan sebagai AI.';
 
 async function callSingleModelWithKey(
   apiKey: string,
@@ -161,22 +173,43 @@ async function callSingleModelWithKey(
   const isJson = options?.isJsonMode === true;
   const maxOutputTokens = options?.maxTokens || (isJson ? 4096 : CHAT_MAX_TOKENS);
 
+  // Sampling control: explicit option wins, Deep Thinking prefers a balanced
+  // temperature, otherwise fall back to defaults (JSON mode stays deterministic)
+  const temperature =
+    options?.temperature !== undefined
+      ? options.temperature
+      : options?.deepThink && !isJson
+        ? 0.7
+        : isJson
+          ? 0.2
+          : 0.85;
+  const topP = options?.topP !== undefined ? options.topP : 0.95;
+
   const requestBody: any = {
     systemInstruction: {
       parts: [{ text: systemPrompt }],
     },
     contents,
     generationConfig: {
-      temperature: isJson ? 0.2 : 0.85,
+      temperature,
       topK: 40,
-      topP: 0.95,
+      topP,
       maxOutputTokens,
       ...(isJson ? { responseMimeType: 'application/json' } : {}),
     },
   };
 
+  // Deep Thinking: enable the model's internal reasoning budget (Gemini 2.5+)
+  if (options?.deepThink && !isJson) {
+    requestBody.generationConfig.thinkingConfig = {
+      thinkingBudget: 8192,
+    };
+  }
+
   const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), 14000); // 14 detik auto-timeout jika Google lambat
+  // Deep thinking needs more time to reason; otherwise 14 detik auto-timeout
+  const timeoutMs = options?.deepThink ? 30000 : 14000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -212,27 +245,45 @@ async function callSingleModelWithKey(
   }
 }
 
-// Strip a duplicated tail sentence that the model re-emits at the start of a continuation
+// Strip a duplicated tail that the model re-emits at the start of a continuation.
+// Handles both full-sentence repeats and partial mid-sentence overlaps by finding
+// the LONGEST suffix of `prev` that also prefixes `next`, so no real content is lost
+// and no duplicate content is kept.
 function stripRepeatedTail(prev: string, next: string): string {
   const cleanPrev = prev.trimEnd();
   const cleanNext = next.trimStart();
   if (!cleanPrev || !cleanNext) return cleanNext;
 
-  // Try the last 1-2 sentences of the previous piece first
+  // Fast path: exact tail sentence(s) repeated
   const pieces = cleanPrev.match(/[^.!?\n]+[.!?\n]*/g);
   if (pieces && pieces.length > 0) {
-    const candidates: string[] = [pieces[pieces.length - 1].trim()];
-    if (pieces.length >= 2) {
-      candidates.push((pieces[pieces.length - 2] + pieces[pieces.length - 1]).trim());
-    }
-    for (const candidate of candidates) {
+    const lastSent = pieces[pieces.length - 1].trim();
+    const lastTwo = pieces.length >= 2
+      ? (pieces[pieces.length - 2] + pieces[pieces.length - 1]).trim()
+      : '';
+    for (const candidate of [lastTwo, lastSent]) {
       if (candidate && candidate.length >= 4 && cleanNext.startsWith(candidate)) {
         return cleanNext.slice(candidate.length).trimStart();
       }
     }
   }
 
-  // Fallback: strip a long trailing chunk if it is repeated verbatim
+  // General overlap: longest suffix of prev that is a prefix of next.
+  // Search backwards so we prefer the longest match (fewest characters removed).
+  const maxSearch = Math.min(cleanPrev.length, cleanNext.length, 200);
+  let bestLen = 0;
+  for (let len = maxSearch; len >= 12; len--) {
+    const suffix = cleanPrev.slice(-len);
+    if (suffix === cleanNext.slice(0, len)) {
+      bestLen = len;
+      break;
+    }
+  }
+  if (bestLen > 0) {
+    return cleanNext.slice(bestLen).trimStart();
+  }
+
+  // Fallback: strip a short trailing chunk if repeated verbatim
   const tail = cleanPrev.slice(-90);
   if (tail.length >= 12 && cleanNext.startsWith(tail)) {
     return cleanNext.slice(tail.length).trimStart();
@@ -254,23 +305,41 @@ async function streamSingleModelWithKey(
   const isJson = options?.isJsonMode === true;
   const maxOutputTokens = options?.maxTokens || (isJson ? 4096 : CHAT_MAX_TOKENS);
 
+  const temperature =
+    options?.temperature !== undefined
+      ? options.temperature
+      : options?.deepThink && !isJson
+        ? 0.7
+        : isJson
+          ? 0.2
+          : 0.85;
+  const topP = options?.topP !== undefined ? options.topP : 0.95;
+
   const requestBody: any = {
     systemInstruction: {
       parts: [{ text: systemPrompt }],
     },
     contents,
     generationConfig: {
-      temperature: isJson ? 0.2 : 0.85,
+      temperature,
       topK: 40,
-      topP: 0.95,
+      topP,
       maxOutputTokens,
       ...(isJson ? { responseMimeType: 'application/json' } : {}),
     },
   };
 
+  // Deep Thinking: enable the model's internal reasoning budget (Gemini 2.5+)
+  if (options?.deepThink && !isJson) {
+    requestBody.generationConfig.thinkingConfig = {
+      thinkingBudget: 8192,
+    };
+  }
+
   const controller = new AbortController();
-  // Streaming may legitimately take longer than a single-shot call
-  const timeoutId = setTimeout(() => controller.abort(), 60000);
+  // Deep thinking may legitimately take longer; otherwise 60 detik stream timeout
+  const timeoutMs = options?.deepThink ? 120000 : 60000;
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
     const response = await fetch(url, {
@@ -419,6 +488,26 @@ export function extractJsonFromText<T>(text: string): T {
 // MULTI-KEY & MULTI-MODEL SMART FAILOVER ROUTING ENGINE
 // =========================================================================
 
+// Join a continuation piece onto the accumulated answer, choosing a connector that
+// preserves natural sentence flow. If the text was cut mid-sentence, continue on the
+// same line instead of inserting a blank line.
+function joinContinuation(prevText: string, nextText: string): string {
+  const stripped = stripRepeatedTail(prevText, nextText);
+  const prevEnd = prevText.trimEnd();
+
+  // If the previous chunk ended mid-sentence (no terminal punctuation) treat the
+  // continuation as a natural extension with a single space.
+  const endsWithSentenceEnding = /[.!?…]$/.test(prevEnd);
+  const nextStartsWithLower = /^[a-z0-9(]/.test(stripped);
+
+  if (!endsWithSentenceEnding && nextStartsWithLower && stripped.length > 0) {
+    return prevEnd + ' ' + stripped;
+  }
+
+  // Otherwise break paragraphs with a single blank line for readability.
+  return prevEnd + '\n\n' + stripped;
+}
+
 // Auto-continue truncated responses (finishReason === 'MAX_TOKENS') until complete
 async function continueUntilComplete(
   apiKey: string,
@@ -435,11 +524,28 @@ async function continueUntilComplete(
 
   const MAX_CONTINUE_STEPS = 5;
   let fullText = firstResult.text;
-  let lastPiece = firstResult.text;
   let currentContents = contents;
   let current = firstResult;
 
-  for (let step = 0; step < MAX_CONTINUE_STEPS && current.finishReason === 'MAX_TOKENS'; step++) {
+  // The response is considered truncated when the model flagged it (MAX_TOKENS / SAFETY /
+  // RECITATION) OR when the stream just stopped while the text was left hanging
+  // mid-sentence (no sentence/closing markdown delimiter), which is exactly the
+  // "putus tengah jalan" symptom the user reports with Deep Thinking.
+  const hasFinishedCleanly = (text: string): boolean => {
+    const t = text.trimEnd();
+    if (!t) return true;
+    // Completed sentence, closing code fence, or ends on a fresh line (finished a
+    // list/paragraph) -> considered finished. Anything else is treated as hanging.
+    return /[.!?…[:;](\s*```\s*)?$/.test(t) || /```$/.test(t) || /\n\s*$/.test(t);
+  };
+
+  const shouldContinue = (result: GeminiCallResult): boolean => {
+    if (result.finishReason && result.finishReason !== 'STOP') return true;
+    // No explicit finishReason but text hung mid-sentence -> continue
+    return result.text.trim().length > 0 && !hasFinishedCleanly(result.text);
+  };
+
+  for (let step = 0; step < MAX_CONTINUE_STEPS && shouldContinue(current); step++) {
     try {
       currentContents = [
         ...currentContents,
@@ -448,19 +554,23 @@ async function continueUntilComplete(
       ];
 
       // Keep streaming across continuations: report the full accumulated answer,
-      // stripping any tail sentence repeated from the previous piece.
-      const continuationOptions: SendMessageOptions | undefined = options?.onToken
+      // stripping any tail repeated from the previous piece. CRITICAL: disable
+      // deep-thinking on the continuation call, otherwise the model would think
+      // from scratch again (huge latency + often re-starts the answer from zero).
+      const continuationOptions: SendMessageOptions | undefined = options
         ? {
             ...options,
-            onToken: (partial: string) => {
-              options.onToken?.(fullText + '\n\n' + stripRepeatedTail(lastPiece, partial));
-            },
+            deepThink: false,
+            onToken: options.onToken
+              ? (partial: string) => {
+                  options.onToken?.(joinContinuation(fullText, partial));
+                }
+              : undefined,
           }
         : options;
 
       current = await callSingleModelWithKey(apiKey, modelName, currentContents, systemPrompt, continuationOptions);
-      fullText += '\n\n' + stripRepeatedTail(lastPiece, current.text);
-      lastPiece = current.text;
+      fullText = joinContinuation(fullText, current.text);
     } catch (e: any) {
       console.warn(`[Auto-Continue] Gagal melanjutkan respon (${e.message}). Memakai teks yang sudah ada.`);
       break;
@@ -545,7 +655,11 @@ export async function sendMessageToGemini(
     },
   ];
 
-  const systemPrompt = customSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
+  let systemPrompt = customSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
+  // Faktual/akurat mode: tambahkan guardrails ketat anti halusinasi
+  if (options?.factual) {
+    systemPrompt += FACTUAL_GUARDRAIL;
+  }
 
   let lastError: any = null;
   const totalKeys = keysPool.length;

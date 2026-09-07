@@ -13,6 +13,38 @@ interface MarkdownRendererProps {
 
 import { cleanRawTextEntities, formatMathLatexToReadable } from '../lib/latexFormatter';
 
+// The math/LaTeX formatter aggressively rewrites braces ({...} -> plain), backslash
+// commands (\n -> nothing), subscripts, etc. Running it over code would corrupt
+// Python f-strings, dict literals, and string escapes. This helper protects fenced
+// and inline code blocks (rendered verbatim) while still cleaning normal prose.
+function sanitizeMarkdownPreservingCode(raw: string): string {
+  const tokens: string[] = [];
+  const lines = raw.split('\n');
+  let inCodeBlock = false;
+
+  const mapLine = lines.map((line) => {
+    const trimmed = line.trim();
+    if (trimmed.startsWith('```')) {
+      // Toggle fence state and keep the fence markers untouched
+      inCodeBlock = !inCodeBlock;
+      return line;
+    }
+    if (inCodeBlock) {
+      // Protect a full code-block line from any LaTeX/entity transformation
+      tokens.push(line);
+      return `\u0000C${tokens.length - 1}\u0000`;
+    }
+    // Protect inline ``code`` spans (single line) from the cleaner
+    return line.replace(/`[^`\n]+`/g, (m) => {
+      tokens.push(m);
+      return `\u0000C${tokens.length - 1}\u0000`;
+    });
+  });
+
+  const cleaned = formatMathLatexToReadable(cleanRawTextEntities(mapLine.join('\n')));
+  return cleaned.replace(/\u0000C(\d+)\u0000/g, (_, n: string) => tokens[Number(n)]);
+}
+
 
 function MarkdownCodeBlock({
   code,
@@ -423,8 +455,8 @@ export default function MarkdownRenderer({
   const { theme, isLightMode } = useTheme();
   if (!content) return null;
 
-  // Clean raw entities and format math LaTeX to Unicode
-  const cleanedContent = formatMathLatexToReadable(cleanRawTextEntities(content));
+  // Clean raw entities + format math LaTeX to Unicode, but NEVER inside code blocks
+  const cleanedContent = sanitizeMarkdownPreservingCode(content);
   const effectiveTextColor = textColor || theme.text;
   const lines = cleanedContent.split('\n');
   const renderedElements: React.ReactNode[] = [];
