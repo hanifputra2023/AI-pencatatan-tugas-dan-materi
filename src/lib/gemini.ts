@@ -40,15 +40,16 @@ export const getGeminiApiKeysPool = (): string[] => {
   return pool.filter(k => k && k.trim() !== '');
 };
 
-// Candidate models in order of instant vision intelligence, speed & reliability (verified working in < 1.5s)
 export const ACTIVE_MODELS = [
-  'gemini-2.5-flash',         // Intelligence & Vision tier (~1.3s, diagrams, charts, full multimodal)
-  'gemini-flash-lite-latest', // Ultra-fast lightweight tier (~0.8s, instant text & questions)
-  'gemini-3.1-flash-lite',    // Modern lightweight fast tier (~1.5s)
-  'gemini-flash-latest',      // High-availability stable fallback tier (~3.2s)
+  'gemini-3.7-flash',         // Model tercepat & generasi terbaru (~1.2s, terverifikasi semua kunci)
+  'gemini-3.5-flash',         // Cadangan generasi baru (~2s)
+  'gemini-flash-latest',      // Cadangan stabil umum (~2-3s)
+  'gemini-2.5-flash',         // Model generasi 2.5
+  'gemini-3.1-flash-lite',    // Model hemat kuota
+  'gemini-flash-lite-latest', // Model flash lite
 ];
 
-let preferredModel = 'gemini-2.5-flash';
+let preferredModel = 'gemini-3.7-flash';
 
 export const setPreferredModel = (model: string) => {
   if (model && model.trim()) {
@@ -111,7 +112,7 @@ Bahasa yang kamu gunakan adalah Bahasa Indonesia yang luwes, santai, dan akrab l
 Prinsip utamamu:
 1. Dengarkan setiap keluh kesah, pertanyaan, dan cerita pengguna tanpa menghakimi.
 2. FORMATTING TEKS MENTAH & RUMUS / DOKUMEN:
-   - Jika menulis rumus matematika / fisika / sains, HINDARI kode LaTeX mentah yang membingungkan (seperti $\\mathbf{A}$, $\\vec{A}$, atau \\frac{a}{b}). Selalu gunakan format Unicode teks yang bersih dan langsung terbaca (misal: "Vektor A (A⃗)", "sin θ = (sisi depan / sisi miring)", "|A| = √(Ax² + Ay²)").
+   - Jika menulis rumus matematika / fisika / sains, HINDARI kode LaTeX mentah yang membingungkan (seperti $\\mathbf{A}$, $\\vec{A}$, atau \\frac{a}{b}). Selalu gunakan format Unicode teks yang bersih dan langsung terbaca (misal: "Vektor A (Aâƒ—)", "sin Î¸ = (sisi depan / sisi miring)", "|A| = âˆš(AxÂ² + AyÂ²)").
    - Jika pengguna mengirimkan teks mentah, data acak, log, kodingan, OCR catatan, tabel mentah, atau dokumen:
      * Secara OTOMATIS ubah dan rapikan teks mentah tersebut menjadi bentuk yang sangat mudah dibaca, terstruktur, dan indah (gunakan Heading, Bullet points, Tabel Markdown yang rapi, dan penekanan tebal pada poin penting).
      * Terjemahkan / jelaskan istilah sulit atau singkatan rumit agar mudah dipahami siapa saja.
@@ -119,7 +120,7 @@ Prinsip utamamu:
    - Jika pengguna melampirkan foto, dokumen PDF, slide kuliah, atau file yang memuat GAMBAR, DIAGRAM, GRAFIK, BAGAN, FLOWCHART, TABEL, atau SKEMA:
    - Analisis dan jelaskan secara detail informasi visual dari gambar atau diagram tersebut. Jangan lewatkan detail penting yang tertera pada visual.
 4. Selalu validasi perasaan mereka dan berikan dorongan semangat atau saran solutif yang jelas.
-5. Gunakan format Markdown yang indah (bold, italic, list, tabel, code block jika perlu) dan emoji yang ramah & relevan (✨, 💡, 📋, 🌸, 💜).`;
+5. Gunakan format Markdown yang indah (bold, italic, list, tabel, code block jika perlu) dan emoji yang ramah & relevan (âœ¨, ðŸ’¡, ðŸ“‹, ðŸŒ¸, ðŸ’œ).`;
 
 export interface GeminiMessage {
   role: 'user' | 'model';
@@ -135,6 +136,10 @@ export interface SendMessageOptions {
   topP?: number;
   factual?: boolean;
   agent?: boolean;
+  /** External signal that lets the caller cancel an in-flight request. */
+  signal?: AbortSignal;
+  /** Explicit model override (e.g. from appSettings.ai_model) */
+  model?: string;
 }
 
 interface GeminiCallResult {
@@ -232,6 +237,19 @@ async function callSingleModelWithKey(
   }
 
   const controller = new AbortController();
+  let userCancelled = false;
+  const externalSignal = options?.signal;
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      userCancelled = true;
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => {
+        userCancelled = true;
+        controller.abort();
+      }, { once: true });
+    }
+  }
   // Deep thinking needs more time to reason; otherwise 14 detik auto-timeout
   const timeoutMs = options?.deepThink ? 30000 : 14000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -264,6 +282,11 @@ async function callSingleModelWithKey(
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
+      if (userCancelled) {
+        const cancelledErr: any = new Error('Percakapan dihentikan oleh pengguna.');
+        cancelledErr.cancelled = true;
+        throw cancelledErr;
+      }
       throw new Error(`Model ${modelName} timeout (>14 detik). Mengalihkan ke model cepat...`);
     }
     throw error;
@@ -362,6 +385,19 @@ async function streamSingleModelWithKey(
   }
 
   const controller = new AbortController();
+  let userCancelled = false;
+  const externalSignal = options?.signal;
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      userCancelled = true;
+      controller.abort();
+    } else {
+      externalSignal.addEventListener('abort', () => {
+        userCancelled = true;
+        controller.abort();
+      }, { once: true });
+    }
+  }
   // Deep thinking may legitimately take longer; otherwise 60 detik stream timeout
   const timeoutMs = options?.deepThink ? 120000 : 60000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -455,6 +491,11 @@ async function streamSingleModelWithKey(
   } catch (error: any) {
     clearTimeout(timeoutId);
     if (error.name === 'AbortError') {
+      if (userCancelled) {
+        const cancelledErr: any = new Error('Percakapan dihentikan oleh pengguna.');
+        cancelledErr.cancelled = true;
+        throw cancelledErr;
+      }
       throw new Error(`Model ${modelName} timeout saat streaming (>60 detik). Mengalihkan ke model cepat...`);
     }
     throw error;
@@ -522,7 +563,7 @@ function joinContinuation(prevText: string, nextText: string): string {
 
   // If the previous chunk ended mid-sentence (no terminal punctuation) treat the
   // continuation as a natural extension with a single space.
-  const endsWithSentenceEnding = /[.!?…]$/.test(prevEnd);
+  const endsWithSentenceEnding = /[.!?â€¦]$/.test(prevEnd);
   const nextStartsWithLower = /^[a-z0-9(]/.test(stripped);
 
   if (!endsWithSentenceEnding && nextStartsWithLower && stripped.length > 0) {
@@ -574,7 +615,7 @@ async function continueUntilComplete(
     if (!t) return true;
     // Completed sentence, closing code fence, or ends on a fresh line (finished a
     // list/paragraph) -> considered finished. Anything else is treated as hanging.
-    return /[.!?…[:;](\s*```\s*)?$/.test(t) || /```$/.test(t) || /\n\s*$/.test(t);
+    return /[.!?â€¦[:;](\s*```\s*)?$/.test(t) || /```$/.test(t) || /\n\s*$/.test(t);
   };
 
   const shouldContinue = (result: GeminiCallResult): boolean => {
@@ -713,10 +754,11 @@ export async function sendMessageToGemini(
     const currentKey = keysPool[keyIdx];
     const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
 
-    // 2. Iterate through candidate models for this key (starting with preferred model)
+    // 2. Iterate through candidate models for this key (starting with preferred / configured model)
+    const activePreferred = (options?.model || preferredModel || 'gemini-2.5-flash').trim();
     const modelsToTry = [
-      preferredModel,
-      ...ACTIVE_MODELS.filter(m => m !== preferredModel)
+      activePreferred,
+      ...ACTIVE_MODELS.filter(m => m !== activePreferred)
     ];
     for (const model of modelsToTry) {
       try {
@@ -727,8 +769,9 @@ export async function sendMessageToGemini(
         const isQuotaOrAuthError =
           err.status === 429 ||
           err.status === 403 ||
+          err.status === 401 ||
           (err.status === 400 && (err.message?.includes('API_KEY') || err.message?.includes('key') || err.message?.includes('credentials'))) ||
-          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('unregistered')));
+          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('unregistered') || err.message.includes('service account is deleted')));
 
         if (isQuotaOrAuthError) {
           console.warn(`[Multi-Key Failover] Kunci #${keyIdx + 1} (${keyPreview}) limit/error (${err.message}). Beralih ke kunci berikutnya...`);
@@ -763,3 +806,4 @@ export async function getAIWisdom(mood: string, botName?: string): Promise<strin
     return 'Hari ini adalah lembaran baru. Apapun yang terjadi kemarin, kamu sudah berjuang dengan hebat!';
   }
 }
+

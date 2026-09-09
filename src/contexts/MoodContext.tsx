@@ -3,7 +3,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { MoodOption, MOOD_OPTIONS as DEFAULT_MOOD_OPTIONS, PersonaPreset, DEFAULT_PERSONAS } from '../types';
-import { setInMemoryApiKeys } from '../lib/gemini';
+import { setInMemoryApiKeys, setPreferredModel } from '../lib/gemini';
 import { scheduleDailyRoutineReminders } from '../lib/notifications';
 
 interface MoodContextType {
@@ -229,6 +229,9 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
         if (!foundAnnouncement) {
           setGlobalAnnouncement('');
         }
+        if (map['ai_model']) {
+          setPreferredModel(map['ai_model']);
+        }
         setAppSettings(map);
       } else {
         setGlobalAnnouncement('');
@@ -323,6 +326,7 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
     setAppSettings(prev => ({ ...prev, [key]: value }));
     if (key === 'ai_persona') setAiPersona(value);
     if (key === 'ai_bot_name') setAiBotName(value);
+    if (key === 'ai_model') setPreferredModel(value);
     if (key === 'global_announcement') setGlobalAnnouncement(value);
     if (key === 'gemini_api_key') {
       setGeminiApiKey(value);

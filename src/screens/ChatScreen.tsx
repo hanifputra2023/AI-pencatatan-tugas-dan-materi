@@ -11,7 +11,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, getSemanticColors } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
 import { extractAgentAction, stripAgentActionBlock, executeAgentAction } from '../lib/agentActions';
@@ -55,6 +55,41 @@ function generateUUID(): string {
   });
 }
 
+// -----------------------------------------------------------------------------
+// Session history grouping: Hari Ini / Kemarin / Minggu Ini / Bulan Ini / Tahun Ini / Lebih Lama
+// -----------------------------------------------------------------------------
+type SessionPeriod = 'Hari Ini' | 'Kemarin' | 'Minggu Ini' | 'Bulan Ini' | 'Tahun Ini' | 'Lebih Lama';
+
+function getSessionPeriod(date: Date): SessionPeriod {
+  const now = new Date();
+  const startOfDay = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const startOfYesterday = new Date(startOfDay);
+  startOfYesterday.setDate(startOfDay.getDate() - 1);
+  const startOfWeek = new Date(now.getFullYear(), now.getMonth(), now.getDate() - ((now.getDay() + 6) % 7));
+  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const startOfYear = new Date(now.getFullYear(), 0, 1);
+
+  if (date >= startOfDay) return 'Hari Ini';
+  if (date >= startOfYesterday) return 'Kemarin';
+  if (date >= startOfWeek) return 'Minggu Ini';
+  if (date >= startOfMonth) return 'Bulan Ini';
+  if (date >= startOfYear) return 'Tahun Ini';
+  return 'Lebih Lama';
+}
+
+function groupSessionsByPeriod(sessions: ChatSession[]): { label: SessionPeriod; items: ChatSession[] }[] {
+  if (sessions.length === 0) return [];
+  const order: SessionPeriod[] = ['Hari Ini', 'Kemarin', 'Minggu Ini', 'Bulan Ini', 'Tahun Ini', 'Lebih Lama'];
+  const groups = new Map<SessionPeriod, ChatSession[]>();
+  for (const s of sessions) {
+    const period = getSessionPeriod(new Date(s.updated_at || s.created_at || Date.now()));
+    const arr = groups.get(period) ?? [];
+    arr.push(s);
+    groups.set(period, arr);
+  }
+  return order.filter(l => groups.has(l)).map(l => ({ label: l, items: groups.get(l)! }));
+}
+
 export default function ChatScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
@@ -66,8 +101,9 @@ export default function ChatScreen() {
   const effectiveBotName = customAiName || aiBotName || activePersona.botName || 'Ara';
   const chatMaxTokens = parseInt(appSettings['ai_max_tokens'], 10) > 0
     ? parseInt(appSettings['ai_max_tokens'], 10)
-    : undefined;
+    : 2048;
   const { theme, isLightMode } = useTheme();
+  const sem = getSemanticColors(isLightMode);
   const { width, isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
 
@@ -93,6 +129,8 @@ export default function ChatScreen() {
   const [deepThinkEnabled, setDeepThinkEnabled] = useState(false);
   const [factualEnabled, setFactualEnabled] = useState(false);
   const [agentEnabled, setAgentEnabled] = useState(false);
+  const [showStopModal, setShowStopModal] = useState(false);
+  const cancelRef = useRef<AbortController | null>(null);
 
   // Sampling parameters from Admin settings (ai_temp / ai_top_p)
   const chatTemperature = parseFloat(appSettings['ai_temp']) > 0
@@ -122,7 +160,11 @@ export default function ChatScreen() {
   const hasMoreOldMessages = messages.length > visibleMsgCount;
 
   const handleLoadMoreOldMessages = () => {
+    if (loadingOlderRef.current || !hasMoreOldMessages) return;
+    loadingOlderRef.current = true;
     setVisibleMsgCount(prev => Math.min(messages.length, prev + CHAT_PAGE_SIZE));
+    // Allow the scroll anchor to settle before re-triggering the auto-load
+    setTimeout(() => { loadingOlderRef.current = false; }, 450);
   };
 
   // Attachment state
@@ -135,6 +177,7 @@ export default function ChatScreen() {
   const isPinnedToBottomRef = useRef(true);
   const lastStreamScrollRef = useRef(0);
   const lastStreamPaintRef = useRef(0);
+  const loadingOlderRef = useRef(false);
 
   const scrollToBottom = useCallback((delay = 100, animated = true, force = false) => {
     setTimeout(() => {
@@ -152,6 +195,17 @@ export default function ChatScreen() {
     const isCloseToBottom = layoutMeasurement.height + contentOffset.y >= contentSize.height - paddingToBottom;
     isPinnedToBottomRef.current = isCloseToBottom;
     setShowScrollBottomBtn(!isCloseToBottom && contentOffset.y > 250);
+
+    // Lazy load: auto-reveal older messages when the user scrolls near the top
+    const loadMoreBoundary = 80;
+    if (
+      contentOffset.y <= loadMoreBoundary &&
+      hasMoreOldMessages &&
+      !loadingOlderRef.current &&
+      !loading
+    ) {
+      handleLoadMoreOldMessages();
+    }
   };
 
   // -------------------------------------------------------------
@@ -202,6 +256,7 @@ export default function ChatScreen() {
       return;
     }
     setRefreshing(true);
+    setVisibleMsgCount(CHAT_PAGE_SIZE);
     try {
       // Load from local cache
       const cachedMsgs = await AsyncStorage.getItem(`@chat_msgs_${effectiveUserId}_${sessionId}`);
@@ -255,6 +310,7 @@ export default function ChatScreen() {
     setCurrentSessionId(newSessionId);
     setCurrentSessionTitle(newTitle);
     setMessages([]);
+    setVisibleMsgCount(CHAT_PAGE_SIZE);
     setShowSessionDrawer(false);
     setInputText('');
     setAttachment(null);
@@ -492,6 +548,8 @@ export default function ChatScreen() {
       const targetId = editingMsg.id;
       setEditingMsg(null);
       setLoading(true);
+      const cancel = new AbortController();
+      cancelRef.current = cancel;
 
       const targetIndex = messages.findIndex(m => m.id === targetId);
       const updatedMessages = [...messages];
@@ -527,9 +585,11 @@ export default function ChatScreen() {
         }));
 
         const newAiReply = await sendMessageToGemini(history, text, currentAttachment, aiPersona, {
+          model: appSettings['ai_model'] || undefined,
           maxTokens: chatMaxTokens,
           deepThink: deepThinkEnabled,
           factual: factualEnabled,
+          signal: cancel.signal,
           temperature: factualEnabled ? factualTemperature : chatTemperature,
           topP: factualEnabled ? factualTopP : chatTopP,
           onToken: (partial) => {
@@ -561,14 +621,26 @@ export default function ChatScreen() {
         }
       } catch (err: any) {
         console.error('Edit error:', err);
-        setErrorToast(err.message || 'Gagal memperbarui respons AI.');
-        if (insertedPlaceholder && replyId) {
-          setMessages(prev => prev.filter(m => m.id !== replyId));
+        if (err?.cancelled) {
+          // User stopped the response mid-flight: keep whatever streamed in.
+          if (insertedPlaceholder && replyId) {
+            setMessages(prev => prev.map(m =>
+              m.id === replyId
+                ? { ...m, content: m.content.trim() ? m.content : 'Percakapan dihentikan sebelum ada balasan.' }
+                : m
+            ));
+          }
+        } else {
+          setErrorToast(err.message || 'Gagal memperbarui respons AI.');
+          if (insertedPlaceholder && replyId) {
+            setMessages(prev => prev.filter(m => m.id !== replyId));
+          }
         }
       } finally {
         setLoading(false);
         setIsStreaming(false);
         setStreamingMsgId(null);
+        cancelRef.current = null;
         scrollToBottom(150);
       }
       return;
@@ -600,6 +672,8 @@ export default function ChatScreen() {
     setMessages(prev => [...prev, tempUserMsg, streamingAiMsg]);
     setLoading(true);
     setStreamingMsgId(tempAiId);
+    const cancel = new AbortController();
+    cancelRef.current = cancel;
     scrollToBottom(50);
 
     try {
@@ -610,10 +684,12 @@ export default function ChatScreen() {
 
       const customAiPrompt = `Nama kamu adalah "${effectiveBotName}". Sapa dirimu dengan nama ini jika pengguna menanyakan siapa namamu atau saat memperkenalkan diri.\n\n${aiPersona}`;
       const aiReply = await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, {
+        model: appSettings['ai_model'] || undefined,
         maxTokens: chatMaxTokens,
         deepThink: deepThinkEnabled,
         factual: factualEnabled,
         agent: agentEnabled,
+        signal: cancel.signal,
         temperature: factualEnabled ? factualTemperature : chatTemperature,
         topP: factualEnabled ? factualTopP : chatTopP,
         onToken: (partial) => {
@@ -679,14 +755,30 @@ export default function ChatScreen() {
       await safeSaveActiveSessionId(effectiveUserId, activeSessionId);
     } catch (err: any) {
       console.error('Chat error:', err);
-      setErrorToast(err.message || 'Server AI sedang sibuk. Coba kirim ulang ya.');
-      setMessages(prev => prev.filter(m => m.id !== tempAiId));
+      if (err?.cancelled) {
+        // User stopped the response mid-flight: keep whatever streamed in.
+        setMessages(prev => prev.map(m =>
+          m.id === tempAiId
+            ? { ...m, content: m.content.trim() ? m.content : 'Percakapan dihentikan sebelum ada balasan.' }
+            : m
+        ));
+      } else {
+        setErrorToast(err.message || 'Server AI sedang sibuk. Coba kirim ulang ya.');
+        setMessages(prev => prev.filter(m => m.id !== tempAiId));
+      }
     } finally {
       setLoading(false);
       setIsStreaming(false);
       setStreamingMsgId(null);
+      cancelRef.current = null;
       scrollToBottom(150);
     }
+  };
+
+  const handleStopConfirmed = () => {
+    cancelRef.current?.abort();
+    cancelRef.current = null;
+    setShowStopModal(false);
   };
 
   const handleLiveVoiceMessagePair = async (userText: string, aiText: string) => {
@@ -788,6 +880,7 @@ export default function ChatScreen() {
         'Semua pesan di sesi ini akan dikosongkan.',
         async () => {
           setMessages([]);
+          setVisibleMsgCount(CHAT_PAGE_SIZE);
           await safeRemoveChatCache(effectiveUserId, currentSessionId);
         },
         'Bersihkan'
@@ -1003,43 +1096,53 @@ export default function ChatScreen() {
         ) : sessions.length === 0 ? (
           <Text style={[styles.emptySessionText, { color: theme.subtext }]}>Belum ada riwayat sesi.</Text>
         ) : (
-          sessions.map(s => {
-            const isActive = s.id === currentSessionId;
-            return (
-              <View
-                key={s.id}
-                style={[
-                  styles.sessionItemRow,
-                  { backgroundColor: theme.cardInner, borderColor: theme.border },
-                  isActive && [styles.sessionItemRowActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
-                ]}
-              >
-                <TouchableOpacity
-                  style={{ flex: 1 }}
-                  onPress={() => handleSelectSession(s)}
-                  activeOpacity={0.7}
-                >
-                  <Text
-                    style={[styles.sessionItemTitle, { color: theme.subtext }, isActive && [styles.sessionItemTitleActive, { color: theme.text }]]}
-                    numberOfLines={1}
+          groupSessionsByPeriod(sessions).map(group => (
+            <View key={group.label}>
+              <Text style={[styles.sessionGroupHeader, { color: theme.muted }]}>{group.label}</Text>
+              {group.items.map(s => {
+                const isActive = s.id === currentSessionId;
+                const sessionDate = new Date(s.updated_at || s.created_at || new Date());
+                const isToday = getSessionPeriod(sessionDate) === 'Hari Ini';
+                const dateLabel = isToday
+                  ? sessionDate.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })
+                  : sessionDate.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+                return (
+                  <View
+                    key={s.id}
+                    style={[
+                      styles.sessionItemRow,
+                      { backgroundColor: theme.cardInner, borderColor: theme.border },
+                      isActive && [styles.sessionItemRowActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+                    ]}
                   >
-                    {s.title || 'Obrolan'}
-                  </Text>
-                  <Text style={[styles.sessionItemTime, { color: theme.muted }]}>
-                    {new Date(s.updated_at || s.created_at || new Date()).toLocaleDateString('id-ID', { day: 'numeric', month: 'short' })}
-                  </Text>
-                </TouchableOpacity>
+                    <TouchableOpacity
+                      style={{ flex: 1 }}
+                      onPress={() => handleSelectSession(s)}
+                      activeOpacity={0.7}
+                    >
+                      <Text
+                        style={[styles.sessionItemTitle, { color: theme.subtext }, isActive && [styles.sessionItemTitleActive, { color: theme.text }]]}
+                        numberOfLines={1}
+                      >
+                        {s.title || 'Obrolan'}
+                      </Text>
+                      <Text style={[styles.sessionItemTime, { color: theme.muted }]}>
+                        {dateLabel}
+                      </Text>
+                    </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={styles.sessionDeleteBtn}
-                  onPress={() => handleDeleteSession(s.id, s.title)}
-                  hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                >
-                  <Ionicons name="trash-outline" size={13} color="#EF4444" />
-                </TouchableOpacity>
-              </View>
-            );
-          })
+                    <TouchableOpacity
+                      style={styles.sessionDeleteBtn}
+                      onPress={() => handleDeleteSession(s.id, s.title)}
+                      hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                    >
+                      <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                    </TouchableOpacity>
+                  </View>
+                );
+              })}
+            </View>
+          ))
         )}
       </ScrollView>
     </View>
@@ -1235,6 +1338,7 @@ export default function ChatScreen() {
                   maxToRenderPerBatch={8}
                   windowSize={7}
                   removeClippedSubviews={Platform.OS !== 'web'}
+                  maintainVisibleContentPosition={{ minIndexForVisible: 1 }}
                   ListHeaderComponent={
                     hasMoreOldMessages ? (
                       <TouchableOpacity
@@ -1434,8 +1538,22 @@ export default function ChatScreen() {
                   onKeyDown={handleKeyDown}
                 />
 
-                {/* Voice / Send Button */}
-                {!inputText.trim() && !attachment ? (
+                {/* Voice / Stop / Send Button */}
+                {loading ? (
+                  <TouchableOpacity
+                    style={[
+                      styles.capsuleSendBtn,
+                      styles.capsuleStopBtn,
+                      { backgroundColor: sem.danger, borderColor: sem.danger },
+                    ]}
+                    onPress={() => setShowStopModal(true)}
+                    activeOpacity={0.85}
+                    accessibilityLabel="Hentikan balasan AI"
+                    accessibilityState={{ busy: true }}
+                  >
+                    <Ionicons name="stop" size={13} color="#FFFFFF" />
+                  </TouchableOpacity>
+                ) : !inputText.trim() && !attachment ? (
                   <TouchableOpacity
                     style={[
                       styles.capsuleSendBtn,
@@ -1451,23 +1569,16 @@ export default function ChatScreen() {
                   <TouchableOpacity
                     style={[
                       styles.capsuleSendBtn,
-                      loading
-                        ? [styles.capsuleSendBtnDisabled, { backgroundColor: theme.cardInner, borderColor: theme.border }]
-                        : [styles.capsuleSendBtnActive, { backgroundColor: theme.primary }],
+                      [styles.capsuleSendBtnActive, { backgroundColor: theme.primary }],
                     ]}
                     onPress={() => handleSend()}
-                    disabled={loading}
                     activeOpacity={0.8}
                   >
-                    {loading ? (
-                      <ActivityIndicator size="small" color="#FFFFFF" />
-                    ) : (
-                      <Ionicons
-                        name="arrow-up"
-                        size={16}
-                        color="#FFFFFF"
-                      />
-                    )}
+                    <Ionicons
+                      name="arrow-up"
+                      size={16}
+                      color="#FFFFFF"
+                    />
                   </TouchableOpacity>
                 )}
               </View>
@@ -1560,6 +1671,48 @@ export default function ChatScreen() {
                     </View>
                   </TouchableOpacity>
                 )}
+              </View>
+            </TouchableWithoutFeedback>
+          </View>
+        </TouchableWithoutFeedback>
+      </Modal>
+
+      {/* ========================================================================= */}
+      {/* STOP RESPONSE CONFIRM MODAL */}
+      {/* ========================================================================= */}
+      <Modal
+        visible={showStopModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowStopModal(false)}
+      >
+        <TouchableWithoutFeedback onPress={() => setShowStopModal(false)}>
+          <View style={styles.modalOverlayCenter}>
+            <TouchableWithoutFeedback>
+              <View style={[styles.stopModalCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.stopIconWrap, { backgroundColor: sem.dangerBg }]}>
+                  <Ionicons name="stop" size={18} color={sem.danger} />
+                </View>
+                <Text style={[styles.stopTitle, { color: theme.text }]}>Hentikan percakapan?</Text>
+                <Text style={[styles.stopBody, { color: theme.subtext }]}>
+                  {effectiveBotName} masih menyusun balasan. Jika dihentikan, teks yang sudah muncul akan tetap tersimpan di obrolan ini.
+                </Text>
+                <View style={styles.stopBtnRow}>
+                  <TouchableOpacity
+                    style={[styles.stopBtn, styles.stopBtnGhost, { borderColor: theme.border, backgroundColor: theme.cardInner }]}
+                    onPress={() => setShowStopModal(false)}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={[styles.stopBtnText, { color: theme.text }]}>Lanjutkan</Text>
+                  </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.stopBtn, styles.stopBtnPrimary, { backgroundColor: sem.danger }]}
+                    onPress={handleStopConfirmed}
+                    activeOpacity={0.85}
+                  >
+                    <Text style={[styles.stopBtnText, { color: '#FFFFFF' }]}>Ya, hentikan</Text>
+                  </TouchableOpacity>
+                </View>
               </View>
             </TouchableWithoutFeedback>
           </View>
@@ -2097,6 +2250,11 @@ const styles = StyleSheet.create({
   capsuleSendBtnDisabled: {
     borderWidth: 1,
   },
+  capsuleStopBtn: {
+    borderRadius: 9,
+    width: 34,
+    height: 34,
+  },
 
   /* Typing & Banners */
   errorToastWrap: {
@@ -2173,6 +2331,15 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginTop: 24,
   },
+  sessionGroupHeader: {
+    fontSize: 10,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+    marginTop: 10,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
   sessionItemRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -2247,6 +2414,62 @@ const styles = StyleSheet.create({
     paddingBottom: 10,
     borderBottomWidth: 1,
     marginBottom: 4,
+  },
+  stopModalCard: {
+    width: '100%',
+    maxWidth: 320,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 22,
+    alignItems: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.2,
+    shadowRadius: 16,
+    elevation: 8,
+  },
+  stopIconWrap: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 12,
+  },
+  stopTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    marginBottom: 6,
+    textAlign: 'center',
+  },
+  stopBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    textAlign: 'center',
+    marginBottom: 18,
+  },
+  stopBtnRow: {
+    flexDirection: 'row',
+    gap: 10,
+    width: '100%',
+  },
+  stopBtn: {
+    flex: 1,
+    paddingVertical: 11,
+    borderRadius: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  stopBtnGhost: {
+    borderWidth: 1,
+  },
+  stopBtnPrimary: {
+    borderWidth: 1,
+    borderColor: 'transparent',
+  },
+  stopBtnText: {
+    fontSize: 13,
+    fontWeight: '600',
   },
   optionsMenuTitle: {
     fontSize: 14,

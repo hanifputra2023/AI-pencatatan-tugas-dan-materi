@@ -38,13 +38,17 @@ export async function isDeviceOnline(): Promise<boolean> {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
     if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
       if (!navigator.onLine) return false;
+      // Browser already tracks live connectivity - trust it and skip the ping so
+      // messages are not delayed by an unnecessary round-trip before each AI call.
+      return true;
     }
   }
 
-  // Quick light ping to verify real connectivity
+  // Quick light ping to verify real connectivity (short timeout so a slow/blocked
+  // endpoint can't silently postpone the AI request by several seconds).
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 3000);
+    const timeoutId = setTimeout(() => controller.abort(), 1500);
     await fetch('https://www.google.com/generate_204', {
       method: 'HEAD',
       signal: controller.signal,

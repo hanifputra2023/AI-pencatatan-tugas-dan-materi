@@ -723,11 +723,14 @@ export default function AdminScreen() {
     setTestResponse('');
     const startTime = Date.now();
     try {
-      const response = await sendMessageToGemini([], testPrompt, null, promptText);
+      setPreferredModel(aiModelSelected);
+      const response = await sendMessageToGemini([], testPrompt, null, promptText, {
+        model: aiModelSelected,
+      });
       setTestResponse(response);
       setTestLatency(Date.now() - startTime);
-    } catch (e) {
-      setTestResponse('Gagal menghubungi AI Engine. Periksa koneksi atau API Key.');
+    } catch (e: any) {
+      setTestResponse(`Gagal menghubungi AI Engine (${e?.message || 'Error'}). Periksa koneksi atau API Key.`);
     } finally {
       setTestingAi(false);
     }
@@ -3073,15 +3076,20 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <Text style={styles.inputLabel}>Versi AI Model:</Text>
                   <View style={styles.paramChipsRow}>
                     {[
-                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Vision & Analisis Tinggi ~1.3s)' },
-                      { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite (Ultra Kilat ~0.8s)' },
-                      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Hemat Kuota ~1.5s)' },
+                      { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (Generasi Baru Super Kilat ~1.2s ⭐)' },
+                      { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Generasi Baru Stabil ~2s)' },
+                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Generasi 2.5)' },
                       { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Cadangan Stabil)' },
+                      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Hemat Kuota)' },
+                      { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite (Fallback)' },
                     ].map(m => (
                       <TouchableOpacity
                         key={m.id}
                         style={[styles.paramChip, aiModelSelected === m.id && styles.paramChipActive]}
-                        onPress={() => setAiModelSelected(m.id)}
+                        onPress={() => {
+                          setAiModelSelected(m.id);
+                          setPreferredModel(m.id);
+                        }}
                       >
                         <Text style={[styles.paramChipText, aiModelSelected === m.id && styles.paramChipTextActive]}>
                           {m.label}
