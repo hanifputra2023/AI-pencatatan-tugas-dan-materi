@@ -432,6 +432,9 @@ export default function ChatScreen() {
     const text = (textToSend || inputText).trim();
     if ((!text && !attachment) || loading) return;
 
+    // Auto-close the "+" attachment menu when a message is sent
+    setShowAttachMenu(false);
+
     const online = await isDeviceOnline();
     if (!online) {
       setErrorToast('Mode Offline ☁️: Bot AI memerlukan koneksi internet untuk menjawab pesan.');
@@ -1384,7 +1387,10 @@ export default function ChatScreen() {
                   placeholder={editingMsg ? "Edit pesanmu..." : `Tanya atau curhat ke ${aiBotName || 'Ara'}...`}
                   placeholderTextColor={theme.muted}
                   value={inputText}
-                  onChangeText={setInputText}
+                  onChangeText={(v) => {
+                    if (showAttachMenu) setShowAttachMenu(false);
+                    setInputText(v);
+                  }}
                   multiline
                   maxLength={8000}
                   editable={!loading}

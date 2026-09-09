@@ -144,9 +144,11 @@ interface GeminiCallResult {
 const CHAT_MAX_TOKENS = 8192;
 
 const CONTINUE_PROMPT =
-  'Jawabanmu terpotong karena mencapai batas token. ' +
-  'Lanjutkan persis dari kalimat terakhir yang kamu tulis, ' +
-  'jangan mengulang bagian yang sudah ditulis, dan selesaikan jawabanmu sampai tuntas hingga selesai.';
+  'PESAN INTERNAL SISTEM: jawabanmu terpotong karena batas konteks, bukan karena kesalahan pengguna. ' +
+  'LANJUTKAN jawabanmu persis dari kalimat terakhir yang kamu tulis, tanpa kalimat pembuka apa pun. ' +
+  'DILARANG meminta maaf, menjelaskan bahwa jawaban terpotong, atau menulis komentar seperti ' +
+  '"Maaf", "Sepertinya jawaban terpotong", "Kita lanjutkan lagi" dan sejenisnya. ' +
+  'Kalimat baru yang kamu tulis harus langsung menjadi lanjutan kalimat sebelumnya hingga jawaban selesai tuntas.';
 
 const FACTUAL_GUARDRAIL =
   '\n\nATURAN KETAT KEABSAHAN DATA (WAJIB DIPATUHI):\n' +
@@ -508,6 +510,19 @@ function joinContinuation(prevText: string, nextText: string): string {
   return prevEnd + '\n\n' + stripped;
 }
 
+// Models occasionally react to the continuation prompt with meta-commentary instead of
+// just continuing (e.g. "Maaf ya, teksnya kepotong... Kita lanjutin lagi!"). Strip such
+// leading filler so the final answer reads as one seamless text.
+function stripContinuationFiller(text: string): string {
+  const fillerRegex =
+    /^(?:(?:maaf|maap|mohon maaf|sorry|oh maaf)[^.!?\n]*[.!?]?\s*|(?:sepertinya|jawaban|teks|pesan|respon|balasan)(?: (?:terpotong|kepotong|terputus|tidak lengkap))?[^.!?\n]*[.!?]?\s*|(?:kita lanjutkan|kita lanjutin|lanjutkan lagi|lanjutin lagi|oke? kita lanjutkan)[^.!?\n]*[.!?]?\s*)/i;
+  let t = text.trimStart();
+  while (fillerRegex.test(t)) {
+    t = t.replace(fillerRegex, '').trimStart();
+  }
+  return t;
+}
+
 // Auto-continue truncated responses (finishReason === 'MAX_TOKENS') until complete
 async function continueUntilComplete(
   apiKey: string,
@@ -563,14 +578,14 @@ async function continueUntilComplete(
             deepThink: false,
             onToken: options.onToken
               ? (partial: string) => {
-                  options.onToken?.(joinContinuation(fullText, partial));
+                  options.onToken?.(joinContinuation(fullText, stripContinuationFiller(partial)));
                 }
               : undefined,
           }
         : options;
 
       current = await callSingleModelWithKey(apiKey, modelName, currentContents, systemPrompt, continuationOptions);
-      fullText = joinContinuation(fullText, current.text);
+      fullText = joinContinuation(fullText, stripContinuationFiller(current.text));
     } catch (e: any) {
       console.warn(`[Auto-Continue] Gagal melanjutkan respon (${e.message}). Memakai teks yang sudah ada.`);
       break;

@@ -158,7 +158,7 @@ export default function AdminScreen() {
   const [aiTopPSelected, setAiTopPSelected] = useState(appSettings['ai_top_p'] || '0.95');
   const [factualTempSelected, setFactualTempSelected] = useState(appSettings['factual_temp'] || '0.1');
   const [factualTopPSelected, setFactualTopPSelected] = useState(appSettings['factual_top_p'] || '0.2');
-  const [aiMaxTokens, setAiMaxTokens] = useState(appSettings['ai_max_tokens'] || '1000');
+  const [aiMaxTokens, setAiMaxTokens] = useState(appSettings['ai_max_tokens'] || '4096');
   const [savingAi, setSavingAi] = useState(false);
 
   // Custom Persona Presets State
@@ -3164,6 +3164,27 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         onPress={() => setFactualTopPSelected(t.id)}
                       >
                         <Text style={[styles.paramChipText, factualTopPSelected === t.id && styles.paramChipTextActive]}>
+                          {t.label}
+                        </Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+
+                  {/* Max Response Tokens Selector */}
+                  <Text style={styles.inputLabel}>Maks Token Respon AI (Panjang Jawaban):</Text>
+                  <View style={styles.paramChipsRow}>
+                    {[
+                      { id: '1000', label: '1.000 - Ringkas (Cepat)' },
+                      { id: '2048', label: '2.048 - Sedang' },
+                      { id: '4096', label: '4.096 - Panjang (Direkomendasikan)' },
+                      { id: '8192', label: '8.192 - Maksimal (Lambat)' },
+                    ].map(t => (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[styles.paramChip, aiMaxTokens === t.id && styles.paramChipActive]}
+                        onPress={() => setAiMaxTokens(t.id)}
+                      >
+                        <Text style={[styles.paramChipText, aiMaxTokens === t.id && styles.paramChipTextActive]}>
                           {t.label}
                         </Text>
                       </TouchableOpacity>
