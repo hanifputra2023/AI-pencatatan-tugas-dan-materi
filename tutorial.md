@@ -92,7 +92,47 @@ Disarankan **mulai dari 1–2 aksi dulu** agar reliabilitas terjaga dan tidak ov
 
 ---
 
-## 6. Risiko & Mitigasi
+## 6. Status Implementasi (v1 — SUDAH DITERAPKAN)
+
+Fitur agent sudah berjalan di aplikasi. Pengguna mengaktifkannya lewat **tombol "Agent" di menu "+"** pada layar chat; saat aktif, jawaban AI bisa membawa blok aksi `<AGENT_ACTION>{...}</AGENT_ACTION>` yang diparse dan dieksekusi otomatis.
+
+Format blok yang dikeluarkan AI:
+```json
+<AGENT_ACTION>{"action":"create_task","data":{"title":"Belajar MTK","due_date":"besok","priority":"high"}}</AGENT_ACTION>
+```
+
+Mekanisme:
+- `extractAgentAction()` membaca blok dari jawaban AI, `stripAgentActionBlock()` menyembunyikannya dari teks yang tampil.
+- `executeAgentAction()` menjalankan aksi lewat storage lokal yang sama dengan layar asli (`localSaveTask`, `localSaveNote`, `localSaveJournal`, dst.) — hasilnya langsung muncul di Study Tasks, Study Notes, dan Journal.
+- Setelah eksekusi, ditampilkan pesan konfirmasi (`⚙️ Agent berhasil: ...` / `⚙️ Agent gagal: ...`).
+- Engine ada di `src/lib/agentActions.ts` dan **bisa dipakai ulang** di layar lain (mis. tombol asisten terpisah di luar chat).
+
+### Daftar aksi yang tersedia
+
+| # | Aksi | Fungsi | Contoh perintah |
+|---|---|---|---|
+| 1 | `create_task` | Buat tugas/jadwal belajar | "Buat jadwal belajar MTK untuk besok jam 7" |
+| 2 | `update_task` | Tandai selesai / buka lagi, ubah tenggat, judul, prioritas, mapel | "Tandai PR fisika selesai" / "Geser deadline jurnal ke lusa" |
+| 3 | `delete_task` | Hapus tugas | "Hapus tugas matematika yang minggu depan" |
+| 4 | `save_journal` | Simpan entri jurnal + mood + tags | "Catat jurnal, hari ini aku capek" |
+| 5 | `delete_journal` | Hapus jurnal | "Hapus jurnal berjudul latihan" |
+| 6 | `create_note` | Buat catatan belajar | "Bikin catatan ringkas tentang fotosintesis" |
+| 7 | `delete_note` | Hapus catatan | "Hapus catatan sejarahku" |
+| 8 | `create_quiz` | Buat catatan berisi soal kuis + flashcard | "Buat kuis 5 soal tentang Pythagoras" |
+| 9 | `search_data` | Cari tugas/jurnal/catatan dari data lokal | "Berapa tugas yang belum selesai?" |
+| 10 | `summarize` | Rangkum data dalam rentang waktu | "Rekap jurnal dan tugas minggu ini" |
+| 11 | `create_study_plan` | Susun rencana belajar multi-sesi (jadi beberapa task) | "Bikin jadwal persiapan UTS 2 minggu lagi" |
+
+Catatan tanggal otomatis: `besok`, `lusa`, `hari ini`, `nanti malam`, format `dd/mm/yyyy` atau ISO, serta rentang `minggu ini` / `bulan ini` untuk rangkuman.
+
+### Perbedaan dari desain awal (trade-off)
+
+- Desain awal menyarankan **konfirmasi sebelum eksekusi**. Di v1 dipilih instruksi ketat ke AI ("hanya sertakan blok jika pengguna benar-benar meminta") + **konfirmasi setelah** aksi berupa pesan hasil. Hal ini membuat alurnya satu langkah lebih singkat; pre-konfirmasi bisa ditambahkan kembali sebagai penyempurnaan.
+- Aksi gagal diparse → "Aksi tidak diketahui" ditampilkan tanpa merusak jawaban teks AI.
+
+---
+
+## 7. Risiko & Mitigasi
 
 | Risiko | Mitigasi |
 |---|---|
@@ -104,11 +144,14 @@ Disarankan **mulai dari 1–2 aksi dulu** agar reliabilitas terjaga dan tidak ov
 
 ---
 
-## 7. Langkah Mulai (Checklist)
+## 8. Langkah Selanjutnya (Roadmap v2)
 
-- [ ] Pilih opsi (A / B / C)
-- [ ] Definisikan skema action JSON
-- [ ] Tambahkan registrasi tool/instruksi ke `gemini.ts`
-- [ ] Buat parser & executor aksi di `ChatScreen.tsx`
-- [ ] Tambah konfirmasi + notifikasi hasil di UI
-- [ ] Uji dengan beberapa perintah contoh
+- [x] Pilih opsi (A / B / C) → **Opsi C (paket lengkap)**
+- [x] Definisikan skema action JSON
+- [x] Tambahkan registrasi tool/instruksi ke `gemini.ts`
+- [x] Buat parser & executor aksi di `agentActions.ts` + wiring di `ChatScreen.tsx`
+- [x] Tambah konfirmasi + notifikasi hasil di UI
+- [x] Uji dengan beberapa perintah contoh
+- [ ] Konfirmasi sebelum eksekusi untuk aksi destruktif (hapus/ubah)
+- [ ] Asisten agent terpisah di luar layar chat (pakai engine yang sama)
+- [ ] Sinkronisasi hasil aksi real-time antar layar (refresh otomatis)

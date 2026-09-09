@@ -134,6 +134,7 @@ export interface SendMessageOptions {
   temperature?: number;
   topP?: number;
   factual?: boolean;
+  agent?: boolean;
 }
 
 interface GeminiCallResult {
@@ -149,6 +150,28 @@ const CONTINUE_PROMPT =
   'DILARANG meminta maaf, menjelaskan bahwa jawaban terpotong, atau menulis komentar seperti ' +
   '"Maaf", "Sepertinya jawaban terpotong", "Kita lanjutkan lagi" dan sejenisnya. ' +
   'Kalimat baru yang kamu tulis harus langsung menjadi lanjutan kalimat sebelumnya hingga jawaban selesai tuntas.';
+
+const AGENT_INSTRUCTIONS =
+  '\n\nMODE AGENT AKTIF - KAMU BISA MELAKUKAN AKSI NYATA:\n' +
+  'Jika pengguna MEMINTA AKSI (bukan sekadar bertanya), lakukan aksi dengan menambahkan blok JSON khusus di AKHIR jawabanmu. Formatnya persis seperti ini:\n' +
+  '<AGENT_ACTION>{"action":"create_task","data":{"title":"...","due_date":"...","subject":"...","priority":"high|medium|low","notes":"..."}}</AGENT_ACTION>\n' +
+  '\nAksi yang tersedia:\n' +
+  '1. create_task - buat tugas/jadwal belajar. data: title (wajib), due_date ("besok", "2026-09-10", atau ISO), subject, priority (high/medium/low), notes.\n' +
+  '2. update_task - ubah tugas yang sudah ada. data: title/id (untuk menemukan tugas), is_completed (true/false), due_date, subject, priority, notes.\n' +
+  '3. delete_task - hapus tugas. data: title atau id.\n' +
+  '4. save_journal - catat jurnal. data: content (wajib), title, mood (neutral/ceria/gelisah/capek dll), tags (array).\n' +
+  '5. delete_journal - hapus jurnal. data: title atau id.\n' +
+  '6. create_note - buat catatan belajar. data: title (wajib), content, subject, summary.\n' +
+  '7. delete_note - hapus catatan. data: title atau id.\n' +
+  '8. create_quiz - buat kuis & flashcard. data: title, subject, quiz (array {question, options[4], correctIndex, explanation}), flashcards (array {front, back}).\n' +
+  '9. search_data - cari data pengguna. data: type ("tasks"/"notes"/"journals"/"all"), query, limit. Hasilnya akan ditampilkan otomatis sebagai pesan konfirmasi.\n' +
+  '10. summarize - ringkas data. data: type, since ("minggu ini"/"bulan ini"), topic. Hasil rangkuman ditampilkan otomatis.\n' +
+  '11. create_study_plan - buat rencana belajar multi-sesi. data: goal, subject, exam_date, sessions (array {title, due_date, priority, subject, notes}).\n' +
+  '\nAturan:\n' +
+  '- Hanya sertakan blok <AGENT_ACTION> jika pengguna benar-benar meminta aksi. Jika ragu, JANGAN sertakan blok lalu cukup jawab dan tanya konfirmasi.\n' +
+  '- Untuk aksi search_data / summarize, jawaban teksmu cukup singkat saja ("Sebentar, saya cari dulu ya..."), karena hasil datanya akan muncul sebagai pesan konfirmasi terpisah.\n' +
+  '- Jawaban tetap kamu tulis secara alami; blok JSON hanyalah lampiran di akhir, tidak perlu disebutkan ke pengguna.\n' +
+  '- Tanggal "besok" berarti besok, "nanti malam" berarti hari ini, "minggu ini" = 7 hari terakhir terhitung awal pekan.\n';
 
 const FACTUAL_GUARDRAIL =
   '\n\nATURAN KETAT KEABSAHAN DATA (WAJIB DIPATUHI):\n' +
@@ -674,6 +697,10 @@ export async function sendMessageToGemini(
   // Faktual/akurat mode: tambahkan guardrails ketat anti halusinasi
   if (options?.factual) {
     systemPrompt += FACTUAL_GUARDRAIL;
+  }
+  // Agent mode: izinkan AI melakukan aksi nyata (task/jurnal/catatan)
+  if (options?.agent) {
+    systemPrompt += AGENT_INSTRUCTIONS;
   }
 
   let lastError: any = null;

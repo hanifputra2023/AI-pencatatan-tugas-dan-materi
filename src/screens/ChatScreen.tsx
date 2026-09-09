@@ -14,6 +14,7 @@ import { useMoods } from '../contexts/MoodContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
+import { extractAgentAction, stripAgentActionBlock, executeAgentAction } from '../lib/agentActions';
 import { ChatMessage, ChatAttachment, ChatSession } from '../types';
 import * as FileSystem from 'expo-file-system';
 import { confirmAction, showAlert } from '../lib/alert';
@@ -67,7 +68,7 @@ export default function ChatScreen() {
     ? parseInt(appSettings['ai_max_tokens'], 10)
     : undefined;
   const { theme, isLightMode } = useTheme();
-  const { isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
+  const { width, isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
 
   // Multi-Session & Message States
@@ -91,6 +92,7 @@ export default function ChatScreen() {
   const [streamingMsgId, setStreamingMsgId] = useState<string | null>(null);
   const [deepThinkEnabled, setDeepThinkEnabled] = useState(false);
   const [factualEnabled, setFactualEnabled] = useState(false);
+  const [agentEnabled, setAgentEnabled] = useState(false);
 
   // Sampling parameters from Admin settings (ai_temp / ai_top_p)
   const chatTemperature = parseFloat(appSettings['ai_temp']) > 0
@@ -584,7 +586,7 @@ export default function ChatScreen() {
     };
 
     const tempAiId = 'ai_' + Date.now();
-    const activeMode: 'standard' | 'deep' | 'factual' = factualEnabled ? 'factual' : deepThinkEnabled ? 'deep' : 'standard';
+    const activeMode: 'standard' | 'deep' | 'factual' | 'agent' = factualEnabled ? 'factual' : agentEnabled ? 'agent' : deepThinkEnabled ? 'deep' : 'standard';
     const streamingAiMsg: ChatMessage = {
       id: tempAiId,
       session_id: activeSessionId,
@@ -611,6 +613,7 @@ export default function ChatScreen() {
         maxTokens: chatMaxTokens,
         deepThink: deepThinkEnabled,
         factual: factualEnabled,
+        agent: agentEnabled,
         temperature: factualEnabled ? factualTemperature : chatTemperature,
         topP: factualEnabled ? factualTopP : chatTopP,
         onToken: (partial) => {
@@ -619,7 +622,8 @@ export default function ChatScreen() {
           const now = Date.now();
           if (now - lastStreamPaintRef.current >= 100) {
             lastStreamPaintRef.current = now;
-            setMessages(prev => prev.map(m => (m.id === tempAiId ? { ...m, content: partial } : m)));
+            const shown = agentEnabled ? stripAgentActionBlock(partial) : partial;
+            setMessages(prev => prev.map(m => (m.id === tempAiId ? { ...m, content: shown } : m)));
           }
           // Throttle: instant, non-animated scroll at most once every 200ms to avoid
           // chaining scroll animations that cause up/down flickering
@@ -631,17 +635,42 @@ export default function ChatScreen() {
         },
       });
 
+      // Agent mode: execute any action the AI requested and hide the JSON block
+      const action = agentEnabled ? extractAgentAction(aiReply) : null;
+      const displayReply = agentEnabled ? stripAgentActionBlock(aiReply) : aiReply;
+
+      let agentConfirmation: string | null = null;
+      if (action) {
+        const res = await executeAgentAction(effectiveUserId, action);
+        agentConfirmation = res.ok
+          ? `⚙️ Agent berhasil: ${res.message}`
+          : `⚙️ Agent gagal: ${res.message}`;
+      }
+
       const tempAiMsg: ChatMessage = {
         id: tempAiId,
         session_id: activeSessionId,
         user_id: effectiveUserId,
         role: 'assistant',
-        content: aiReply,
-        mode: factualEnabled ? 'factual' : (deepThinkEnabled ? 'deep' : 'standard'),
+        content: displayReply,
+        mode: factualEnabled ? 'factual' : (agentEnabled ? 'agent' : (deepThinkEnabled ? 'deep' : 'standard')),
         created_at: new Date().toISOString(),
       };
 
-      const newFullList = [...messages, tempUserMsg, tempAiMsg];
+      const agentMsg: ChatMessage | null = agentConfirmation
+        ? {
+            id: 'sys_agent_' + Date.now(),
+            session_id: activeSessionId,
+            user_id: effectiveUserId,
+            role: 'assistant',
+            content: agentConfirmation,
+            created_at: new Date(Date.now() + 50).toISOString(),
+          }
+        : null;
+
+      const newFullList = agentConfirmation
+        ? [...messages, tempUserMsg, tempAiMsg, agentMsg!]
+        : [...messages, tempUserMsg, tempAiMsg];
       setMessages(newFullList);
       scrollToBottom(100);
 
@@ -838,22 +867,28 @@ export default function ChatScreen() {
                     styles.modeBadge,
                     { borderColor: item.mode === 'factual'
                         ? (isLightMode ? '#F59E0B' : '#FBBF24')
-                        : (isLightMode ? '#8B5CF6' : '#A78BFA') }
+                        : item.mode === 'agent'
+                          ? (isLightMode ? '#14B8A6' : '#5EEAD4')
+                          : (isLightMode ? '#8B5CF6' : '#A78BFA') }
                   ]}>
                     <Ionicons
-                      name={item.mode === 'factual' ? 'shield-checkmark-outline' : 'bulb-outline'}
+                      name={item.mode === 'factual' ? 'shield-checkmark-outline' : item.mode === 'agent' ? 'rocket-outline' : 'bulb-outline'}
                       size={9}
                       color={item.mode === 'factual'
                         ? (isLightMode ? '#B45309' : '#FBBF24')
-                        : (isLightMode ? '#6D28D9' : '#A78BFA')}
+                        : item.mode === 'agent'
+                          ? (isLightMode ? '#0F766E' : '#5EEAD4')
+                          : (isLightMode ? '#6D28D9' : '#A78BFA')}
                     />
                     <Text style={[
                       styles.modeBadgeText,
                       { color: item.mode === 'factual'
                           ? (isLightMode ? '#B45309' : '#FBBF24')
-                          : (isLightMode ? '#6D28D9' : '#A78BFA') }
+                          : item.mode === 'agent'
+                            ? (isLightMode ? '#0F766E' : '#5EEAD4')
+                            : (isLightMode ? '#6D28D9' : '#A78BFA') }
                     ]}>
-                      {item.mode === 'factual' ? 'Akurat' : 'Deep'}
+                      {item.mode === 'factual' ? 'Akurat' : item.mode === 'agent' ? 'Agent' : 'Deep'}
                     </Text>
                   </View>
                 )}
@@ -1284,82 +1319,83 @@ export default function ChatScreen() {
               </View>
             )}
 
-            {/* Attachment Options Menu Popup */}
-            {showAttachMenu && (
-              <View style={[styles.attachMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                <View style={styles.attachMenuContent}>
-                <TouchableOpacity style={styles.attachOption} onPress={pickImage}>
-                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="images" size={16} color={theme.accentLight} />
-                  </View>
-                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Galeri</Text>
-                </TouchableOpacity>
+            {/* Attachment Options Menu Popup (single scrollable row, items resize to fit) */}
+            {showAttachMenu && (() => {
+              const menuItems = [
+                { key: 'galeri', label: 'Galeri', icon: 'images' as const, onPress: pickImage, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
+                { key: 'kamera', label: 'Kamera', icon: 'camera' as const, onPress: takePhoto, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
+                { key: 'audio', label: 'Audio', icon: 'mic' as const, onPress: pickAudio, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
+                { key: 'dokumen', label: 'Dokumen', icon: 'document-text' as const, onPress: pickDocument, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
+                {
+                  key: 'deep',
+                  label: 'Deep',
+                  icon: 'bulb-outline' as const,
+                  onPress: () => setDeepThinkEnabled(p => !p),
+                  active: deepThinkEnabled,
+                  bg: deepThinkEnabled ? (isLightMode ? '#EDE9FE' : '#241B38') : theme.accentBg,
+                  border: deepThinkEnabled ? (isLightMode ? '#8B5CF6' : '#A78BFA') : theme.border,
+                  color: deepThinkEnabled ? (isLightMode ? '#6D28D9' : '#A78BFA') : theme.accentLight,
+                },
+                {
+                  key: 'akurat',
+                  label: 'Akurat',
+                  icon: 'shield-checkmark-outline' as const,
+                  onPress: () => setFactualEnabled(p => !p),
+                  active: factualEnabled,
+                  bg: factualEnabled ? (isLightMode ? '#FEF3C7' : '#3A2A0A') : theme.accentBg,
+                  border: factualEnabled ? (isLightMode ? '#F59E0B' : '#FBBF24') : theme.border,
+                  color: factualEnabled ? (isLightMode ? '#D97706' : '#FBBF24') : theme.accentLight,
+                },
+                {
+                  key: 'agent',
+                  label: 'Agent',
+                  icon: 'rocket-outline' as const,
+                  onPress: () => setAgentEnabled(p => !p),
+                  active: agentEnabled,
+                  bg: agentEnabled ? (isLightMode ? '#CCFBF1' : '#0F2A26') : theme.accentBg,
+                  border: agentEnabled ? (isLightMode ? '#14B8A6' : '#5EEAD4') : theme.border,
+                  color: agentEnabled ? (isLightMode ? '#0F766E' : '#5EEAD4') : theme.accentLight,
+                },
+              ];
 
-                <TouchableOpacity style={styles.attachOption} onPress={takePhoto}>
-                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="camera" size={16} color={theme.accentLight} />
-                  </View>
-                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Kamera</Text>
-                </TouchableOpacity>
+              // Evenly distribute buttons across the row when they fit on screen; when
+              // they overflow, keep them at the min width so the row scrolls sideways
+              // instead of piling up into multiple rows (matches the "slide" design).
+              const MAX_ROW_W = 900;
+              const available = Math.max(Math.min(width, MAX_ROW_W) - 28, 200);
+              const MIN_ITEM = 64;
+              const itemWidth = Math.round(Math.max(available / menuItems.length, MIN_ITEM));
 
-                <TouchableOpacity style={styles.attachOption} onPress={pickAudio}>
-                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="mic" size={16} color={theme.accentLight} />
-                  </View>
-                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Audio</Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity style={styles.attachOption} onPress={pickDocument}>
-                  <View style={[styles.attachIconWrap, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
-                    <Ionicons name="document-text" size={16} color={theme.accentLight} />
-                  </View>
-                  <Text style={[styles.attachLabel, { color: theme.subtext }]}>Dokumen</Text>
-                </TouchableOpacity>
-
-                {/* Deep Thinking Toggle */}
-                <TouchableOpacity
-                  style={styles.attachOption}
-                  onPress={() => setDeepThinkEnabled(prev => !prev)}
-                  disabled={loading}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Mode Deep Thinking"
-                  accessibilityState={{ selected: deepThinkEnabled }}
-                >
-                  <View style={[styles.attachIconWrap, {
-                    backgroundColor: deepThinkEnabled ? (isLightMode ? '#EDE9FE' : '#241B38') : theme.accentBg,
-                    borderColor: deepThinkEnabled ? (isLightMode ? '#8B5CF6' : '#A78BFA') : theme.border,
-                  }]}>
-                    <Ionicons name="bulb-outline" size={16} color={deepThinkEnabled ? (isLightMode ? '#6D28D9' : '#A78BFA') : theme.accentLight} />
-                  </View>
-                  <View style={styles.attachLabelRow}>
-                    <Text style={[styles.attachLabel, { color: deepThinkEnabled ? (isLightMode ? '#6D28D9' : '#A78BFA') : theme.subtext }]}>Deep</Text>
-                    {deepThinkEnabled && <Ionicons name="checkmark-circle" size={12} color={isLightMode ? '#8B5CF6' : '#A78BFA'} />}
-                  </View>
-                </TouchableOpacity>
-
-                {/* Faktual / Akurat Toggle */}
-                <TouchableOpacity
-                  style={styles.attachOption}
-                  onPress={() => setFactualEnabled(prev => !prev)}
-                  disabled={loading}
-                  activeOpacity={0.7}
-                  accessibilityLabel="Mode Akurat / Faktual"
-                  accessibilityState={{ selected: factualEnabled }}
-                >
-                  <View style={[styles.attachIconWrap, {
-                    backgroundColor: factualEnabled ? (isLightMode ? '#FEF3C7' : '#3A2A0A') : theme.accentBg,
-                    borderColor: factualEnabled ? (isLightMode ? '#F59E0B' : '#FBBF24') : theme.border,
-                  }]}>
-                    <Ionicons name="shield-checkmark-outline" size={16} color={factualEnabled ? (isLightMode ? '#D97706' : '#FBBF24') : theme.accentLight} />
-                  </View>
-                  <View style={styles.attachLabelRow}>
-                    <Text style={[styles.attachLabel, { color: factualEnabled ? (isLightMode ? '#B45309' : '#FBBF24') : theme.subtext }]}>Akurat</Text>
-                    {factualEnabled && <Ionicons name="checkmark-circle" size={12} color={isLightMode ? '#F59E0B' : '#FBBF24'} />}
-                  </View>
-                </TouchableOpacity>
+              return (
+                <View style={[styles.attachMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <ScrollView
+                    horizontal
+                    showsHorizontalScrollIndicator={false}
+                    contentContainerStyle={styles.attachMenuScroll}
+                  >
+                    {menuItems.map(it => (
+                      <TouchableOpacity
+                        key={it.key}
+                        style={[styles.attachOption, { width: itemWidth }]}
+                        onPress={it.onPress}
+                        disabled={loading}
+                        activeOpacity={0.7}
+                        accessibilityLabel={it.label}
+                        accessibilityState={{ selected: it.active }}
+                      >
+                        <View style={[styles.attachIconWrap, { backgroundColor: it.bg, borderColor: it.border }]}>
+                          <Ionicons name={it.icon} size={16} color={it.color} />
+                        </View>
+                        <View style={styles.attachLabelRow}>
+                          <Text style={[styles.attachLabel, { color: it.active ? it.color : theme.subtext }]}>{it.label}</Text>
+                          {it.active && <Ionicons name="checkmark-circle" size={12} color={it.color} />}
+                        </View>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
                 </View>
-              </View>
-            )}
+              );
+            })()}
 
             {/* ======================================================================= */}
             {/* FLOATING CAPSULE INPUT BAR */}
@@ -1980,18 +2016,16 @@ const styles = StyleSheet.create({
     marginHorizontal: 14,
     marginBottom: 8,
   },
-  attachMenuContent: {
+  attachMenuScroll: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
     alignItems: 'center',
+    gap: 8,
+    paddingHorizontal: 6,
   },
   attachOption: {
-    flexGrow: 1,
-    flexBasis: '16.66%',
     alignItems: 'center',
     gap: 4,
     paddingVertical: 8,
-    minWidth: 58,
   },
   attachIconWrap: {
     width: 38,
