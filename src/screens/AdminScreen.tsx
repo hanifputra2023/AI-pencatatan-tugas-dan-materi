@@ -145,6 +145,7 @@ export default function AdminScreen() {
   const [newKeyInput, setNewKeyInput] = useState('');
   const [showNewKey, setShowNewKey] = useState(false);
   const [testingKeyIdx, setTestingKeyIdx] = useState<number | null>(null);
+  const [isTestingAllKeys, setIsTestingAllKeys] = useState(false);
   const [keyTestResults, setKeyTestResults] = useState<Record<number, { success: boolean; message: string; latency?: number }>>({});
   const [savingKeysPool, setSavingKeysPool] = useState(false);
   const [keysPage, setKeysPage] = useState(1);
@@ -781,6 +782,55 @@ export default function AdminScreen() {
       setKeyTestResults(prev => ({ ...prev, [index]: { success: false, message: e.message || 'Koneksi gagal' } }));
     } finally {
       setTestingKeyIdx(null);
+    }
+  };
+
+  const handleTestAllKeysInPool = async () => {
+    if (keysPool.length === 0) {
+      showAlert('Pool Kosong', 'Tidak ada Kunci API untuk diuji. Tambahkan kunci terlebih dahulu.');
+      return;
+    }
+    setIsTestingAllKeys(true);
+    setKeyTestResults({}); // Kosongkan hasil sebelumnya agar UI menampilkan status pengujian segar
+
+    let successCount = 0;
+    let failCount = 0;
+    let totalLatency = 0;
+
+    try {
+      await Promise.all(
+        keysPool.map(async (key, index) => {
+          try {
+            const res = await testGeminiApiKey(key, aiModelSelected);
+            if (res.success) {
+              successCount++;
+              if (res.latency) totalLatency += res.latency;
+            } else {
+              failCount++;
+            }
+            setKeyTestResults(prev => ({ ...prev, [index]: res }));
+          } catch (e: any) {
+            failCount++;
+            setKeyTestResults(prev => ({
+              ...prev,
+              [index]: { success: false, message: e?.message || 'Koneksi gagal' },
+            }));
+          }
+        })
+      );
+
+      const avgLatency = successCount > 0 ? Math.round(totalLatency / successCount) : 0;
+      showAlert(
+        'Pengujian Selesai! ⚡',
+        `Hasil Uji Serentak ${keysPool.length} Kunci:\n\n` +
+        `✅ Aktif & Siap Pakai: ${successCount}\n` +
+        `❌ Bermasalah / Limit: ${failCount}` +
+        (avgLatency > 0 ? `\n⏱ Rata-rata Latensi: ${avgLatency} ms` : '')
+      );
+    } catch (e: any) {
+      showAlert('Gagal Menguji', e?.message || 'Terjadi kesalahan saat menguji API.');
+    } finally {
+      setIsTestingAllKeys(false);
     }
   };
 
@@ -2838,29 +2888,57 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <Text style={[styles.inputLabel, { marginVertical: 0 }]}>
                       Daftar Kunci Aktif di Routing Pool ({keysPool.length} Kunci Terdaftar):
                     </Text>
-                    {keysPool.length > 5 && (
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Text style={{ fontSize: 11, color: theme.subtext }}>Limit:</Text>
-                        {[5, 10, 20].map(cnt => (
-                          <TouchableOpacity
-                            key={cnt}
-                            onPress={() => { setKeysPerPage(cnt); setKeysPage(1); }}
-                            style={{
-                              paddingHorizontal: 8,
-                              paddingVertical: 3,
-                              borderRadius: 6,
-                              backgroundColor: keysPerPage === cnt ? theme.accentBg : theme.cardInner,
-                              borderWidth: 1,
-                              borderColor: keysPerPage === cnt ? theme.accentLight : theme.border,
-                            }}
-                          >
-                            <Text style={{ fontSize: 10.5, fontWeight: '800', color: keysPerPage === cnt ? theme.accentLight : theme.subtext }}>
-                              {cnt}
-                            </Text>
-                          </TouchableOpacity>
-                        ))}
-                      </View>
-                    )}
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      {keysPool.length > 0 && (
+                        <TouchableOpacity
+                          onPress={handleTestAllKeysInPool}
+                          disabled={isTestingAllKeys}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 5,
+                            paddingHorizontal: 10,
+                            paddingVertical: 5,
+                            borderRadius: 8,
+                            backgroundColor: isTestingAllKeys ? '#3B82F633' : '#3B82F620',
+                            borderWidth: 1,
+                            borderColor: '#3B82F655',
+                          }}
+                        >
+                          {isTestingAllKeys ? (
+                            <ActivityIndicator size="small" color="#3B82F6" />
+                          ) : (
+                            <Ionicons name="flash" size={13} color="#3B82F6" />
+                          )}
+                          <Text style={{ fontSize: 11, fontWeight: '800', color: '#3B82F6' }}>
+                            {isTestingAllKeys ? 'Menguji Semua...' : '⚡ Uji Semua'}
+                          </Text>
+                        </TouchableOpacity>
+                      )}
+                      {keysPool.length > 5 && (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Text style={{ fontSize: 11, color: theme.subtext }}>Limit:</Text>
+                          {[5, 10, 20].map(cnt => (
+                            <TouchableOpacity
+                              key={cnt}
+                              onPress={() => { setKeysPerPage(cnt); setKeysPage(1); }}
+                              style={{
+                                paddingHorizontal: 8,
+                                paddingVertical: 3,
+                                borderRadius: 6,
+                                backgroundColor: keysPerPage === cnt ? theme.accentBg : theme.cardInner,
+                                borderWidth: 1,
+                                borderColor: keysPerPage === cnt ? theme.accentLight : theme.border,
+                              }}
+                            >
+                              <Text style={{ fontSize: 10.5, fontWeight: '800', color: keysPerPage === cnt ? theme.accentLight : theme.subtext }}>
+                                {cnt}
+                              </Text>
+                            </TouchableOpacity>
+                          ))}
+                        </View>
+                      )}
+                    </View>
                   </View>
 
                   {keysPool.length === 0 ? (
@@ -2875,7 +2953,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                           .slice((keysPage - 1) * keysPerPage, keysPage * keysPerPage)
                           .map((k, pIdx) => {
                             const realIdx = (keysPage - 1) * keysPerPage + pIdx;
-                            const isTesting = testingKeyIdx === realIdx;
+                            const isTesting = testingKeyIdx === realIdx || (isTestingAllKeys && !keyTestResults[realIdx]);
                             const result = keyTestResults[realIdx];
                             const preview = k.substring(0, 10) + '••••••••' + k.substring(k.length - 4);
                             return (
@@ -3034,6 +3112,41 @@ showAlert('Gagal', 'Gagal mereset logo.');
                         )}
                       </View>
                     </>
+                  )}
+
+                  {/* Test All Keys Button */}
+                  {keysPool.length > 0 && (
+                    <TouchableOpacity
+                      style={[
+                        styles.saveAllPoolBtn,
+                        {
+                          backgroundColor: theme.cardInner,
+                          borderColor: '#3B82F6',
+                          borderWidth: 1.5,
+                          marginBottom: 10,
+                        },
+                        (isTestingAllKeys || keysPool.length === 0) && { opacity: 0.6 },
+                      ]}
+                      onPress={handleTestAllKeysInPool}
+                      disabled={isTestingAllKeys || keysPool.length === 0}
+                      activeOpacity={0.8}
+                    >
+                      {isTestingAllKeys ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <ActivityIndicator color="#3B82F6" size="small" />
+                          <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
+                            Menguji Seluruh {keysPool.length} Kunci Serentak...
+                          </Text>
+                        </View>
+                      ) : (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <Ionicons name="flash" size={16} color="#3B82F6" />
+                          <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
+                            ⚡ Uji Semua API Sekaligus ({keysPool.length} Kunci)
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
                   )}
 
                   {/* Save All Pool Button */}

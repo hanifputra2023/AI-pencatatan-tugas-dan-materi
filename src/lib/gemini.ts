@@ -229,10 +229,13 @@ async function callSingleModelWithKey(
     },
   };
 
-  // Deep Thinking: enable the model's internal reasoning budget (Gemini 2.5+)
-  if (options?.deepThink && !isJson) {
+  // Thinking budget: explicitly set 0 for normal mode agar model tidak
+  // melakukan internal reasoning yang membuang ~10 detik. Mode Deep Think
+  // menggunakan budget terbatas (1024) — cukup untuk analisis mendalam
+  // tanpa mengorbankan kecepatan respons secara berlebihan.
+  if (!isJson) {
     requestBody.generationConfig.thinkingConfig = {
-      thinkingBudget: 8192,
+      thinkingBudget: options?.deepThink ? 1024 : 0,
     };
   }
 
@@ -273,7 +276,13 @@ async function callSingleModelWithKey(
 
     const data = await response.json();
     const candidate = data.candidates?.[0];
-    const replyText = candidate?.content?.parts?.[0]?.text;
+    // Filter bagian "thought" internal AI agar tidak bocor ke tampilan chat.
+    // Gemini 2.5+ mengembalikan array parts: part bertanda thought:true adalah
+    // monolog penalaran internal yang TIDAK boleh ditampilkan ke pengguna.
+    const replyText = candidate?.content?.parts
+      ?.filter((p: any) => !p.thought)
+      ?.map((p: any) => p.text || '')
+      ?.join('') || '';
     if (!replyText) {
       throw new Error('AI tidak memberikan respon teks.');
     }
@@ -287,7 +296,7 @@ async function callSingleModelWithKey(
         cancelledErr.cancelled = true;
         throw cancelledErr;
       }
-      throw new Error(`Model ${modelName} timeout (>14 detik). Mengalihkan ke model cepat...`);
+      throw new Error(`Model ${modelName} timeout. Mengalihkan ke model cepat...`);
     }
     throw error;
   }
@@ -340,7 +349,12 @@ function stripRepeatedTail(prev: string, next: string): string {
   return cleanNext;
 }
 
-// Streamed chat call using SSE (works on web; falls back to a full-body read on native)
+// Streamed chat call menggunakan XHR + onprogress.
+// XHR.onprogress dipanggil setiap kali byte baru tiba dari server — inilah
+// yang memungkinkan teks muncul kata-per-kata secara progresif di layar.
+// fetch/ReadableStream TIDAK bekerja di React Native (hanya di browser),
+// sehingga implementasi sebelumnya selalu jatuh ke fallback response.text()
+// yang membaca seluruh body dulu baru menampilkan semua teks sekaligus.
 async function streamSingleModelWithKey(
   apiKey: string,
   modelName: string,
@@ -377,132 +391,130 @@ async function streamSingleModelWithKey(
     },
   };
 
-  // Deep Thinking: enable the model's internal reasoning budget (Gemini 2.5+)
-  if (options?.deepThink && !isJson) {
+  // Thinking budget: eksplisit matikan (0) untuk mode biasa agar model tidak
+  // menghabiskan 10-15 detik untuk internal reasoning sebelum menjawab.
+  // Mode Deep Think menggunakan budget 1024 — cukup mendalam, tetap responsif.
+  if (!isJson) {
     requestBody.generationConfig.thinkingConfig = {
-      thinkingBudget: 8192,
+      thinkingBudget: options?.deepThink ? 1024 : 0,
     };
   }
 
-  const controller = new AbortController();
-  let userCancelled = false;
-  const externalSignal = options?.signal;
-  if (externalSignal) {
-    if (externalSignal.aborted) {
-      userCancelled = true;
-      controller.abort();
-    } else {
-      externalSignal.addEventListener('abort', () => {
-        userCancelled = true;
-        controller.abort();
-      }, { once: true });
-    }
-  }
-  // Deep thinking may legitimately take longer; otherwise 60 detik stream timeout
   const timeoutMs = options?.deepThink ? 120000 : 60000;
-  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  const bodyStr = JSON.stringify(requestBody);
 
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(requestBody),
-      signal: controller.signal,
-    });
-
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      const errorMessage = err?.error?.message || `HTTP ${response.status}`;
-      const customErr: any = new Error(errorMessage);
-      customErr.status = response.status;
-      throw customErr;
-    }
+  return new Promise<GeminiCallResult>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/json');
+    xhr.timeout = timeoutMs;
 
     let fullText = '';
     let finishReason: string | undefined;
-    const decoder = typeof TextDecoder !== 'undefined' ? new TextDecoder('utf-8') : null;
+    let processedLength = 0;
+    let userCancelled = false;
 
-    const handleSseLine = (line: string) => {
-      const trimmed = line.trim();
-      if (!trimmed.startsWith('data:')) return;
-      const payload = trimmed.slice(5).trim();
-      if (!payload || payload === '[DONE]') return;
-      try {
-        const data = JSON.parse(payload);
-        const candidate = data.candidates?.[0];
-        const delta = candidate?.content?.parts?.[0]?.text;
-        if (delta) {
-          fullText += delta;
-          options.onToken?.(fullText);
-        }
-        if (candidate?.finishReason) {
-          finishReason = candidate.finishReason;
-        }
-      } catch (e) {
-        // Ignore malformed/partial SSE chunks
+    // Sambungkan AbortSignal external (tombol Stop di chat) ke XHR
+    const externalSignal = options?.signal;
+    if (externalSignal) {
+      if (externalSignal.aborted) {
+        userCancelled = true;
+        xhr.abort();
+      } else {
+        externalSignal.addEventListener('abort', () => {
+          userCancelled = true;
+          xhr.abort();
+        }, { once: true });
       }
-    };
-
-    const feedLines = (raw: string) => {
-      let buffer = raw;
-      let lineEnd;
-      while ((lineEnd = buffer.indexOf('\n')) !== -1) {
-        handleSseLine(buffer.slice(0, lineEnd));
-        buffer = buffer.slice(lineEnd + 1);
-      }
-      if (buffer.trim()) {
-        handleSseLine(buffer);
-      }
-    };
-
-    // Streaming requires a readable body stream + TextDecoder. When either is
-    // missing (e.g. older React Native), fall back to reading the full SSE text.
-    const body = response.body as unknown;
-    const reader =
-      decoder !== null &&
-      body !== null &&
-      typeof body === 'object' &&
-      'getReader' in body &&
-      typeof (body as { getReader: () => ReadableStreamDefaultReader<Uint8Array> }).getReader === 'function'
-        ? (body as { getReader: () => ReadableStreamDefaultReader<Uint8Array> }).getReader()
-        : null;
-
-    if (reader) {
-      let buffer = '';
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder!.decode(value, { stream: true });
-        let lineEnd;
-        while ((lineEnd = buffer.indexOf('\n')) !== -1) {
-          handleSseLine(buffer.slice(0, lineEnd));
-          buffer = buffer.slice(lineEnd + 1);
-        }
-      }
-      if (buffer.trim()) {
-        handleSseLine(buffer);
-      }
-    } else {
-      // Native fallback: full body read, then parse every SSE chunk in order
-      feedLines(await response.text());
     }
 
-    return { text: fullText, finishReason };
-  } catch (error: any) {
-    clearTimeout(timeoutId);
-    if (error.name === 'AbortError') {
+    // Parse setiap baris SSE dari chunk yang baru masuk
+    const parseNewChunk = (rawChunk: string) => {
+      const lines = rawChunk.split('\n');
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed.startsWith('data:')) continue;
+        const payload = trimmed.slice(5).trim();
+        if (!payload || payload === '[DONE]') continue;
+        try {
+          const data = JSON.parse(payload);
+          const candidate = data.candidates?.[0];
+          // Filter bagian "thought" (monolog penalaran internal AI) agar tidak
+          // bocor ke streaming bubble chat pengguna. Hanya ambil part non-thought.
+          const parts: any[] = candidate?.content?.parts || [];
+          const delta = parts
+            .filter((p: any) => !p.thought)
+            .map((p: any) => p.text || '')
+            .join('');
+          if (delta) {
+            fullText += delta;
+            options.onToken?.(fullText);
+          }
+          if (candidate?.finishReason) {
+            finishReason = candidate.finishReason;
+          }
+        } catch (e) {
+          // Abaikan chunk SSE yang belum lengkap / malformed
+        }
+      }
+    };
+
+    // onprogress: dipanggil setiap kali byte baru tiba dari server.
+    // Ini adalah inti dari streaming kata-per-kata yang sesungguhnya.
+    xhr.onprogress = () => {
+      const newChunk = xhr.responseText.slice(processedLength);
+      processedLength = xhr.responseText.length;
+      if (newChunk) parseNewChunk(newChunk);
+    };
+
+    xhr.onload = () => {
+      // Proses sisa data yang mungkin belum ter-cover oleh onprogress terakhir
+      const remaining = xhr.responseText.slice(processedLength);
+      if (remaining.trim()) parseNewChunk(remaining);
+
+      if (xhr.status >= 400) {
+        try {
+          const errData = JSON.parse(xhr.responseText);
+          const msg = errData?.error?.message || `HTTP ${xhr.status}`;
+          const customErr: any = new Error(msg);
+          customErr.status = xhr.status;
+          reject(customErr);
+        } catch {
+          reject(new Error(`HTTP ${xhr.status}`));
+        }
+        return;
+      }
+
+      if (!fullText) {
+        reject(new Error('AI tidak memberikan respon teks.'));
+        return;
+      }
+      resolve({ text: fullText, finishReason });
+    };
+
+    xhr.onerror = () => {
+      reject(new Error(`Model ${modelName} gagal terhubung. Mengalihkan ke model cepat...`));
+    };
+
+    xhr.onabort = () => {
       if (userCancelled) {
         const cancelledErr: any = new Error('Percakapan dihentikan oleh pengguna.');
         cancelledErr.cancelled = true;
-        throw cancelledErr;
+        reject(cancelledErr);
+      } else {
+        reject(new Error(`Model ${modelName} timeout saat streaming. Mengalihkan ke model cepat...`));
       }
-      throw new Error(`Model ${modelName} timeout saat streaming (>60 detik). Mengalihkan ke model cepat...`);
-    }
-    throw error;
-  } finally {
-    clearTimeout(timeoutId);
-  }
+    };
+
+    xhr.ontimeout = () => {
+      reject(new Error(`Model ${modelName} timeout saat streaming. Mengalihkan ke model cepat...`));
+    };
+
+    xhr.send(bodyStr);
+  });
 }
+
+
 export function extractJsonFromText<T>(text: string): T {
   if (!text) throw new Error('Respon AI kosong.');
 
@@ -748,46 +760,66 @@ export async function sendMessageToGemini(
   const totalKeys = keysPool.length;
   const startOffset = Math.floor(Math.random() * totalKeys);
 
-  // 1. Iterate through each API Key in the Multi-Key Pool with smart load-balanced distribution
-  for (let step = 0; step < totalKeys; step++) {
-    const keyIdx = (startOffset + step) % totalKeys;
-    const currentKey = keysPool[keyIdx];
-    const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
+  // Daftar model yang akan dicoba secara berurutan:
+  // Mulai dari model pilihan aktif, lalu otomatis fallback ke model generasi baru / stabil / lite
+  const activePreferred = (options?.model || preferredModel || 'gemini-3.7-flash').trim();
+  const modelsToTry = [
+    activePreferred,
+    ...ACTIVE_MODELS.filter(m => m !== activePreferred),
+  ];
 
-    // 2. Iterate through candidate models for this key (starting with preferred / configured model)
-    const activePreferred = (options?.model || preferredModel || 'gemini-2.5-flash').trim();
-    const modelsToTry = [
-      activePreferred,
-      ...ACTIVE_MODELS.filter(m => m !== activePreferred)
-    ];
-    for (const model of modelsToTry) {
+  // 1. TIER 1 (MODEL FAILOVER): Jika sebuah model limit (429), timeout, atau overload di server,
+  // sistem OTOMATIS beralih ke model cadangan berikutnya (gemini-3.5-flash -> gemini-2.5-flash -> gemini-flash-lite)
+  for (const model of modelsToTry) {
+    // 2. TIER 2 (MULTI-KEY LOAD BALANCING): Untuk model yang sedang dicoba,
+    // coba kunci-kunci di pool secara bergantian
+    for (let step = 0; step < totalKeys; step++) {
+      const keyIdx = (startOffset + step) % totalKeys;
+      const currentKey = keysPool[keyIdx];
+      const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
+
       try {
         const result = await callSingleModelWithKey(currentKey, model, contents, systemPrompt, options);
         return await continueUntilComplete(currentKey, model, contents, systemPrompt, options, result);
       } catch (err: any) {
         lastError = err;
-        const isQuotaOrAuthError =
-          err.status === 429 ||
-          err.status === 403 ||
-          err.status === 401 ||
-          (err.status === 400 && (err.message?.includes('API_KEY') || err.message?.includes('key') || err.message?.includes('credentials'))) ||
-          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('unregistered') || err.message.includes('service account is deleted')));
 
-        if (isQuotaOrAuthError) {
-          console.warn(`[Multi-Key Failover] Kunci #${keyIdx + 1} (${keyPreview}) limit/error (${err.message}). Beralih ke kunci berikutnya...`);
-          // Break model loop to immediately switch to next API Key in pool!
-          break;
+        // Jika user sengaja membatalkan via tombol stop chat, jangan coba kunci/model lain
+        if (err?.cancelled) {
+          throw err;
         }
 
-        console.warn(`[Model Failover] Model ${model} pada Kunci #${keyIdx + 1} sibuk (${err.message}). Mencoba model cadangan...`);
-        await new Promise(res => setTimeout(res, 250));
+        const isAuthError =
+          err.status === 401 ||
+          err.status === 403 ||
+          (err.status === 400 && (err.message?.includes('API_KEY') || err.message?.includes('key') || err.message?.includes('credentials')));
+
+        const isQuotaError =
+          err.status === 429 ||
+          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('rate limit')));
+
+        if (isAuthError) {
+          console.warn(`[Multi-Key Failover] Kunci #${keyIdx + 1} (${keyPreview}) tidak valid/terblokir (${err.message}). Mencoba kunci lain...`);
+          continue;
+        }
+
+        if (isQuotaError) {
+          console.warn(`[Quota Limit] Model ${model} pada Kunci #${keyIdx + 1} (${keyPreview}) terkena limit kuota/RPM. Mencoba kunci/model cadangan...`);
+          // Coba kunci berikutnya di pool untuk model ini
+          continue;
+        }
+
+        console.warn(`[Model Timeout/Busy] Model ${model} pada Kunci #${keyIdx + 1} sibuk (${err.message}). Melanjutkan failover...`);
+        await new Promise(res => setTimeout(res, 200));
       }
     }
+
+    console.warn(`[Auto-Model Fallback] Model ${model} tidak tersedia di seluruh kunci. Otomatis beralih ke model cadangan berikutnya...`);
   }
 
   throw new Error(
     lastError?.message ||
-    'Seluruh API Key di pool sedang dalam batas kuota / antrean padat. Coba beberapa saat lagi!'
+    'Seluruh model AI dan API Key di pool sedang dalam batas kuota / antrean padat. Silakan coba beberapa saat lagi!'
   );
 }
 
