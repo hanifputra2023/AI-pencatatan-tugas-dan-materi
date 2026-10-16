@@ -1,5 +1,5 @@
-// Gemini AI Client with Multi-Key Pool Load-Balancing, Multi-Model Fallback & Smart Failover
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Platform } from 'react-native';
 import { ChatAttachment } from '../types';
 
 let inMemoryApiKeys: string[] = [];
@@ -217,8 +217,10 @@ async function callSingleModelWithKey(
   systemPrompt: string,
   options?: SendMessageOptions
 ): Promise<GeminiCallResult> {
-  // 1. Coba SSE streaming jika diminta oleh pemanggil (misal ChatScreen onToken)
-  if (options?.onToken && !options?.isJsonMode) {
+  // 1. Coba SSE streaming HANYA di browser Web.
+  // Di native Android & iOS (React Native), XMLHttpRequest tidak mendukung SSE chunking
+  // dari OkHttp sehingga menyebabkan socket hang & timeout beruntun.
+  if (Platform.OS === 'web' && options?.onToken && !options?.isJsonMode) {
     try {
       return await streamSingleModelWithKey(apiKey, modelName, contents, systemPrompt, options);
     } catch (streamErr: any) {
@@ -226,9 +228,7 @@ async function callSingleModelWithKey(
       if (streamErr?.cancelled) {
         throw streamErr;
       }
-      // Jika streaming gagal di native mobile (masalah XHR chunking SSE pada Android OkHttp),
-      // jangan putus koneksi! Langsung fallback ke request HTTP POST standar (generateContent).
-      console.warn(`[Streaming Fallback] SSE streaming tidak stabil pada ${modelName} (${streamErr.message}). Beralih otomatis ke fetch standar...`);
+      console.warn(`[Streaming Fallback] SSE streaming web gagal pada ${modelName} (${streamErr.message}). Beralih otomatis ke fetch standar...`);
     }
   }
 
