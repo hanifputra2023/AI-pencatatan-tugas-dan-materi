@@ -163,7 +163,7 @@ export default function AdminScreen() {
     'gemini-1.5-flash': 'gemini-2.5-flash',
     'gemini-pro': 'gemini-3.8-flash',
   };
-  const rawModel = appSettings['ai_model'] || 'gemini-3.8-flash';
+  const rawModel = appSettings['ai_model'] || 'gemini-2.5-flash';
   const [aiModelSelected, setAiModelSelected] = useState(legacyModelMap[rawModel] || rawModel);
   const [aiTempSelected, setAiTempSelected] = useState(appSettings['ai_temp'] || '0.7');
   const [aiTopPSelected, setAiTopPSelected] = useState(appSettings['ai_top_p'] || '0.95');
@@ -3199,11 +3199,11 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <Text style={styles.inputLabel}>Versi AI Model:</Text>
                   <View style={styles.paramChipsRow}>
                     {[
-                      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash ⭐ NEW (Terpintar & Terbaru — Rekomendasi)' },
-                      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Cepat & Akurat)' },
-                      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Stable, Multimodal)' },
+                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash ⚡ (Paling Cepat & Stabil ~1.2s — Sangat Direkomendasikan)' },
+                      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Cepat & Pintar ~1.5s)' },
+                      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Generasi Terbaru, Penalaran Cerdas)' },
                       { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Ultra Cepat & Ringan)' },
-                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Proven & Stabil)' },
+                      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Stabil Multimodal)' },
                     ].map(m => (
                       <TouchableOpacity
                         key={m.id}

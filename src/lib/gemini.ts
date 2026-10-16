@@ -41,31 +41,29 @@ export const getGeminiApiKeysPool = (): string[] => {
 };
 
 export const ACTIVE_MODELS = [
-  'gemini-3.8-flash',          // Model utama terbaru & terpintar (Stable, sangat direkomendasikan)
-  'gemini-3-flash-preview',    // Generasi 3 Flash (Preview, cepat & akurat)
-  'gemini-3.6-flash',          // Flash generasi sebelumnya (Stable)
-  'gemini-3.5-flash-lite',     // Ultra-cepat & ringan (Stable)
-  'gemini-2.5-flash',          // Cadangan proven & stabil
+  'gemini-2.5-flash',          // Paling stabil & ultra cepat (~1.2 detik, sangat direkomendasikan untuk mobile)
+  'gemini-3-flash-preview',    // Generasi 3 Flash Preview (~1.5 detik, cepat & pintar)
+  'gemini-3.8-flash',          // Generasi 3.8 terbaru (Reasoning cerdas)
+  'gemini-3.5-flash-lite',     // Ringan & hemat kuota
+  'gemini-3.6-flash',          // Stabil
 ];
 
-let preferredModel = 'gemini-3.8-flash';
+let preferredModel = 'gemini-2.5-flash';
 
 // Load cached preferred model asynchronously from AsyncStorage
 AsyncStorage.getItem('@app_ai_model').then(val => {
   if (val && val.trim()) {
-    // Migrasi model lama yang sudah tidak ada ke model baru
+    // Migrasi model lama yang memang sudah tidak ada di Google API
     const legacyModels: Record<string, string> = {
-      'gemini-3-flash-preview': 'gemini-3.8-flash',   // sudah stable: pakai versi terbaru
-      'gemini-3.5-flash': 'gemini-3.6-flash',          // 3.5 tidak ada, pakai 3.6
-      'gemini-flash-latest': 'gemini-3.5-flash-lite',  // ganti ke lite terbaru
-      'gemini-2.0-flash': 'gemini-3.8-flash',          // upgrade ke generasi terbaru
+      'gemini-3.5-flash': 'gemini-3.6-flash',
+      'gemini-flash-latest': 'gemini-3.5-flash-lite',
+      'gemini-2.0-flash': 'gemini-2.5-flash',
       'gemini-2.0-flash-lite': 'gemini-3.5-flash-lite',
       'gemini-1.5-flash': 'gemini-2.5-flash',
-      'gemini-pro': 'gemini-3.8-flash',
+      'gemini-pro': 'gemini-2.5-flash',
     };
     const migrated = legacyModels[val.trim()] || val.trim();
     preferredModel = migrated;
-    // Simpan model hasil migrasi
     if (migrated !== val.trim()) {
       AsyncStorage.setItem('@app_ai_model', migrated).catch(() => {});
     }
@@ -90,7 +88,7 @@ export const testGeminiApiKey = async (
   const startTime = Date.now();
   let lastErr = '';
 
-  const targetFirst = (modelPreference || preferredModel || 'gemini-3.8-flash').trim();
+  const targetFirst = (modelPreference || preferredModel || 'gemini-2.5-flash').trim();
   const candidateModels = [
     targetFirst,
     ...ACTIVE_MODELS.filter(m => m !== targetFirst),
@@ -100,7 +98,7 @@ export const testGeminiApiKey = async (
     const model = candidateModels[i];
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 15000);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${testKey}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -219,9 +217,19 @@ async function callSingleModelWithKey(
   systemPrompt: string,
   options?: SendMessageOptions
 ): Promise<GeminiCallResult> {
-  // Use SSE streaming for progressive token delivery when a token callback is requested
+  // 1. Coba SSE streaming jika diminta oleh pemanggil (misal ChatScreen onToken)
   if (options?.onToken && !options?.isJsonMode) {
-    return streamSingleModelWithKey(apiKey, modelName, contents, systemPrompt, options);
+    try {
+      return await streamSingleModelWithKey(apiKey, modelName, contents, systemPrompt, options);
+    } catch (streamErr: any) {
+      // Jika pengguna menekan tombol stop/cancel di chat, teruskan pembatalan
+      if (streamErr?.cancelled) {
+        throw streamErr;
+      }
+      // Jika streaming gagal di native mobile (masalah XHR chunking SSE pada Android OkHttp),
+      // jangan putus koneksi! Langsung fallback ke request HTTP POST standar (generateContent).
+      console.warn(`[Streaming Fallback] SSE streaming tidak stabil pada ${modelName} (${streamErr.message}). Beralih otomatis ke fetch standar...`);
+    }
   }
 
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`;
@@ -265,7 +273,7 @@ async function callSingleModelWithKey(
   };
 
   // Thinking budget: explicitly set 0 for normal mode agar model tidak
-  // melakukan internal reasoning yang membuang ~10 detik. Mode Deep Think
+  // melakukan internal reasoning yang membuang waktu. Mode Deep Think
   // menggunakan budget terbatas (1024) — cukup untuk analisis mendalam
   // tanpa mengorbankan kecepatan respons secara berlebihan.
   if (!isJson) {
@@ -288,8 +296,9 @@ async function callSingleModelWithKey(
       }, { once: true });
     }
   }
-  // Fast fail: 6 detik untuk normal mode agar tidak menggantung lama, 20 detik untuk Deep Think
-  const timeoutMs = options?.deepThink ? 20000 : 6000;
+
+  // Safe timeout: 25 detik untuk normal mode agar AI di mobile punya cukup waktu menyusun respon, 50 detik untuk Deep Think
+  const timeoutMs = options?.deepThink ? 50000 : 25000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -312,14 +321,20 @@ async function callSingleModelWithKey(
     const data = await response.json();
     const candidate = data.candidates?.[0];
     // Filter bagian "thought" internal AI agar tidak bocor ke tampilan chat.
-    // Gemini 2.5+ mengembalikan array parts: part bertanda thought:true adalah
-    // monolog penalaran internal yang TIDAK boleh ditampilkan ke pengguna.
     const replyText = candidate?.content?.parts
       ?.filter((p: any) => !p.thought)
       ?.map((p: any) => p.text || '')
       ?.join('') || '';
     if (!replyText) {
       throw new Error('AI tidak memberikan respon teks.');
+    }
+
+    // Jika pemanggil meminta streaming (onToken) tapi jatuh ke fallback ini,
+    // segera kabari callback agar UI langsung mengupdate teks dan menghentikan loading indicator!
+    if (options?.onToken && replyText) {
+      try {
+        options.onToken(replyText);
+      } catch (tokenErr) {}
     }
 
     return { text: replyText, finishReason: candidate?.finishReason };
