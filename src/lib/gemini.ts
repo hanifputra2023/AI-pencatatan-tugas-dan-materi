@@ -41,17 +41,35 @@ export const getGeminiApiKeysPool = (): string[] => {
 };
 
 export const ACTIVE_MODELS = [
-  'gemini-3-flash-preview',   // Tercepat & paling stabil (~2-3s), akurasi tinggi & visi gambar
-  'gemini-2.5-flash',         // Model cadangan stabil utama (~3s), vision & dokumen
-  'gemini-3.5-flash',         // Cadangan generasi baru (~3s)
-  'gemini-flash-latest',      // Cadangan stabil umum
+  'gemini-3.8-flash',          // Model utama terbaru & terpintar (Stable, sangat direkomendasikan)
+  'gemini-3-flash-preview',    // Generasi 3 Flash (Preview, cepat & akurat)
+  'gemini-3.6-flash',          // Flash generasi sebelumnya (Stable)
+  'gemini-3.5-flash-lite',     // Ultra-cepat & ringan (Stable)
+  'gemini-2.5-flash',          // Cadangan proven & stabil
 ];
 
-let preferredModel = 'gemini-3-flash-preview';
+let preferredModel = 'gemini-3.8-flash';
 
 // Load cached preferred model asynchronously from AsyncStorage
 AsyncStorage.getItem('@app_ai_model').then(val => {
-  if (val && val.trim()) preferredModel = val.trim();
+  if (val && val.trim()) {
+    // Migrasi model lama yang sudah tidak ada ke model baru
+    const legacyModels: Record<string, string> = {
+      'gemini-3-flash-preview': 'gemini-3.8-flash',   // sudah stable: pakai versi terbaru
+      'gemini-3.5-flash': 'gemini-3.6-flash',          // 3.5 tidak ada, pakai 3.6
+      'gemini-flash-latest': 'gemini-3.5-flash-lite',  // ganti ke lite terbaru
+      'gemini-2.0-flash': 'gemini-3.8-flash',          // upgrade ke generasi terbaru
+      'gemini-2.0-flash-lite': 'gemini-3.5-flash-lite',
+      'gemini-1.5-flash': 'gemini-2.5-flash',
+      'gemini-pro': 'gemini-3.8-flash',
+    };
+    const migrated = legacyModels[val.trim()] || val.trim();
+    preferredModel = migrated;
+    // Simpan model hasil migrasi
+    if (migrated !== val.trim()) {
+      AsyncStorage.setItem('@app_ai_model', migrated).catch(() => {});
+    }
+  }
 });
 
 export const setPreferredModel = (model: string) => {
@@ -72,7 +90,7 @@ export const testGeminiApiKey = async (
   const startTime = Date.now();
   let lastErr = '';
 
-  const targetFirst = (modelPreference || preferredModel || 'gemini-3-flash-preview').trim();
+  const targetFirst = (modelPreference || preferredModel || 'gemini-3.8-flash').trim();
   const candidateModels = [
     targetFirst,
     ...ACTIVE_MODELS.filter(m => m !== targetFirst),
@@ -270,8 +288,8 @@ async function callSingleModelWithKey(
       }, { once: true });
     }
   }
-  // Fast fail: 8 detik untuk normal mode agar tidak menggantung lama, 25 detik untuk Deep Think
-  const timeoutMs = options?.deepThink ? 25000 : 8000;
+  // Fast fail: 6 detik untuk normal mode agar tidak menggantung lama, 20 detik untuk Deep Think
+  const timeoutMs = options?.deepThink ? 20000 : 6000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -818,7 +836,7 @@ export async function sendMessageToGemini(
 
   // Daftar model yang akan dicoba secara berurutan:
   // Mulai dari model pilihan aktif, lalu otomatis fallback ke model generasi baru / stabil
-  const activePreferred = (options?.model || preferredModel || 'gemini-3-flash-preview').trim();
+  const activePreferred = (options?.model || preferredModel || 'gemini-3.8-flash').trim();
   const modelsToTry = [
     activePreferred,
     ...ACTIVE_MODELS.filter(m => m !== activePreferred),

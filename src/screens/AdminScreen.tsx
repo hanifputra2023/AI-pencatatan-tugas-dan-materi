@@ -154,7 +154,17 @@ export default function AdminScreen() {
   // AI Configuration State
   const [botNameInput, setBotNameInput] = useState(aiBotName || 'Ara');
   const [promptText, setPromptText] = useState(aiPersona || PRESET_PERSONAS[0].prompt);
-  const [aiModelSelected, setAiModelSelected] = useState(appSettings['ai_model'] || 'gemini-3-flash-preview');
+  const legacyModelMap: Record<string, string> = {
+    'gemini-3-flash-preview': 'gemini-3.8-flash',
+    'gemini-3.5-flash': 'gemini-3.6-flash',
+    'gemini-flash-latest': 'gemini-3.5-flash-lite',
+    'gemini-2.0-flash': 'gemini-3.8-flash',
+    'gemini-2.0-flash-lite': 'gemini-3.5-flash-lite',
+    'gemini-1.5-flash': 'gemini-2.5-flash',
+    'gemini-pro': 'gemini-3.8-flash',
+  };
+  const rawModel = appSettings['ai_model'] || 'gemini-3.8-flash';
+  const [aiModelSelected, setAiModelSelected] = useState(legacyModelMap[rawModel] || rawModel);
   const [aiTempSelected, setAiTempSelected] = useState(appSettings['ai_temp'] || '0.7');
   const [aiTopPSelected, setAiTopPSelected] = useState(appSettings['ai_top_p'] || '0.95');
   const [factualTempSelected, setFactualTempSelected] = useState(appSettings['factual_temp'] || '0.1');
@@ -3189,10 +3199,11 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <Text style={styles.inputLabel}>Versi AI Model:</Text>
                   <View style={styles.paramChipsRow}>
                     {[
-                      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Super Cepat ~2s, Akurat, Vision & Gambar ⭐ Rekomendasi)' },
-                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Sangat Stabil, Vision & Dokumen ~3s)' },
-                      { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Generasi Baru)' },
-                      { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Cadangan Stabil Google)' },
+                      { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash ⭐ NEW (Terpintar & Terbaru — Rekomendasi)' },
+                      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Cepat & Akurat)' },
+                      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Stable, Multimodal)' },
+                      { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Ultra Cepat & Ringan)' },
+                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Proven & Stabil)' },
                     ].map(m => (
                       <TouchableOpacity
                         key={m.id}

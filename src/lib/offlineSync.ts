@@ -35,20 +35,15 @@ export interface CachedDashboardData {
  * Check if the device currently has active internet connectivity
  */
 export async function isDeviceOnline(): Promise<boolean> {
-  if (Platform.OS === 'web' && typeof window !== 'undefined') {
-    if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
-      if (!navigator.onLine) return false;
-      // Browser already tracks live connectivity - trust it and skip the ping so
-      // messages are not delayed by an unnecessary round-trip before each AI call.
-      return true;
-    }
+  // 1. Cek navigator.onLine dulu untuk fast-fail saat offline
+  if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
+    if (!navigator.onLine) return false;
   }
 
-  // Quick light ping to verify real connectivity (short timeout so a slow/blocked
-  // endpoint can't silently postpone the AI request by several seconds).
+  // 2. Quick ping untuk verifikasi koneksi nyata (timeout singkat agar tidak memblokir)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 1500);
+    const timeoutId = setTimeout(() => controller.abort(), 2000);
     await fetch('https://www.google.com/generate_204', {
       method: 'HEAD',
       signal: controller.signal,
@@ -58,15 +53,17 @@ export async function isDeviceOnline(): Promise<boolean> {
     clearTimeout(timeoutId);
     return true;
   } catch (e) {
-    if (Platform.OS === 'web' && typeof navigator !== 'undefined') {
-      return navigator.onLine ?? false;
+    // Jika ping gagal tapi navigator.onLine = true, percayai browser
+    if (typeof navigator !== 'undefined' && navigator.onLine) {
+      return true;
     }
     return false;
   }
 }
 
 /**
- * Subscribe to online/offline network changes
+ * Subscribe to online/offline network changes.
+ * Langsung emit status awal agar UI tidak menunggu event perubahan.
  */
 export function subscribeNetworkStatus(callback: (isOnline: boolean) => void): () => void {
   if (Platform.OS === 'web' && typeof window !== 'undefined') {
@@ -76,19 +73,31 @@ export function subscribeNetworkStatus(callback: (isOnline: boolean) => void): (
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
+    // Emit status awal segera agar UI langsung sinkron
+    const initialOnline = typeof navigator !== 'undefined' ? (navigator.onLine ?? true) : true;
+    // Gunakan setTimeout(0) agar tidak memblokir render awal
+    setTimeout(() => callback(initialOnline), 0);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
   }
 
-  // Fallback for mobile
-  let intervalId = setInterval(async () => {
-    const online = await isDeviceOnline();
-    callback(online);
-  }, 10000);
+  // Fallback untuk mobile: cek status awal lalu polling setiap 15 detik
+  let cancelled = false;
+  isDeviceOnline().then(online => { if (!cancelled) callback(online); });
+  const intervalId = setInterval(async () => {
+    if (!cancelled) {
+      const online = await isDeviceOnline();
+      callback(online);
+    }
+  }, 15000);
 
-  return () => clearInterval(intervalId);
+  return () => {
+    cancelled = true;
+    clearInterval(intervalId);
+  };
 }
 
 /**
