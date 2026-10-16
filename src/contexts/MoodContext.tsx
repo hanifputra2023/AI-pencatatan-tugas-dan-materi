@@ -96,13 +96,18 @@ export function MoodProvider({ children }: { children: React.ReactNode }) {
   const fetchMoodsAndSettings = useCallback(async () => {
     try {
       // 1. Check local storage cache for instant offline responsiveness
-      const [cachedKeys, cachedLogo, cachedName, cachedTagline, cachedCustomAi] = await Promise.all([
+      const [cachedKeys, cachedLogo, cachedName, cachedTagline, cachedCustomAi, cachedAiModel] = await Promise.all([
         AsyncStorage.getItem('@gemini_api_keys'),
         AsyncStorage.getItem('@app_logo_url'),
         AsyncStorage.getItem('@app_brand_name'),
         AsyncStorage.getItem('@app_brand_tagline'),
         AsyncStorage.getItem('@user_custom_ai_profile'),
+        AsyncStorage.getItem('@app_ai_model'),
       ]);
+
+      if (cachedAiModel) {
+        setPreferredModel(cachedAiModel);
+      }
 
       if (cachedCustomAi) {
         try {

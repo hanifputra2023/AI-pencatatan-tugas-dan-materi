@@ -10,12 +10,14 @@ import {
   Platform,
   SafeAreaView,
   ActivityIndicator,
+  Image,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as Speech from 'expo-speech';
 import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { useTheme } from '../contexts/ThemeContext';
+import { useMoods } from '../contexts/MoodContext';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
 import { ChatMessage } from '../types';
 
@@ -23,6 +25,7 @@ interface GeminiLiveVoiceModalProps {
   visible: boolean;
   onClose: () => void;
   botName: string;
+  botAvatar?: string | null;
   personaPrompt?: string;
   existingMessages?: ChatMessage[];
   onNewMessagePair?: (userText: string, aiText: string) => void;
@@ -84,12 +87,18 @@ export default function GeminiLiveVoiceModal({
   visible,
   onClose,
   botName,
+  botAvatar,
   personaPrompt,
   existingMessages = [],
   onNewMessagePair,
 }: GeminiLiveVoiceModalProps) {
-  // Theme Context
+  // Theme & Mood Context
   const { theme, isLightMode } = useTheme();
+  const { customAiAvatar, customAiName } = useMoods();
+
+  // Avatar and Display Name Resolution
+  const effectiveAvatar = botAvatar || customAiAvatar || null;
+  const effectiveBotDisplayName = botName || customAiName || 'Ara';
 
   // State
   const [liveState, setLiveState] = useState<LiveState>('idle');
@@ -99,13 +108,39 @@ export default function GeminiLiveVoiceModal({
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  const [callDuration, setCallDuration] = useState<number>(0);
 
-  // Gemini Live Aurora Wave Animations (4 Dynamic Bars)
+  // Call duration counter
+  useEffect(() => {
+    let timer: any = null;
+    if (visible) {
+      setCallDuration(0);
+      timer = setInterval(() => {
+        setCallDuration((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timer) clearInterval(timer);
+    };
+  }, [visible]);
+
+  const formatDuration = (seconds: number) => {
+    const m = Math.floor(seconds / 60).toString().padStart(2, '0');
+    const s = (seconds % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
+
+  // Gemini Live Aurora Wave Animations (5 Dynamic Bars & Soundwave Ripples)
   const bar1 = useRef(new Animated.Value(0.3)).current;
   const bar2 = useRef(new Animated.Value(0.7)).current;
   const bar3 = useRef(new Animated.Value(0.5)).current;
   const bar4 = useRef(new Animated.Value(0.8)).current;
+  const bar5 = useRef(new Animated.Value(0.4)).current;
   const auraScale = useRef(new Animated.Value(1)).current;
+  const ringScale1 = useRef(new Animated.Value(1)).current;
+  const ringOpacity1 = useRef(new Animated.Value(0)).current;
+  const ringScale2 = useRef(new Animated.Value(1)).current;
+  const ringOpacity2 = useRef(new Animated.Value(0)).current;
 
   // Lifecycle & Voice Recording Refs
   const recognitionRef = useRef<any>(null);
@@ -318,7 +353,7 @@ export default function GeminiLiveVoiceModal({
   }, []);
 
   // -------------------------------------------------------------
-  // AURORA WAVE VISUALIZER ANIMATIONS
+  // AURORA WAVE & SONAR RIPPLE VISUALIZER ANIMATIONS
   // -------------------------------------------------------------
   useEffect(() => {
     let animLoop: Animated.CompositeAnimation | null = null;
@@ -338,10 +373,11 @@ export default function GeminiLiveVoiceModal({
         createBar(bar2, 0.4, 1.25, 340),
         createBar(bar3, 0.3, 1.15, 290),
         createBar(bar4, 0.25, 0.95, 380),
+        createBar(bar5, 0.35, 1.1, 310),
         Animated.loop(
           Animated.sequence([
-            Animated.timing(auraScale, { toValue: 1.3, duration: 600, useNativeDriver: true }),
-            Animated.timing(auraScale, { toValue: 1.0, duration: 600, useNativeDriver: true }),
+            Animated.timing(auraScale, { toValue: 1.25, duration: 600, useNativeDriver: false }),
+            Animated.timing(auraScale, { toValue: 1.0, duration: 600, useNativeDriver: false }),
           ])
         ),
       ]);
@@ -360,6 +396,7 @@ export default function GeminiLiveVoiceModal({
         createBar(bar2, 400),
         createBar(bar3, 450),
         createBar(bar4, 550),
+        createBar(bar5, 420),
       ]);
     } else if (liveState === 'listening') {
       const createBar = (val: Animated.Value, min: number, max: number, duration: number) => {
@@ -376,10 +413,11 @@ export default function GeminiLiveVoiceModal({
         createBar(bar2, 0.35, 0.75, 800),
         createBar(bar3, 0.3, 0.65, 850),
         createBar(bar4, 0.2, 0.5, 950),
+        createBar(bar5, 0.3, 0.6, 880),
         Animated.loop(
           Animated.sequence([
-            Animated.timing(auraScale, { toValue: 1.15, duration: 1200, useNativeDriver: true }),
-            Animated.timing(auraScale, { toValue: 0.95, duration: 1200, useNativeDriver: true }),
+            Animated.timing(auraScale, { toValue: 1.12, duration: 1200, useNativeDriver: false }),
+            Animated.timing(auraScale, { toValue: 0.96, duration: 1200, useNativeDriver: false }),
           ])
         ),
       ]);
@@ -388,6 +426,7 @@ export default function GeminiLiveVoiceModal({
       bar2.setValue(0.15);
       bar3.setValue(0.15);
       bar4.setValue(0.15);
+      bar5.setValue(0.15);
     }
 
     if (animLoop) animLoop.start();
@@ -395,7 +434,53 @@ export default function GeminiLiveVoiceModal({
     return () => {
       if (animLoop) animLoop.stop();
     };
-  }, [liveState, bar1, bar2, bar3, bar4, auraScale]);
+  }, [liveState, bar1, bar2, bar3, bar4, bar5, auraScale]);
+
+  // Sonar Ripple Rings Animation Effect for the Central Avatar
+  useEffect(() => {
+    let rippleLoop: Animated.CompositeAnimation | null = null;
+    if (liveState === 'speaking' || liveState === 'listening') {
+      ringOpacity1.setValue(0.7);
+      ringOpacity2.setValue(0.5);
+      ringScale1.setValue(1);
+      ringScale2.setValue(1);
+
+      rippleLoop = Animated.loop(
+        Animated.parallel([
+          Animated.sequence([
+            Animated.parallel([
+              Animated.timing(ringScale1, { toValue: 1.45, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: false }),
+              Animated.timing(ringOpacity1, { toValue: 0, duration: 1800, useNativeDriver: false }),
+            ]),
+            Animated.parallel([
+              Animated.timing(ringScale1, { toValue: 1, duration: 0, useNativeDriver: false }),
+              Animated.timing(ringOpacity1, { toValue: 0.7, duration: 0, useNativeDriver: false }),
+            ]),
+          ]),
+          Animated.sequence([
+            Animated.delay(700),
+            Animated.parallel([
+              Animated.timing(ringScale2, { toValue: 1.55, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: false }),
+              Animated.timing(ringOpacity2, { toValue: 0, duration: 1800, useNativeDriver: false }),
+            ]),
+            Animated.parallel([
+              Animated.timing(ringScale2, { toValue: 1, duration: 0, useNativeDriver: false }),
+              Animated.timing(ringOpacity2, { toValue: 0.5, duration: 0, useNativeDriver: false }),
+            ]),
+          ]),
+        ])
+      );
+      rippleLoop.start();
+    } else {
+      ringOpacity1.setValue(0);
+      ringOpacity2.setValue(0);
+      ringScale1.setValue(1);
+      ringScale2.setValue(1);
+    }
+    return () => {
+      if (rippleLoop) rippleLoop.stop();
+    };
+  }, [liveState, ringScale1, ringOpacity1, ringScale2, ringOpacity2]);
 
   // -------------------------------------------------------------
   // SPEECH RECOGNITION (Multi-Turn Voice Listener)
@@ -900,6 +985,51 @@ export default function GeminiLiveVoiceModal({
     onClose();
   };
 
+  const getAuraGlowColor = () => {
+    switch (liveState) {
+      case 'speaking':
+        return isLightMode ? 'rgba(56, 189, 248, 0.45)' : 'rgba(56, 189, 248, 0.65)';
+      case 'listening':
+        return isLightMode ? 'rgba(16, 185, 129, 0.45)' : 'rgba(16, 185, 129, 0.65)';
+      case 'thinking':
+        return isLightMode ? 'rgba(168, 85, 247, 0.45)' : 'rgba(168, 85, 247, 0.65)';
+      case 'muted':
+        return isLightMode ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.55)';
+      default:
+        return isLightMode ? 'rgba(66, 133, 244, 0.25)' : 'rgba(56, 189, 248, 0.35)';
+    }
+  };
+
+  const getAuraBorderColor = () => {
+    switch (liveState) {
+      case 'speaking':
+        return '#38BDF8';
+      case 'listening':
+        return '#10B981';
+      case 'thinking':
+        return '#A855F7';
+      case 'muted':
+        return '#EF4444';
+      default:
+        return isLightMode ? '#93C5FD' : '#38BDF8';
+    }
+  };
+
+  const getStatusDotColor = () => {
+    switch (liveState) {
+      case 'speaking':
+        return '#38BDF8';
+      case 'listening':
+        return '#10B981';
+      case 'thinking':
+        return '#A855F7';
+      case 'muted':
+        return '#EF4444';
+      default:
+        return '#94A3B8';
+    }
+  };
+
   const getStatusText = () => {
     if (permissionState === 'checking' || isRequestingPermission) {
       return 'Memeriksa izin mikrofon...';
@@ -912,44 +1042,115 @@ export default function GeminiLiveVoiceModal({
       case 'listening':
         return 'Mendengarkan suaramu...';
       case 'thinking':
-        return 'Menghubungkan pikiran...';
+        return `${effectiveBotDisplayName} sedang berpikir...`;
       case 'speaking':
-        return `${botName} sedang bicara`;
+        return `${effectiveBotDisplayName} sedang bicara`;
       case 'muted':
         return 'Mikrofon dijeda (ketuk untuk bicara)';
       default:
-        return 'Ketuk untuk bicara';
+        return 'Ketuk avatar untuk bicara';
     }
   };
 
   return (
     <Modal visible={visible} transparent animationType="fade" onRequestClose={handleClose}>
-      <SafeAreaView style={[styles.container, { backgroundColor: isLightMode ? '#F8FAFC' : theme.bg }]}>
-        {/* Top Minimalist Header */}
+      <SafeAreaView
+        style={[
+          styles.container,
+          {
+            backgroundColor: isLightMode ? '#F1F5F9' : '#070A12',
+          },
+        ]}
+      >
+        {/* ========================================================================= */}
+        {/* TOP HEADER: Bot Character Identity + Live Call Badge + Close Button */}
+        {/* ========================================================================= */}
         <View style={styles.header}>
           <View style={styles.brandRow}>
-            <View style={[styles.geminiSparkleIcon, { backgroundColor: isLightMode ? theme.accentBg : (theme.accentBg || 'rgba(66, 133, 244, 0.15)') }]}>
-              <Ionicons name="sparkles" size={14} color={isLightMode ? theme.primary : (theme.accentLight || '#4285F4')} />
+            {/* Header Avatar Thumbnail */}
+            <View style={[styles.headerAvatarWrap, { borderColor: getAuraBorderColor() }]}>
+              {effectiveAvatar ? (
+                <Image source={{ uri: effectiveAvatar }} style={styles.headerAvatarImg} resizeMode="cover" />
+              ) : (
+                <View style={[styles.headerAvatarFallback, { backgroundColor: isLightMode ? theme.accentBg : '#1E293B' }]}>
+                  <Ionicons name="sparkles" size={15} color={isLightMode ? theme.primary : '#38BDF8'} />
+                </View>
+              )}
+              {/* Online Green Pulsing Indicator */}
+              <View style={[styles.headerStatusDot, { backgroundColor: getStatusDotColor() }]} />
             </View>
-            <Text style={[styles.botTitle, { color: theme.text }]}>{botName}</Text>
+
+            <View style={{ gap: 2 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                <Text style={[styles.botTitle, { color: theme.text }]}>{effectiveBotDisplayName}</Text>
+                <View
+                  style={[
+                    styles.activeLivePill,
+                    {
+                      backgroundColor:
+                        liveState === 'speaking'
+                          ? (isLightMode ? '#E0F2FE' : 'rgba(56, 189, 248, 0.18)')
+                          : liveState === 'listening'
+                          ? (isLightMode ? '#DCFCE7' : 'rgba(16, 185, 129, 0.18)')
+                          : (isLightMode ? '#EDE9FE' : 'rgba(168, 85, 247, 0.18)'),
+                      borderColor:
+                        liveState === 'speaking'
+                          ? '#38BDF8'
+                          : liveState === 'listening'
+                          ? '#10B981'
+                          : '#A855F7',
+                    },
+                  ]}
+                >
+                  <View style={[styles.pulsingLiveDot, { backgroundColor: getStatusDotColor() }]} />
+                  <Text
+                    style={[
+                      styles.activeLivePillText,
+                      {
+                        color:
+                          liveState === 'speaking'
+                            ? (isLightMode ? '#0284C7' : '#38BDF8')
+                            : liveState === 'listening'
+                            ? (isLightMode ? '#15803D' : '#4ADE80')
+                            : (isLightMode ? '#7C3AED' : '#C084FC'),
+                      },
+                    ]}
+                  >
+                    GEMINI LIVE
+                  </Text>
+                </View>
+              </View>
+
+              <Text style={[styles.callTimerText, { color: theme.subtext }]}>
+                {formatDuration(callDuration)} • Suara Audio HD
+              </Text>
+            </View>
           </View>
 
+          {/* Close / Hangup Button */}
           <TouchableOpacity
             onPress={handleClose}
-            style={[styles.closeBtn, { backgroundColor: theme.cardInner, borderColor: theme.border, borderWidth: 1 }]}
+            style={[
+              styles.closeBtn,
+              {
+                backgroundColor: isLightMode ? theme.card : 'rgba(255, 255, 255, 0.08)',
+                borderColor: theme.border,
+              },
+            ]}
             activeOpacity={0.7}
+            accessibilityLabel="Tutup Panggilan Live"
           >
-            <Ionicons name="close" size={20} color={theme.subtext} />
+            <Ionicons name="close" size={20} color={theme.text} />
           </TouchableOpacity>
         </View>
 
         {/* ========================================================================= */}
-        {/* PERMISSION REQUIRED SCREEN OR MAIN LIVE AURORA VIEW */}
+        {/* PERMISSION REQUIRED SCREEN OR MAIN LIVE VISUALIZER & CONVERSATION */}
         {/* ========================================================================= */}
         {permissionState === 'denied' || permissionState === 'unsupported' ? (
           <View style={styles.permissionCard}>
             <View style={[styles.permissionIconCircle, { backgroundColor: isLightMode ? '#FEE2E2' : 'rgba(239, 68, 68, 0.15)' }]}>
-              <Ionicons name="mic-off" size={36} color="#EF4444" />
+              <Ionicons name="mic-off" size={40} color="#EF4444" />
             </View>
 
             <Text style={[styles.permissionTitle, { color: theme.text }]}>
@@ -963,9 +1164,10 @@ export default function GeminiLiveVoiceModal({
 
             {Platform.OS === 'web' && (
               <View style={[styles.permissionHelpBox, { backgroundColor: isLightMode ? '#F1F5F9' : '#131823', borderColor: theme.border }]}>
-                <Ionicons name="information-circle-outline" size={18} color={theme.primary} />
+                <Ionicons name="information-circle-outline" size={20} color={theme.primary} />
                 <Text style={[styles.permissionHelpText, { color: theme.subtext }]}>
-                  Di browser, klik ikon gembok 🔒 di sebelah kiri URL address bar lalu aktifkan pilihan <Text style={{ fontWeight: '700', color: theme.text }}>Mikrofon</Text>.
+                  Di browser, klik ikon gembok 🔒 di bilah URL address bar lalu aktifkan pilihan{' '}
+                  <Text style={{ fontWeight: '700', color: theme.text }}>Mikrofon</Text>.
                 </Text>
               </View>
             )}
@@ -996,180 +1198,325 @@ export default function GeminiLiveVoiceModal({
           </View>
         ) : (
           <>
-            {/* Central Gemini Live Aurora Fluid Wave Visualizer */}
-            <View style={styles.visualizerContainer}>
-              {/* Ambient Glow Aura */}
-              <Animated.View
+            {/* ======================================================================= */}
+            {/* CENTRAL AI CHARACTER HERO STAGE: Glowing Aura + Sonar Rings + Avatar */}
+            {/* ======================================================================= */}
+            <View style={styles.heroCenterStage}>
+              {/* Concentric Orb Wrapper: Locks aura & ripple rings directly around the avatar */}
+              <View style={styles.avatarOrbWrapper}>
+                {/* Layer 1: Ambient Glowing Atmosphere Aura */}
+                <Animated.View
+                  style={[
+                    styles.ambientAuraGlow,
+                    {
+                      transform: [{ scale: auraScale }],
+                      backgroundColor: getAuraGlowColor(),
+                      opacity:
+                        liveState === 'speaking'
+                          ? isLightMode ? 0.45 : 0.7
+                          : liveState === 'listening'
+                          ? isLightMode ? 0.35 : 0.55
+                          : liveState === 'thinking'
+                          ? isLightMode ? 0.35 : 0.55
+                          : isLightMode ? 0.15 : 0.25,
+                    },
+                  ]}
+                />
+
+                {/* Layer 2: Sonar Ripple Ring 1 */}
+                <Animated.View
+                  style={[
+                    styles.sonarRippleRing,
+                    {
+                      borderColor: getAuraBorderColor(),
+                      transform: [{ scale: ringScale1 }],
+                      opacity: ringOpacity1,
+                    },
+                  ]}
+                />
+
+                {/* Layer 3: Sonar Ripple Ring 2 */}
+                <Animated.View
+                  style={[
+                    styles.sonarRippleRing,
+                    {
+                      borderColor: getAuraBorderColor(),
+                      transform: [{ scale: ringScale2 }],
+                      opacity: ringOpacity2,
+                    },
+                  ]}
+                />
+
+                {/* Layer 4: Interactive Character Avatar Orb */}
+                <TouchableOpacity
+                  style={styles.avatarTouchArea}
+                  activeOpacity={0.9}
+                  onPress={handleManualTapToTalk}
+                  accessibilityLabel="Ketuk karakter AI untuk berinteraksi"
+                >
+                  <View
+                    style={[
+                      styles.characterAvatarFrame,
+                      {
+                        borderColor: getAuraBorderColor(),
+                        shadowColor: getAuraBorderColor(),
+                        backgroundColor: isLightMode ? '#FFFFFF' : '#0B0F19',
+                      },
+                    ]}
+                  >
+                    <View style={styles.avatarImageClipper}>
+                      {effectiveAvatar ? (
+                        <Image
+                          source={{ uri: effectiveAvatar }}
+                          style={styles.characterAvatarImage}
+                          resizeMode="cover"
+                        />
+                      ) : (
+                        <View
+                          style={[
+                            styles.characterAvatarFallback,
+                            {
+                              backgroundColor: isLightMode ? theme.accentBg : '#162032',
+                            },
+                          ]}
+                        >
+                          <Ionicons
+                            name="sparkles"
+                            size={56}
+                            color={isLightMode ? theme.primary : '#38BDF8'}
+                          />
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Corner Mini Badge: Live Audio Activity Indicator */}
+                    <View
+                      style={[
+                        styles.avatarCornerBadge,
+                        {
+                          backgroundColor: getStatusDotColor(),
+                          borderColor: isLightMode ? '#FFFFFF' : '#070A12',
+                        },
+                      ]}
+                    >
+                      <Ionicons
+                        name={
+                          liveState === 'speaking'
+                            ? 'volume-high'
+                            : liveState === 'listening'
+                            ? 'mic'
+                            : liveState === 'thinking'
+                            ? 'flash'
+                            : liveState === 'muted'
+                            ? 'mic-off'
+                            : 'radio'
+                        }
+                        size={14}
+                        color="#FFFFFF"
+                      />
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
+              {/* Layer 5: Dynamic 5-Bar Fluid Equalizer Visualizer */}
+              <View style={styles.equalizerBarsRow}>
+                <Animated.View
+                  style={[
+                    styles.equalizerBar,
+                    {
+                      backgroundColor: '#38BDF8',
+                      shadowColor: '#38BDF8',
+                      height: bar1.interpolate({ inputRange: [0, 1.5], outputRange: [10, 40] }),
+                    },
+                  ]}
+                />
+                <Animated.View
+                  style={[
+                    styles.equalizerBar,
+                    {
+                      backgroundColor: '#818CF8',
+                      shadowColor: '#818CF8',
+                      height: bar2.interpolate({ inputRange: [0, 1.5], outputRange: [14, 52] }),
+                    },
+                  ]}
+                />
+                <Animated.View
+                  style={[
+                    styles.equalizerBar,
+                    {
+                      backgroundColor: '#C084FC',
+                      shadowColor: '#C084FC',
+                      height: bar3.interpolate({ inputRange: [0, 1.5], outputRange: [18, 62] }),
+                    },
+                  ]}
+                />
+                <Animated.View
+                  style={[
+                    styles.equalizerBar,
+                    {
+                      backgroundColor: '#F472B6',
+                      shadowColor: '#F472B6',
+                      height: bar4.interpolate({ inputRange: [0, 1.5], outputRange: [14, 50] }),
+                    },
+                  ]}
+                />
+                <Animated.View
+                  style={[
+                    styles.equalizerBar,
+                    {
+                      backgroundColor: '#38BDF8',
+                      shadowColor: '#38BDF8',
+                      height: bar5.interpolate({ inputRange: [0, 1.5], outputRange: [10, 36] }),
+                    },
+                  ]}
+                />
+              </View>
+
+              {/* Status Capsule Indicator */}
+              <View
                 style={[
-                  styles.ambientAura,
+                  styles.statusCapsule,
                   {
-                    transform: [{ scale: auraScale }],
-                    opacity:
-                      liveState === 'speaking'
-                        ? isLightMode ? 0.45 : 0.7
-                        : liveState === 'listening'
-                          ? isLightMode ? 0.3 : 0.4
-                          : isLightMode ? 0.15 : 0.2,
-                    backgroundColor:
-                      liveState === 'speaking'
-                        ? theme.accentLight || '#38BDF8'
-                        : liveState === 'thinking'
-                          ? '#A855F7'
-                          : liveState === 'muted'
-                            ? '#F59E0B'
-                            : theme.primary || '#00E5FF',
+                    backgroundColor: isLightMode ? 'rgba(255, 255, 255, 0.9)' : 'rgba(255, 255, 255, 0.08)',
+                    borderColor: isLightMode ? '#E2E8F0' : 'rgba(255, 255, 255, 0.12)',
                   },
                 ]}
-              />
-
-              {/* Gemini Live Fluid Soundwave Aurora Bars */}
-              <TouchableOpacity
-                style={styles.waveTouchable}
-                activeOpacity={0.85}
-                onPress={handleManualTapToTalk}
               >
-                <View style={styles.auroraBarsRow}>
-                  {/* Bar 1: Primary Accent */}
-                  <Animated.View
-                    style={[
-                      styles.auroraBar,
-                      {
-                        backgroundColor: theme.primary || '#4285F4',
-                        shadowColor: theme.primary || '#4285F4',
-                        height: bar1.interpolate({ inputRange: [0, 1.5], outputRange: [18, 120] }),
-                      },
-                    ]}
-                  />
-                  {/* Bar 2: Cyan / Light Accent */}
-                  <Animated.View
-                    style={[
-                      styles.auroraBar,
-                      {
-                        backgroundColor: theme.accentLight || '#00E5FF',
-                        shadowColor: theme.accentLight || '#00E5FF',
-                        height: bar2.interpolate({ inputRange: [0, 1.5], outputRange: [24, 150] }),
-                      },
-                    ]}
-                  />
-                  {/* Bar 3: Gemini Purple */}
-                  <Animated.View
-                    style={[
-                      styles.auroraBar,
-                      {
-                        backgroundColor: '#A855F7',
-                        shadowColor: '#A855F7',
-                        height: bar3.interpolate({ inputRange: [0, 1.5], outputRange: [20, 135] }),
-                      },
-                    ]}
-                  />
-                  {/* Bar 4: Gemini Coral Pink */}
-                  <Animated.View
-                    style={[
-                      styles.auroraBar,
-                      {
-                        backgroundColor: '#FF5252',
-                        shadowColor: '#FF5252',
-                        height: bar4.interpolate({ inputRange: [0, 1.5], outputRange: [16, 110] }),
-                      },
-                    ]}
-                  />
-                </View>
-              </TouchableOpacity>
+                <View style={[styles.statusCapsuleDot, { backgroundColor: getStatusDotColor() }]} />
+                <Text style={[styles.statusCapsuleText, { color: theme.text }]}>
+                  {getStatusText()}
+                </Text>
+              </View>
 
-              {/* Status Label */}
-              <Text style={[styles.statusIndicatorText, { color: theme.subtext }]}>{getStatusText()}</Text>
-
+              {/* Tap to Interrupt Pill Button (Appears when AI is speaking) */}
               {liveState === 'speaking' && (
                 <TouchableOpacity
                   style={[
                     styles.interruptPill,
                     {
-                      backgroundColor: isLightMode ? theme.card : 'rgba(255, 255, 255, 0.08)',
-                      borderColor: theme.border,
-                      borderWidth: 1,
+                      backgroundColor: isLightMode ? '#FEE2E2' : 'rgba(239, 68, 68, 0.18)',
+                      borderColor: isLightMode ? '#FECACA' : 'rgba(239, 68, 68, 0.4)',
                     },
                   ]}
                   onPress={handleInterruptAi}
                   activeOpacity={0.7}
                 >
-                  <Ionicons name="pause" size={11} color={theme.subtext} />
-                  <Text style={[styles.interruptPillText, { color: theme.subtext }]}>Ketuk untuk menyela</Text>
+                  <Ionicons name="pause" size={12} color="#EF4444" />
+                  <Text style={[styles.interruptPillText, { color: isLightMode ? '#DC2626' : '#FCA5A5' }]}>
+                    Ketuk untuk menyela
+                  </Text>
                 </TouchableOpacity>
               )}
             </View>
 
-            {/* Floating Minimalist Captions */}
-            <View style={styles.captionsContainer}>
+            {/* ======================================================================= */}
+            {/* FLOATING LIVE DIALOGUE CARD (Speech Subtitles with Speaker Badges) */}
+            {/* ======================================================================= */}
+            <View
+              style={[
+                styles.liveDialogueCard,
+                {
+                  backgroundColor: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.85)',
+                  borderColor: isLightMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(255, 255, 255, 0.12)',
+                },
+              ]}
+            >
               {userTranscript ? (
-                <Text
-                  style={[
-                    styles.userCaptionText,
-                    { color: isLightMode ? theme.primary : (theme.accentLight || '#38BDF8') },
-                  ]}
-                  numberOfLines={3}
-                >
-                  "{userTranscript}"
-                </Text>
+                <View style={styles.speechRow}>
+                  <View style={[styles.speakerBadge, { backgroundColor: isLightMode ? '#EFF6FF' : 'rgba(56, 189, 248, 0.15)' }]}>
+                    <Ionicons name="person" size={12} color={isLightMode ? theme.primary : '#38BDF8'} />
+                    <Text style={[styles.speakerNameText, { color: isLightMode ? theme.primary : '#38BDF8' }]}>Kamu</Text>
+                  </View>
+                  <Text style={[styles.userSpeechText, { color: theme.text }]} numberOfLines={3}>
+                    "{userTranscript}"
+                  </Text>
+                </View>
               ) : displayedAiSpeech ? (
-                <Text style={[styles.aiCaptionText, { color: theme.text }]} numberOfLines={4}>
-                  {displayedAiSpeech}
-                </Text>
-              ) : null}
+                <View style={styles.speechRow}>
+                  <View style={[styles.speakerBadge, { backgroundColor: isLightMode ? '#FDF2F8' : 'rgba(244, 114, 182, 0.15)' }]}>
+                    <Ionicons name="sparkles" size={12} color={isLightMode ? '#DB2777' : '#F472B6'} />
+                    <Text style={[styles.speakerNameText, { color: isLightMode ? '#DB2777' : '#F472B6' }]}>
+                      {effectiveBotDisplayName}
+                    </Text>
+                  </View>
+                  <Text style={[styles.aiSpeechText, { color: theme.text }]} numberOfLines={4}>
+                    {displayedAiSpeech}
+                  </Text>
+                </View>
+              ) : (
+                <View style={styles.speechEmptyPlaceholder}>
+                  <Ionicons name="mic-outline" size={18} color={theme.muted} />
+                  <Text style={[styles.speechEmptyText, { color: theme.muted }]}>
+                    Suaramu akan diterjemahkan secara langsung di sini...
+                  </Text>
+                </View>
+              )}
 
-              {errorMessage && <Text style={styles.errorCaptionText}>{errorMessage}</Text>}
+              {errorMessage && (
+                <View style={styles.errorBubbleRow}>
+                  <Ionicons name="alert-circle" size={14} color="#EF4444" />
+                  <Text style={styles.errorCaptionText}>{errorMessage}</Text>
+                </View>
+              )}
             </View>
 
-            {/* Gemini Live Sleek Floating Controls Dock */}
+            {/* ======================================================================= */}
+            {/* FLOATING CONTROLS DOCK (Mute, Hangup, Repeat) */}
+            {/* ======================================================================= */}
             <View
               style={[
                 styles.bottomDock,
                 {
-                  backgroundColor: isLightMode ? theme.card : 'rgba(19, 24, 35, 0.85)',
-                  borderColor: theme.border,
-                  borderWidth: 1,
+                  backgroundColor: isLightMode ? 'rgba(255, 255, 255, 0.95)' : 'rgba(15, 23, 42, 0.9)',
+                  borderColor: isLightMode ? 'rgba(226, 232, 240, 0.9)' : 'rgba(255, 255, 255, 0.1)',
                 },
               ]}
             >
-              {/* Mic Toggle */}
+              {/* Mic Toggle Button */}
               <TouchableOpacity
                 style={[
                   styles.dockBtn,
                   {
-                    backgroundColor: isLightMode ? theme.cardInner : '#1E2536',
-                    borderColor: theme.border,
-                    borderWidth: 1,
+                    backgroundColor: isMicMuted
+                      ? (isLightMode ? '#FEE2E2' : 'rgba(239, 68, 68, 0.22)')
+                      : (isLightMode ? '#F1F5F9' : '#1E293B'),
+                    borderColor: isMicMuted ? '#EF4444' : (isLightMode ? '#E2E8F0' : 'rgba(255, 255, 255, 0.1)'),
                   },
-                  isMicMuted && styles.dockBtnMuted,
                 ]}
                 onPress={toggleMute}
                 activeOpacity={0.8}
-                accessibilityLabel="Mute Mikrofon"
+                accessibilityLabel={isMicMuted ? 'Aktifkan Mikrofon' : 'Mute Mikrofon'}
               >
                 <Ionicons
                   name={isMicMuted ? 'mic-off' : 'mic'}
                   size={22}
-                  color={isMicMuted ? '#EF4444' : isLightMode ? theme.text : '#FFFFFF'}
+                  color={isMicMuted ? '#EF4444' : (isLightMode ? theme.text : '#F8FAFC')}
                 />
               </TouchableOpacity>
 
-              {/* End Call Button */}
+              {/* Big End Call Button */}
               <TouchableOpacity
                 style={styles.dockEndCallBtn}
                 onPress={handleClose}
-                activeOpacity={0.8}
-                accessibilityLabel="Akhiri Panggilan"
+                activeOpacity={0.85}
+                accessibilityLabel="Akhiri Panggilan Suara"
               >
-                <Ionicons name="call" size={24} color="#FFFFFF" style={{ transform: [{ rotate: '135deg' }] }} />
+                <Ionicons
+                  name="call"
+                  size={26}
+                  color="#FFFFFF"
+                  style={{ transform: [{ rotate: '135deg' }] }}
+                />
               </TouchableOpacity>
 
-              {/* Interrupt / Action Button */}
+              {/* Repeat or Interrupt Button */}
               <TouchableOpacity
                 style={[
                   styles.dockBtn,
                   {
-                    backgroundColor: isLightMode ? theme.cardInner : '#1E2536',
-                    borderColor: theme.border,
-                    borderWidth: 1,
+                    backgroundColor: isLightMode ? '#F1F5F9' : '#1E293B',
+                    borderColor: isLightMode ? '#E2E8F0' : 'rgba(255, 255, 255, 0.1)',
                   },
                 ]}
                 onPress={() => {
@@ -1180,12 +1527,12 @@ export default function GeminiLiveVoiceModal({
                   }
                 }}
                 activeOpacity={0.8}
-                accessibilityLabel="Ulangi Ucapan"
+                accessibilityLabel="Ulangi Suara AI"
               >
                 <Ionicons
-                  name={liveState === 'speaking' ? 'hand-left' : 'refresh'}
+                  name={liveState === 'speaking' ? 'pause' : 'refresh'}
                   size={20}
-                  color={isLightMode ? theme.text : '#FFFFFF'}
+                  color={isLightMode ? theme.text : '#F8FAFC'}
                 />
               </TouchableOpacity>
             </View>
@@ -1199,164 +1546,336 @@ export default function GeminiLiveVoiceModal({
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#07090E',
     justifyContent: 'space-between',
-    paddingHorizontal: 24,
-    paddingVertical: 18,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     paddingTop: Platform.OS === 'android' ? 24 : 8,
+    paddingBottom: 8,
   },
   brandRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
+    gap: 12,
   },
-  geminiSparkleIcon: {
-    width: 28,
-    height: 28,
-    borderRadius: 8,
-    backgroundColor: 'rgba(66, 133, 244, 0.15)',
+  headerAvatarWrap: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    position: 'relative',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerAvatarImg: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+  },
+  headerAvatarFallback: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  headerStatusDot: {
+    position: 'absolute',
+    bottom: -1,
+    right: -1,
+    width: 12,
+    height: 12,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: '#070A12',
+  },
   botTitle: {
-    color: '#F8FAFC',
     fontSize: 16,
     fontWeight: '700',
     letterSpacing: 0.2,
   },
+  activeLivePill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  pulsingLiveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  activeLivePillText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  callTimerText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
   closeBtn: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: '#131823',
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  visualizerContainer: {
+
+  // Central Character Hero Stage
+  heroCenterStage: {
     alignItems: 'center',
     justifyContent: 'center',
-    height: 260,
+    paddingVertical: 10,
     position: 'relative',
   },
-  ambientAura: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    filter: Platform.OS === 'web' ? 'blur(60px)' : undefined,
-  },
-  waveTouchable: {
-    padding: 24,
+  avatarOrbWrapper: {
+    width: 200,
+    height: 200,
     alignItems: 'center',
     justifyContent: 'center',
-    zIndex: 2,
+    position: 'relative',
   },
-  auroraBarsRow: {
+  ambientAuraGlow: {
+    position: 'absolute',
+    width: 190,
+    height: 190,
+    borderRadius: 95,
+    filter: Platform.OS === 'web' ? 'blur(45px)' : undefined,
+  },
+  sonarRippleRing: {
+    position: 'absolute',
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    borderWidth: 2,
+  },
+  avatarTouchArea: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 5,
+  },
+  characterAvatarFrame: {
+    width: 140,
+    height: 140,
+    borderRadius: 70,
+    borderWidth: 3.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.85,
+    shadowRadius: 20,
+    elevation: 12,
+  },
+  avatarImageClipper: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    overflow: 'hidden',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  characterAvatarImage: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+  },
+  characterAvatarFallback: {
+    width: 128,
+    height: 128,
+    borderRadius: 64,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  avatarCornerBadge: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 2.5,
+    alignItems: 'center',
+    justifyContent: 'center',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.35,
+    shadowRadius: 4,
+    elevation: 6,
+    zIndex: 6,
+  },
+
+  // Dynamic Equalizer Bars below Avatar
+  equalizerBarsRow: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 12,
-    height: 160,
-  },
-  auroraBar: {
-    width: 14,
-    borderRadius: 7,
-    shadowColor: '#00E5FF',
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  statusIndicatorText: {
-    color: '#94A3B8',
-    fontSize: 13,
-    fontWeight: '500',
-    letterSpacing: 0.4,
+    gap: 8,
+    height: 64,
     marginTop: 8,
+    zIndex: 2,
+  },
+  equalizerBar: {
+    width: 8,
+    borderRadius: 4,
+    shadowOffset: { width: 0, height: 0 },
+    shadowOpacity: 0.7,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+
+  // Status Capsule Indicator
+  statusCapsule: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingHorizontal: 14,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginTop: 4,
+    zIndex: 2,
+  },
+  statusCapsuleDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  statusCapsuleText: {
+    fontSize: 13,
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   interruptPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    marginTop: 12,
+    marginTop: 8,
     paddingHorizontal: 12,
     paddingVertical: 5,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    borderWidth: 1,
+    zIndex: 2,
   },
   interruptPillText: {
-    color: '#CBD5E1',
-    fontSize: 11,
-    fontWeight: '500',
+    fontSize: 11.5,
+    fontWeight: '600',
   },
-  captionsContainer: {
-    minHeight: 90,
+
+  // Live Dialogue Card
+  liveDialogueCard: {
+    minHeight: 100,
+    maxHeight: 140,
+    borderRadius: 20,
+    borderWidth: 1,
+    padding: 16,
+    marginHorizontal: 4,
     justifyContent: 'center',
-    alignItems: 'center',
-    paddingHorizontal: 16,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.12,
+    shadowRadius: 12,
+    elevation: 4,
   },
-  userCaptionText: {
-    color: '#38BDF8',
-    fontSize: 15,
-    textAlign: 'center',
+  speechRow: {
+    gap: 8,
+  },
+  speakerBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'flex-start',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 8,
+  },
+  speakerNameText: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.3,
+  },
+  userSpeechText: {
+    fontSize: 14.5,
     lineHeight: 22,
     fontStyle: 'italic',
     fontWeight: '500',
   },
-  aiCaptionText: {
-    color: '#E2E8F0',
-    fontSize: 16,
-    textAlign: 'center',
-    lineHeight: 24,
+  aiSpeechText: {
+    fontSize: 14.5,
+    lineHeight: 22,
     fontWeight: '400',
   },
-  errorCaptionText: {
-    color: '#F87171',
-    fontSize: 12.5,
-    textAlign: 'center',
-    marginTop: 6,
+  speechEmptyPlaceholder: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
   },
+  speechEmptyText: {
+    fontSize: 13,
+    fontWeight: '500',
+    fontStyle: 'italic',
+  },
+  errorBubbleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    marginTop: 8,
+  },
+  errorCaptionText: {
+    color: '#EF4444',
+    fontSize: 12,
+    fontWeight: '500',
+    flex: 1,
+  },
+
+  // Bottom Floating Controls Dock
   bottomDock: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: 36,
+    justifyContent: 'space-around',
+    paddingHorizontal: 28,
     paddingVertical: 14,
-    backgroundColor: 'rgba(19, 24, 35, 0.85)',
     borderRadius: 36,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
-    marginBottom: Platform.OS === 'ios' ? 10 : 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.25,
+    shadowRadius: 16,
+    elevation: 8,
+    marginBottom: Platform.OS === 'ios' ? 12 : 8,
   },
   dockBtn: {
     width: 52,
     height: 52,
     borderRadius: 26,
-    backgroundColor: '#1E2536',
+    borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  dockBtnMuted: {
-    backgroundColor: 'rgba(239, 68, 68, 0.2)',
-  },
   dockEndCallBtn: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
+    width: 66,
+    height: 66,
+    borderRadius: 33,
     backgroundColor: '#EA4335',
     alignItems: 'center',
     justifyContent: 'center',
     shadowColor: '#EA4335',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.5,
+    shadowOpacity: 0.55,
     shadowRadius: 14,
-    elevation: 8,
+    elevation: 10,
   },
+
   // Permission Card Styles
   permissionCard: {
     flex: 1,
@@ -1368,9 +1887,9 @@ const styles = StyleSheet.create({
     width: '100%',
   },
   permissionIconCircle: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 84,
+    height: 84,
+    borderRadius: 42,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,

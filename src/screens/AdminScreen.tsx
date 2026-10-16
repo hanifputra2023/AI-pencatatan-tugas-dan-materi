@@ -154,7 +154,7 @@ export default function AdminScreen() {
   // AI Configuration State
   const [botNameInput, setBotNameInput] = useState(aiBotName || 'Ara');
   const [promptText, setPromptText] = useState(aiPersona || PRESET_PERSONAS[0].prompt);
-  const [aiModelSelected, setAiModelSelected] = useState(appSettings['ai_model'] || 'gemini-2.5-flash');
+  const [aiModelSelected, setAiModelSelected] = useState(appSettings['ai_model'] || 'gemini-3-flash-preview');
   const [aiTempSelected, setAiTempSelected] = useState(appSettings['ai_temp'] || '0.7');
   const [aiTopPSelected, setAiTopPSelected] = useState(appSettings['ai_top_p'] || '0.95');
   const [factualTempSelected, setFactualTempSelected] = useState(appSettings['factual_temp'] || '0.1');
@@ -3189,12 +3189,10 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <Text style={styles.inputLabel}>Versi AI Model:</Text>
                   <View style={styles.paramChipsRow}>
                     {[
-                      { id: 'gemini-3.7-flash', label: 'Gemini 3.7 Flash (Generasi Baru Super Kilat ~1.2s ⭐)' },
-                      { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Generasi Baru Stabil ~2s)' },
-                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Generasi 2.5)' },
-                      { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Cadangan Stabil)' },
-                      { id: 'gemini-3.1-flash-lite', label: 'Gemini 3.1 Flash Lite (Hemat Kuota)' },
-                      { id: 'gemini-flash-lite-latest', label: 'Gemini Flash Lite (Fallback)' },
+                      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash (Super Cepat ~2s, Akurat, Vision & Gambar ⭐ Rekomendasi)' },
+                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash (Sangat Stabil, Vision & Dokumen ~3s)' },
+                      { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Generasi Baru)' },
+                      { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Cadangan Stabil Google)' },
                     ].map(m => (
                       <TouchableOpacity
                         key={m.id}

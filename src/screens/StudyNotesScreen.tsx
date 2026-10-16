@@ -419,7 +419,7 @@ export default function StudyNotesScreen() {
       // 2. Prompt AI to craft grand boss raid quiz
       const prompt = `Kamu adalah Game Master RPG Akademik. Buatkan 5 soal kuis pilihan ganda yang seru, berkualitas tinggi, dan menantang untuk Event Boss Battle "${activeBossEvent.name}" (${activeBossEvent.title}) berdasarkan rangkuman seluruh catatan kuliah mahasiswa berikut:\n\n${notesContext}\n\nATURAN:\n1. Buat soal yang menguji pemahaman konsep dari catatan di atas.\n2. Berikan 4 pilihan jawaban untuk setiap soal.\n3. Berikan correctIndex (0, 1, 2, atau 3) yang tepat.\n4. Format jawaban WAJIB HANYA JSON array valid tanpa teks pengantar:\n[\n  {\n    "question": "Pertanyaan soal...",\n    "options": ["Pilihan A", "Pilihan B", "Pilihan C", "Pilihan D"],\n    "correctIndex": 0,\n    "explanation": "Penjelasan singkat jawaban benar..."\n  }\n]`;
 
-      const aiReply = await sendMessageToGemini([], prompt);
+      const aiReply = await sendMessageToGemini([], prompt, null, undefined, { isJsonMode: true, maxTokens: 2048 });
       const parsed: any = extractJsonFromText(aiReply);
 
       let questions: any[] = [];

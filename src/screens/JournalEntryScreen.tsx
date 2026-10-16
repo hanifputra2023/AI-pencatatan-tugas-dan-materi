@@ -325,7 +325,7 @@ ${content}
 
 Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 sudut pandang positif/dorongan semangat yang tulus dalam 2-3 kalimat singkat. Jangan terdengar seperti robot, gunakan panggilan yang akrab dan hangat.`;
 
-      const reply = await sendMessageToGemini([], prompt);
+      const reply = await sendMessageToGemini([], prompt, null, undefined, { maxTokens: 512 });
       setAiInsight(reply.trim());
     } catch (e: any) {
       showAlert('Gagal Mendapat Refleksi AI', 'Pastikan koneksi internet stabil.');

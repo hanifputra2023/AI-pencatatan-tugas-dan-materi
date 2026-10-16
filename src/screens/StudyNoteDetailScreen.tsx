@@ -600,7 +600,7 @@ ${attachmentsCtx}
 Isi Catatan:
 ${content}`;
 
-      const aiReply = await sendMessageToGemini([], prompt);
+      const aiReply = await sendMessageToGemini([], prompt, null, undefined, { maxTokens: 1500 });
       setSummary(aiReply);
       if (noteId && user) {
         const currentNotes = await getCachedNotes(user.id);

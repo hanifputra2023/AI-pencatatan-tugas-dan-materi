@@ -41,19 +41,23 @@ export const getGeminiApiKeysPool = (): string[] => {
 };
 
 export const ACTIVE_MODELS = [
-  'gemini-3.7-flash',         // Model tercepat & generasi terbaru (~1.2s, terverifikasi semua kunci)
-  'gemini-3.5-flash',         // Cadangan generasi baru (~2s)
-  'gemini-flash-latest',      // Cadangan stabil umum (~2-3s)
-  'gemini-2.5-flash',         // Model generasi 2.5
-  'gemini-3.1-flash-lite',    // Model hemat kuota
-  'gemini-flash-lite-latest', // Model flash lite
+  'gemini-3-flash-preview',   // Tercepat & paling stabil (~2-3s), akurasi tinggi & visi gambar
+  'gemini-2.5-flash',         // Model cadangan stabil utama (~3s), vision & dokumen
+  'gemini-3.5-flash',         // Cadangan generasi baru (~3s)
+  'gemini-flash-latest',      // Cadangan stabil umum
 ];
 
-let preferredModel = 'gemini-3.7-flash';
+let preferredModel = 'gemini-3-flash-preview';
+
+// Load cached preferred model asynchronously from AsyncStorage
+AsyncStorage.getItem('@app_ai_model').then(val => {
+  if (val && val.trim()) preferredModel = val.trim();
+});
 
 export const setPreferredModel = (model: string) => {
   if (model && model.trim()) {
     preferredModel = model.trim();
+    AsyncStorage.setItem('@app_ai_model', model.trim()).catch(() => {});
   }
 };
 
@@ -68,7 +72,7 @@ export const testGeminiApiKey = async (
   const startTime = Date.now();
   let lastErr = '';
 
-  const targetFirst = (modelPreference || preferredModel || 'gemini-2.5-flash').trim();
+  const targetFirst = (modelPreference || preferredModel || 'gemini-3-flash-preview').trim();
   const candidateModels = [
     targetFirst,
     ...ACTIVE_MODELS.filter(m => m !== targetFirst),
@@ -77,6 +81,8 @@ export const testGeminiApiKey = async (
   for (let i = 0; i < candidateModels.length; i++) {
     const model = candidateModels[i];
     try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${testKey}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -84,7 +90,9 @@ export const testGeminiApiKey = async (
         body: JSON.stringify({
           contents: [{ role: 'user', parts: [{ text: 'Ping test. Jawab "OK"' }] }],
         }),
+        signal: controller.signal,
       });
+      clearTimeout(timeoutId);
       const latency = Date.now() - startTime;
       if (res.ok) {
         const data = await res.json();
@@ -227,6 +235,15 @@ async function callSingleModelWithKey(
       maxOutputTokens,
       ...(isJson ? { responseMimeType: 'application/json' } : {}),
     },
+    // Safety: BLOCK_ONLY_HIGH agar AI bisa menjawab topik sensitif yang valid
+    // (kesehatan mental, curhat, stress, hubungan) tanpa over-blocking.
+    // Konten benar-benar berbahaya (instruksi kekerasan nyata, konten anak) tetap diblokir.
+    safetySettings: [
+      { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+    ],
   };
 
   // Thinking budget: explicitly set 0 for normal mode agar model tidak
@@ -253,8 +270,8 @@ async function callSingleModelWithKey(
       }, { once: true });
     }
   }
-  // Deep thinking needs more time to reason; otherwise 14 detik auto-timeout
-  const timeoutMs = options?.deepThink ? 30000 : 14000;
+  // Fast fail: 8 detik untuk normal mode agar tidak menggantung lama, 25 detik untuk Deep Think
+  const timeoutMs = options?.deepThink ? 25000 : 8000;
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
   try {
@@ -389,6 +406,15 @@ async function streamSingleModelWithKey(
       maxOutputTokens,
       ...(isJson ? { responseMimeType: 'application/json' } : {}),
     },
+    // Safety: BLOCK_ONLY_HIGH agar AI bisa menjawab topik sensitif yang valid
+    // (kesehatan mental, curhat, stress, hubungan) tanpa over-blocking.
+    // Konten benar-benar berbahaya (instruksi kekerasan nyata, konten anak) tetap diblokir.
+    safetySettings: [
+      { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_ONLY_HIGH' },
+      { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_ONLY_HIGH' },
+    ],
   };
 
   // Thinking budget: eksplisit matikan (0) untuk mode biasa agar model tidak
@@ -400,7 +426,9 @@ async function streamSingleModelWithKey(
     };
   }
 
-  const timeoutMs = options?.deepThink ? 120000 : 60000;
+  // Streaming timeout lebih lama karena token datang bertahap; short timeoutnya
+  // ada di callSingleModelWithKey (non-streaming) untuk fast-fail 8 detik.
+  const timeoutMs = options?.deepThink ? 90000 : 50000;
   const bodyStr = JSON.stringify(requestBody);
 
   return new Promise<GeminiCallResult>((resolve, reject) => {
@@ -473,15 +501,27 @@ async function streamSingleModelWithKey(
       if (remaining.trim()) parseNewChunk(remaining);
 
       if (xhr.status >= 400) {
+        // KRITIS: Google kadang mengembalikan error 503/429 dalam format SSE ("data: {...}")
+        // bukan plain JSON, sehingga JSON.parse langsung gagal. Kita coba dua cara parsing:
+        let errMsg = `HTTP ${xhr.status}`;
+        const rawText = xhr.responseText;
         try {
-          const errData = JSON.parse(xhr.responseText);
-          const msg = errData?.error?.message || `HTTP ${xhr.status}`;
-          const customErr: any = new Error(msg);
-          customErr.status = xhr.status;
-          reject(customErr);
+          // Coba 1: plain JSON
+          const errData = JSON.parse(rawText);
+          errMsg = errData?.error?.message || errMsg;
         } catch {
-          reject(new Error(`HTTP ${xhr.status}`));
+          // Coba 2: SSE format — ambil baris "data: {...}" pertama yang berisi error
+          const sseMatch = rawText.match(/data:\s*(\{[\s\S]*?\})/m);
+          if (sseMatch) {
+            try {
+              const errData = JSON.parse(sseMatch[1]);
+              errMsg = errData?.error?.message || errMsg;
+            } catch { /* tetap pakai errMsg default */ }
+          }
         }
+        const customErr: any = new Error(errMsg);
+        customErr.status = xhr.status; // SELALU set status agar isModelUnavailable() bisa mendeteksi
+        reject(customErr);
         return;
       }
 
@@ -493,7 +533,10 @@ async function streamSingleModelWithKey(
     };
 
     xhr.onerror = () => {
-      reject(new Error(`Model ${modelName} gagal terhubung. Mengalihkan ke model cepat...`));
+      // Set status 503 agar outer failover loop langsung break ke model cadangan
+      const e: any = new Error(`Model ${modelName} gagal terhubung. Mengalihkan ke model cepat...`);
+      e.status = 503;
+      reject(e);
     };
 
     xhr.onabort = () => {
@@ -502,12 +545,18 @@ async function streamSingleModelWithKey(
         cancelledErr.cancelled = true;
         reject(cancelledErr);
       } else {
-        reject(new Error(`Model ${modelName} timeout saat streaming. Mengalihkan ke model cepat...`));
+        // Timeout yang dipicu oleh AbortController (bukan XHR.timeout)
+        const e: any = new Error(`Model ${modelName} timeout saat streaming. Mengalihkan ke model cepat...`);
+        e.status = 503;
+        reject(e);
       }
     };
 
     xhr.ontimeout = () => {
-      reject(new Error(`Model ${modelName} timeout saat streaming. Mengalihkan ke model cepat...`));
+      // XHR native timeout — set status 503 agar fast-break ke model cadangan
+      const e: any = new Error(`Model ${modelName} timeout saat streaming. Mengalihkan ke model cepat...`);
+      e.status = 503;
+      reject(e);
     };
 
     xhr.send(bodyStr);
@@ -625,15 +674,22 @@ async function continueUntilComplete(
   const hasFinishedCleanly = (text: string): boolean => {
     const t = text.trimEnd();
     if (!t) return true;
-    // Completed sentence, closing code fence, or ends on a fresh line (finished a
-    // list/paragraph) -> considered finished. Anything else is treated as hanging.
-    return /[.!?â€¦[:;](\s*```\s*)?$/.test(t) || /```$/.test(t) || /\n\s*$/.test(t);
+    // Selesai jika berakhiran tanda baca, markdown block, baris baru, atau unicode emoji / simbol
+    return (
+      /[.!?…[:;)\]"'](\s*```\s*)?$/.test(t) ||
+      /```$/.test(t) ||
+      /\n\s*$/.test(t) ||
+      /[\u{1F300}-\u{1F9FF}\u{2600}-\u{26FF}\u{2700}-\u{27BF}]$/u.test(t)
+    );
   };
 
   const shouldContinue = (result: GeminiCallResult): boolean => {
-    if (result.finishReason && result.finishReason !== 'STOP') return true;
-    // No explicit finishReason but text hung mid-sentence -> continue
-    return result.text.trim().length > 0 && !hasFinishedCleanly(result.text);
+    // Jika AI sudah selesai secara normal (STOP), JANGAN lakukan continue loop yang membuang waktu
+    if (result.finishReason === 'STOP') return false;
+    // Hanya lanjutkan jika dipotong oleh batas token output (MAX_TOKENS)
+    if (result.finishReason === 'MAX_TOKENS') return true;
+    // Jika tidak ada finishReason dan teks benar-benar tergantung tanpa tanda penutup
+    return !result.finishReason && result.text.trim().length > 0 && !hasFinishedCleanly(result.text);
   };
 
   for (let step = 0; step < MAX_CONTINUE_STEPS && shouldContinue(current); step++) {
@@ -761,15 +817,15 @@ export async function sendMessageToGemini(
   const startOffset = Math.floor(Math.random() * totalKeys);
 
   // Daftar model yang akan dicoba secara berurutan:
-  // Mulai dari model pilihan aktif, lalu otomatis fallback ke model generasi baru / stabil / lite
-  const activePreferred = (options?.model || preferredModel || 'gemini-3.7-flash').trim();
+  // Mulai dari model pilihan aktif, lalu otomatis fallback ke model generasi baru / stabil
+  const activePreferred = (options?.model || preferredModel || 'gemini-3-flash-preview').trim();
   const modelsToTry = [
     activePreferred,
     ...ACTIVE_MODELS.filter(m => m !== activePreferred),
   ];
 
-  // 1. TIER 1 (MODEL FAILOVER): Jika sebuah model limit (429), timeout, atau overload di server,
-  // sistem OTOMATIS beralih ke model cadangan berikutnya (gemini-3.5-flash -> gemini-2.5-flash -> gemini-flash-lite)
+  // 1. TIER 1 (MODEL FAILOVER): Jika sebuah model limit (429), timeout, atau overload di server (503),
+  // sistem OTOMATIS beralih ke model cadangan berikutnya
   for (const model of modelsToTry) {
     // 2. TIER 2 (MULTI-KEY LOAD BALANCING): Untuk model yang sedang dicoba,
     // coba kunci-kunci di pool secara bergantian
@@ -789,6 +845,24 @@ export async function sendMessageToGemini(
           throw err;
         }
 
+        // Jika model sedang overload di Google (503 high demand) atau sudah tidak ada (404),
+        // ini adalah masalah MODEL di sisi server, bukan masalah kunci.
+        // Langsung BREAK agar tidak membuang 15-30 detik mencoba kunci lain yang pasti kena 503 juga!
+        const isModelUnavailable =
+          err.status === 503 ||
+          err.status === 404 ||
+          (err.message && (
+            err.message.includes('high demand') ||
+            err.message.includes('overloaded') ||
+            err.message.includes('is no longer available') ||
+            err.message.includes('temporarily unavailable')
+          ));
+
+        if (isModelUnavailable) {
+          console.warn(`[Fast-Failover] Model ${model} sedang overload/tidak tersedia (${err.message}). Langsung beralih ke model cadangan...`);
+          break;
+        }
+
         const isAuthError =
           err.status === 401 ||
           err.status === 403 ||
@@ -805,16 +879,15 @@ export async function sendMessageToGemini(
 
         if (isQuotaError) {
           console.warn(`[Quota Limit] Model ${model} pada Kunci #${keyIdx + 1} (${keyPreview}) terkena limit kuota/RPM. Mencoba kunci/model cadangan...`);
-          // Coba kunci berikutnya di pool untuk model ini
           continue;
         }
 
         console.warn(`[Model Timeout/Busy] Model ${model} pada Kunci #${keyIdx + 1} sibuk (${err.message}). Melanjutkan failover...`);
-        await new Promise(res => setTimeout(res, 200));
+        await new Promise(res => setTimeout(res, 100));
       }
     }
 
-    console.warn(`[Auto-Model Fallback] Model ${model} tidak tersedia di seluruh kunci. Otomatis beralih ke model cadangan berikutnya...`);
+    console.warn(`[Auto-Model Fallback] Model ${model} tidak merespons. Beralih ke model cadangan berikutnya...`);
   }
 
   throw new Error(

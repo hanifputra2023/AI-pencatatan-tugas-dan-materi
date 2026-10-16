@@ -676,14 +676,14 @@ export default function ChatScreen() {
     cancelRef.current = cancel;
     scrollToBottom(50);
 
-    try {
+    // Helper: kirim request, auto-retry sekali jika semua model sedang spike (503)
+    const sendWithAutoRetry = async (): Promise<string> => {
       const history: GeminiMessage[] = messages.slice(-16).map(m => ({
         role: m.role === 'user' ? 'user' : 'model',
         parts: [{ text: m.content }],
       }));
-
       const customAiPrompt = `Nama kamu adalah "${effectiveBotName}". Sapa dirimu dengan nama ini jika pengguna menanyakan siapa namamu atau saat memperkenalkan diri.\n\n${aiPersona}`;
-      const aiReply = await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, {
+      const geminiOpts = {
         model: appSettings['ai_model'] || undefined,
         maxTokens: chatMaxTokens,
         deepThink: deepThinkEnabled,
@@ -692,24 +692,42 @@ export default function ChatScreen() {
         signal: cancel.signal,
         temperature: factualEnabled ? factualTemperature : chatTemperature,
         topP: factualEnabled ? factualTopP : chatTopP,
-        onToken: (partial) => {
+        onToken: (partial: string) => {
           setIsStreaming(true);
-          // Throttle heavy Markdown re-renders so long streaming doesn't lag
           const now = Date.now();
           if (now - lastStreamPaintRef.current >= 100) {
             lastStreamPaintRef.current = now;
             const shown = agentEnabled ? stripAgentActionBlock(partial) : partial;
             setMessages(prev => prev.map(m => (m.id === tempAiId ? { ...m, content: shown } : m)));
           }
-          // Throttle: instant, non-animated scroll at most once every 200ms to avoid
-          // chaining scroll animations that cause up/down flickering
           const now2 = Date.now();
           if (now2 - lastStreamScrollRef.current >= 200) {
             lastStreamScrollRef.current = now2;
             scrollToBottom(0, false);
           }
         },
-      });
+      };
+      try {
+        return await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, geminiOpts);
+      } catch (firstErr: any) {
+        // Jika semua model sedang spike 503, tunggu 2 detik lalu coba sekali lagi otomatis
+        const is503 = firstErr?.status === 503 ||
+          (firstErr?.message && (
+            firstErr.message.includes('high demand') ||
+            firstErr.message.includes('overloaded') ||
+            firstErr.message.includes('temporarily unavailable')
+          ));
+        if (is503 && !firstErr?.cancelled) {
+          console.warn('[Auto-Retry] Semua model 503, tunggu 2 detik lalu coba sekali lagi...');
+          await new Promise(res => setTimeout(res, 2000));
+          return await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, geminiOpts);
+        }
+        throw firstErr;
+      }
+    };
+
+    try {
+      const aiReply = await sendWithAutoRetry();
 
       // Agent mode: execute any action the AI requested and hide the JSON block
       const action = agentEnabled ? extractAgentAction(aiReply) : null;
@@ -763,7 +781,13 @@ export default function ChatScreen() {
             : m
         ));
       } else {
-        setErrorToast(err.message || 'Server AI sedang sibuk. Coba kirim ulang ya.');
+        // Tampilkan pesan ramah, bukan error mentah dari Google API
+        const is503 = err?.status === 503 ||
+          (err?.message && (err.message.includes('high demand') || err.message.includes('overloaded')));
+        const friendlyMsg = is503
+          ? 'Server AI sedang sangat ramai 😅 Coba kirim pesanmu lagi ya!'
+          : (err.message || 'Server AI sedang sibuk. Coba kirim ulang ya.');
+        setErrorToast(friendlyMsg);
         setMessages(prev => prev.filter(m => m.id !== tempAiId));
       }
     } finally {
@@ -1749,6 +1773,7 @@ export default function ChatScreen() {
         visible={showLiveVoiceModal}
         onClose={() => setShowLiveVoiceModal(false)}
         botName={effectiveBotName}
+        botAvatar={customAiAvatar}
         personaPrompt={activePersona?.prompt}
         existingMessages={messages}
         onNewMessagePair={handleLiveVoiceMessagePair}
