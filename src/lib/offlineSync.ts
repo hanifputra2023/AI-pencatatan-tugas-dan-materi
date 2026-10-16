@@ -31,34 +31,73 @@ export interface CachedDashboardData {
   totalNotesCount: number;
 }
 
+let cachedOnlineStatus = true;
+let lastCheckTimestamp = 0;
+const CACHE_DURATION_MS = 6000; // Cache 6 detik agar UI super responsif & hemat resource
+
 /**
  * Check if the device currently has active internet connectivity
  */
-export async function isDeviceOnline(): Promise<boolean> {
-  // 1. Cek navigator.onLine dulu untuk fast-fail saat offline
-  if (typeof navigator !== 'undefined' && 'onLine' in navigator) {
-    if (!navigator.onLine) return false;
+export async function isDeviceOnline(forceCheck = false): Promise<boolean> {
+  // 1. Khusus Web / Browser: gunakan navigator.onLine bawaan browser yang akurat
+  if (Platform.OS === 'web' && typeof window !== 'undefined') {
+    if (typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean') {
+      return navigator.onLine;
+    }
+    return true;
   }
 
-  // 2. Quick ping untuk verifikasi koneksi nyata (timeout singkat agar tidak memblokir)
+  // 2. Khusus Mobile (Android & iOS): gunakan cache singkat agar cepat dan tidak memblokir UI
+  const now = Date.now();
+  if (!forceCheck && now - lastCheckTimestamp < CACHE_DURATION_MS) {
+    return cachedOnlineStatus;
+  }
+
+  // 3. Ping verifikasi koneksi nyata pada Android / iOS
+  // Endpoint 1: Google captive portal standar Android (clients3.google.com/generate_204)
   try {
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 2000);
-    await fetch('https://www.google.com/generate_204', {
-      method: 'HEAD',
+    const timeoutId = setTimeout(() => controller.abort(), 4000);
+    const res = await fetch('https://clients3.google.com/generate_204', {
+      method: 'GET',
       signal: controller.signal,
-      cache: 'no-store',
-      mode: 'no-cors',
     });
     clearTimeout(timeoutId);
-    return true;
-  } catch (e) {
-    // Jika ping gagal tapi navigator.onLine = true, percayai browser
-    if (typeof navigator !== 'undefined' && navigator.onLine) {
+
+    // Menerima response apapun (204/200/dsb) membuktikan koneksi internet aktif
+    if (res.status > 0) {
+      cachedOnlineStatus = true;
+      lastCheckTimestamp = now;
       return true;
     }
+  } catch (e1) {
+    // Primary ping gagal, coba fallback ke Supabase URL atau Cloudflare
+  }
+
+  try {
+    const fbController = new AbortController();
+    const fbTimeoutId = setTimeout(() => fbController.abort(), 3500);
+    const fbRes = await fetch('https://phyaabrmqwlxlmexegpf.supabase.co', {
+      method: 'GET',
+      signal: fbController.signal,
+    });
+    clearTimeout(fbTimeoutId);
+
+    if (fbRes.status > 0) {
+      cachedOnlineStatus = true;
+      lastCheckTimestamp = now;
+      return true;
+    }
+  } catch (e2) {
+    // Kedua ping gagal -> memang tidak ada koneksi internet
+    cachedOnlineStatus = false;
+    lastCheckTimestamp = now;
     return false;
   }
+
+  cachedOnlineStatus = true;
+  lastCheckTimestamp = now;
+  return true;
 }
 
 /**
@@ -74,8 +113,9 @@ export function subscribeNetworkStatus(callback: (isOnline: boolean) => void): (
     window.addEventListener('offline', handleOffline);
 
     // Emit status awal segera agar UI langsung sinkron
-    const initialOnline = typeof navigator !== 'undefined' ? (navigator.onLine ?? true) : true;
-    // Gunakan setTimeout(0) agar tidak memblokir render awal
+    const initialOnline = typeof navigator !== 'undefined' && typeof navigator.onLine === 'boolean'
+      ? navigator.onLine
+      : true;
     setTimeout(() => callback(initialOnline), 0);
 
     return () => {
@@ -84,15 +124,24 @@ export function subscribeNetworkStatus(callback: (isOnline: boolean) => void): (
     };
   }
 
-  // Fallback untuk mobile: cek status awal lalu polling setiap 15 detik
+  // Fallback untuk mobile (Android & iOS):
   let cancelled = false;
-  isDeviceOnline().then(online => { if (!cancelled) callback(online); });
+
+  // Segera emit status online (asumsi positif awal agar banner tidak keliru muncul saat cold start)
+  callback(cachedOnlineStatus);
+
+  // Verifikasi status sesungguhnya di latar belakang
+  isDeviceOnline(true).then(online => {
+    if (!cancelled) callback(online);
+  });
+
+  // Polling setiap 20 detik untuk memantau perubahan status koneksi di perangkat
   const intervalId = setInterval(async () => {
     if (!cancelled) {
-      const online = await isDeviceOnline();
-      callback(online);
+      const online = await isDeviceOnline(true);
+      if (!cancelled) callback(online);
     }
-  }, 15000);
+  }, 20000);
 
   return () => {
     cancelled = true;
