@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "main": "expo/AppEntry.js",
   "scripts": {
+    "dev": "npx expo start --web",
     "start": "npx expo start",
     "android": "npx expo start --android",
     "ios": "npx expo start --ios",

@@ -11,12 +11,20 @@
     "preview": {
       "node": "20.18.0",
       "distribution": "internal",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://phyaabrmqwlxlmexegpf.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_SXG-NOaNs_rxB1g0eVxvTA_qWzyPtWB"
+      },
       "android": {
         "buildType": "apk"
       }
     },
     "production": {
       "node": "20.18.0",
+      "env": {
+        "EXPO_PUBLIC_SUPABASE_URL": "https://phyaabrmqwlxlmexegpf.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "sb_publishable_SXG-NOaNs_rxB1g0eVxvTA_qWzyPtWB"
+      },
       "android": {
         "buildType": "apk"
       }

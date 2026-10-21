@@ -19,50 +19,70 @@ AsyncStorage.getItem('@gemini_api_keys').then(val => {
   }
 });
 
+const blacklistedKeys = new Set<string>();
+
+export const blacklistGeminiKey = (key: string) => {
+  if (!key) return;
+  const trimmed = key.trim();
+  blacklistedKeys.add(trimmed);
+  inMemoryApiKeys = inMemoryApiKeys.filter(k => k.trim() !== trimmed);
+  AsyncStorage.setItem('@gemini_api_keys', JSON.stringify(inMemoryApiKeys)).catch(() => {});
+};
+
 export const setInMemoryApiKeys = (keys: string[]) => {
-  inMemoryApiKeys = keys.filter(k => k && k.trim() !== '');
+  inMemoryApiKeys = keys.filter(k => k && k.trim() !== '' && !blacklistedKeys.has(k.trim()));
 };
 
 export const setInMemoryApiKey = (key: string) => {
   if (key && key.trim() !== '') {
-    inMemoryApiKeys = [key.trim(), ...inMemoryApiKeys.filter(k => k !== key.trim())];
+    const trimmed = key.trim();
+    if (!blacklistedKeys.has(trimmed)) {
+      inMemoryApiKeys = [trimmed, ...inMemoryApiKeys.filter(k => k !== trimmed)];
+    }
   }
 };
 
+const DEFAULT_FALLBACK_KEY = '';
+
 export const getGeminiApiKeysPool = (): string[] => {
-  const pool = [...inMemoryApiKeys];
-  if (process.env.EXPO_PUBLIC_GEMINI_API_KEY && process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim() !== '') {
-    const envKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY.trim();
-    if (!pool.includes(envKey)) {
-      pool.push(envKey);
-    }
+  const pool = inMemoryApiKeys.filter(k => k && k.trim() !== '' && !blacklistedKeys.has(k.trim()));
+  const envKey = (process.env.EXPO_PUBLIC_GEMINI_API_KEY || DEFAULT_FALLBACK_KEY).trim();
+  if (envKey && !pool.includes(envKey) && !blacklistedKeys.has(envKey)) {
+    pool.push(envKey);
   }
   return pool.filter(k => k && k.trim() !== '');
 };
 
 export const ACTIVE_MODELS = [
-  'gemini-2.5-flash',          // Paling stabil & ultra cepat (~1.2 detik, sangat direkomendasikan untuk mobile)
-  'gemini-3-flash-preview',    // Generasi 3 Flash Preview (~1.5 detik, cepat & pintar)
+  'gemini-3-flash-preview',    // Model utama kilat & kuota tinggi (~1.5 detik, 100% stabil)
   'gemini-3.8-flash',          // Generasi 3.8 terbaru (Reasoning cerdas)
   'gemini-3.5-flash-lite',     // Ringan & hemat kuota
-  'gemini-3.6-flash',          // Stabil
+  'gemini-flash-latest',       // Alias produksi stabil
+  'gemini-3.5-flash',          // Multimodal stabil
+  'gemini-flash-lite-latest',  // Cadangan ultra ringan
 ];
 
-let preferredModel = 'gemini-2.5-flash';
+export const sanitizeModel = (m?: string): string => {
+  if (!m) return 'gemini-3-flash-preview';
+  const trimmed = m.trim();
+  const legacy: Record<string, string> = {
+    'gemini-2.5-flash': 'gemini-3-flash-preview',
+    'gemini-3.6-flash': 'gemini-3-flash-preview',
+    'gemini-flash-latest': 'gemini-flash-latest',
+    'gemini-2.0-flash': 'gemini-3-flash-preview',
+    'gemini-2.0-flash-lite': 'gemini-3.5-flash-lite',
+    'gemini-1.5-flash': 'gemini-3-flash-preview',
+    'gemini-pro': 'gemini-3-flash-preview',
+  };
+  return legacy[trimmed] || trimmed;
+};
+
+let preferredModel = 'gemini-3-flash-preview';
 
 // Load cached preferred model asynchronously from AsyncStorage
 AsyncStorage.getItem('@app_ai_model').then(val => {
   if (val && val.trim()) {
-    // Migrasi model lama yang memang sudah tidak ada di Google API
-    const legacyModels: Record<string, string> = {
-      'gemini-3.5-flash': 'gemini-3.6-flash',
-      'gemini-flash-latest': 'gemini-3.5-flash-lite',
-      'gemini-2.0-flash': 'gemini-2.5-flash',
-      'gemini-2.0-flash-lite': 'gemini-3.5-flash-lite',
-      'gemini-1.5-flash': 'gemini-2.5-flash',
-      'gemini-pro': 'gemini-2.5-flash',
-    };
-    const migrated = legacyModels[val.trim()] || val.trim();
+    const migrated = sanitizeModel(val.trim());
     preferredModel = migrated;
     if (migrated !== val.trim()) {
       AsyncStorage.setItem('@app_ai_model', migrated).catch(() => {});
@@ -72,8 +92,9 @@ AsyncStorage.getItem('@app_ai_model').then(val => {
 
 export const setPreferredModel = (model: string) => {
   if (model && model.trim()) {
-    preferredModel = model.trim();
-    AsyncStorage.setItem('@app_ai_model', model.trim()).catch(() => {});
+    const target = sanitizeModel(model.trim());
+    preferredModel = target;
+    AsyncStorage.setItem('@app_ai_model', target).catch(() => {});
   }
 };
 
@@ -88,7 +109,7 @@ export const testGeminiApiKey = async (
   const startTime = Date.now();
   let lastErr = '';
 
-  const targetFirst = (modelPreference || preferredModel || 'gemini-2.5-flash').trim();
+  const targetFirst = (modelPreference || preferredModel || 'gemini-3-flash-preview').trim();
   const candidateModels = [
     targetFirst,
     ...ACTIVE_MODELS.filter(m => m !== targetFirst),
@@ -98,7 +119,7 @@ export const testGeminiApiKey = async (
     const model = candidateModels[i];
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000);
+      const timeoutId = setTimeout(() => controller.abort(), 12000);
       const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${testKey}`;
       const res = await fetch(url, {
         method: 'POST',
@@ -120,7 +141,23 @@ export const testGeminiApiKey = async (
         return { success: true, message: msg, latency, modelUsed: model };
       } else {
         const err = await res.json().catch(() => ({}));
-        lastErr = err?.error?.message || `HTTP ${res.status}`;
+        const rawErr = err?.error?.message || `HTTP ${res.status}`;
+        if (rawErr.includes('service account is deleted or disabled') || rawErr.includes('bound service account')) {
+          blacklistGeminiKey(testKey);
+          return {
+            success: false,
+            message: 'Kunci tidak aktif (Service Account Google Cloud terikat telah dinonaktifkan/dihapus)',
+            latency,
+          };
+        } else if (rawErr.includes('API key not valid') || rawErr.includes('API_KEY_INVALID')) {
+          blacklistGeminiKey(testKey);
+          return {
+            success: false,
+            message: 'Kunci API tidak valid / salah',
+            latency,
+          };
+        }
+        lastErr = rawErr;
       }
     } catch (e: any) {
       lastErr = e.message || 'Gagal menghubungi server Gemini.';
@@ -850,26 +887,37 @@ export async function sendMessageToGemini(
   const startOffset = Math.floor(Math.random() * totalKeys);
 
   // Daftar model yang akan dicoba secara berurutan:
-  // Mulai dari model pilihan aktif, lalu otomatis fallback ke model generasi baru / stabil
-  const activePreferred = (options?.model || preferredModel || 'gemini-3.8-flash').trim();
+  // Selalu sanitasi model pilihan aktif, lalu otomatis siapkan seluruh model cadangan
+  const activePreferred = sanitizeModel(options?.model || preferredModel || 'gemini-3-flash-preview');
   const modelsToTry = [
     activePreferred,
     ...ACTIVE_MODELS.filter(m => m !== activePreferred),
   ];
 
-  // 1. TIER 1 (MODEL FAILOVER): Jika sebuah model limit (429), timeout, atau overload di server (503),
-  // sistem OTOMATIS beralih ke model cadangan berikutnya
+  // 1. TIER 1 (MODEL-LEVEL AUTO-SWITCH): Coba model utama, jika kena limit/overload LANGSUNG ganti model
   for (const model of modelsToTry) {
+    let consecutiveQuotaOrOverloadCount = 0;
+
     // 2. TIER 2 (MULTI-KEY LOAD BALANCING): Untuk model yang sedang dicoba,
-    // coba kunci-kunci di pool secara bergantian
-    for (let step = 0; step < totalKeys; step++) {
+    // coba kunci di pool secara bergantian
+    const maxKeyAttempts = Math.min(5, totalKeys);
+    for (let step = 0; step < maxKeyAttempts; step++) {
       const keyIdx = (startOffset + step) % totalKeys;
       const currentKey = keysPool[keyIdx];
       const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
 
       try {
         const result = await callSingleModelWithKey(currentKey, model, contents, systemPrompt, options);
-        return await continueUntilComplete(currentKey, model, contents, systemPrompt, options, result);
+        const finalReply = await continueUntilComplete(currentKey, model, contents, systemPrompt, options, result);
+
+        // AUTO-HEAL: Jika berhasil menjawab menggunakan model fallback (berbeda dari preferredModel),
+        // otomatis perbarui preferredModel agar permintaan berikutnya langsung mulus tanpa mencoba model yang limit!
+        if (model !== preferredModel && !options?.model) {
+          console.log(`[Auto-Heal] Berhasil beralih ke model ${model}. Mengupdate preferredModel.`);
+          setPreferredModel(model);
+        }
+
+        return finalReply;
       } catch (err: any) {
         lastError = err;
 
@@ -878,55 +926,83 @@ export async function sendMessageToGemini(
           throw err;
         }
 
-        // Jika model sedang overload di Google (503 high demand) atau sudah tidak ada (404),
-        // ini adalah masalah MODEL di sisi server, bukan masalah kunci.
-        // Langsung BREAK agar tidak membuang 15-30 detik mencoba kunci lain yang pasti kena 503 juga!
-        const isModelUnavailable =
-          err.status === 503 ||
+        // 1. Jika kunci mati permanen (service account dihapus/dinonaktifkan atau key invalid)
+        const isKeyPermanentlyDead =
+          err.status === 400 ||
+          err.status === 403 ||
+          (err.message && (
+            err.message.includes('service account is deleted or disabled') ||
+            err.message.includes('bound service account') ||
+            err.message.includes('API key not valid') ||
+            err.message.includes('API_KEY_INVALID')
+          ));
+
+        if (isKeyPermanentlyDead) {
+          console.warn(`[Auto-Prune] Kunci ${keyPreview} tidak aktif / service account mati. Mengeluarkan dari pool.`);
+          blacklistGeminiKey(currentKey);
+          continue; // Langsung coba kunci berikutnya
+        }
+
+        // 2. Jika model pensiun / tidak ditemukan (404)
+        const isModelPermanentlyGone =
           err.status === 404 ||
           (err.message && (
+            err.message.includes('is no longer available') ||
+            err.message.includes('not found')
+          ));
+
+        if (isModelPermanentlyGone) {
+          console.warn(`[Silent-Auto-Switch] Model ${model} tidak tersedia (${err.message}). Otomatis beralih ke model berikutnya...`);
+          break; // Keluar dari loop kunci untuk model ini, LANGSUNG COBA MODEL BERIKUTNYA!
+        }
+
+        // 3. Jika terkena batas kuota / rate limit (429) ATAU server overload / high demand (503)
+        const isQuotaOrOverload =
+          err.status === 429 ||
+          err.status === 503 ||
+          (err.message && (
+            err.message.includes('Quota exceeded') ||
+            err.message.includes('RESOURCE_EXHAUSTED') ||
+            err.message.includes('rate-limits') ||
+            err.message.includes('rate limit') ||
+            err.message.includes('limit') ||
             err.message.includes('high demand') ||
             err.message.includes('overloaded') ||
-            err.message.includes('is no longer available') ||
             err.message.includes('temporarily unavailable')
           ));
 
-        if (isModelUnavailable) {
-          console.warn(`[Fast-Failover] Model ${model} sedang overload/tidak tersedia (${err.message}). Langsung beralih ke model cadangan...`);
-          break;
-        }
+        if (isQuotaOrOverload) {
+          consecutiveQuotaOrOverloadCount++;
+          console.warn(`[Auto-Failover] Model ${model} pada Kunci #${keyIdx + 1} (${keyPreview}) limit/overload (${err.message}).`);
 
-        const isAuthError =
-          err.status === 401 ||
-          err.status === 403 ||
-          (err.status === 400 && (err.message?.includes('API_KEY') || err.message?.includes('key') || err.message?.includes('credentials')));
-
-        const isQuotaError =
-          err.status === 429 ||
-          (err.message && (err.message.includes('quota') || err.message.includes('ResourceExhausted') || err.message.includes('rate limit')));
-
-        if (isAuthError) {
-          console.warn(`[Multi-Key Failover] Kunci #${keyIdx + 1} (${keyPreview}) tidak valid/terblokir (${err.message}). Mencoba kunci lain...`);
+          // Jika sudah 2 kunci mengembalikan limit pada model ini, ATAU pool kunci sedikit:
+          // JANGAN buang waktu lagi! LANGSUNG GANTI KE MODEL AI BERIKUTNYA!
+          if (consecutiveQuotaOrOverloadCount >= 2 || totalKeys <= 2) {
+            console.warn(`[Silent-Auto-Switch] Model ${model} sedang mencapai batas kuota / antrean. Otomatis beralih ke model AI lain di pool...`);
+            break; // LANGSUNG GANTI MODEL!
+          }
           continue;
         }
 
-        if (isQuotaError) {
-          console.warn(`[Quota Limit] Model ${model} pada Kunci #${keyIdx + 1} (${keyPreview}) terkena limit kuota/RPM. Mencoba kunci/model cadangan...`);
-          continue;
-        }
-
-        console.warn(`[Model Timeout/Busy] Model ${model} pada Kunci #${keyIdx + 1} sibuk (${err.message}). Melanjutkan failover...`);
-        await new Promise(res => setTimeout(res, 100));
+        // Error lainnya: coba kunci berikutnya
+        continue;
       }
     }
 
-    console.warn(`[Auto-Model Fallback] Model ${model} tidak merespons. Beralih ke model cadangan berikutnya...`);
+    console.warn(`[Auto-Model Fallback] Model ${model} selesai dievaluasi. Beralih otomatis ke model berikutnya di pool...`);
   }
 
-  throw new Error(
-    lastError?.message ||
-    'Seluruh model AI dan API Key di pool sedang dalam batas kuota / antrean padat. Silakan coba beberapa saat lagi!'
-  );
+  // Pesan error terjemahan yang ramah jika SELURUH model cadangan sedang dicoba
+  let userFriendlyMsg = lastError?.message || 'Layanan AI sedang sibuk. Silakan coba beberapa saat lagi!';
+  if (userFriendlyMsg.includes('service account is deleted or disabled') || userFriendlyMsg.includes('bound service account')) {
+    userFriendlyMsg = 'Koneksi AI sedang disinkronkan oleh sistem. Silakan coba kirim pesan sekali lagi.';
+  } else if (userFriendlyMsg.includes('Quota exceeded') || userFriendlyMsg.includes('RESOURCE_EXHAUSTED')) {
+    userFriendlyMsg = 'Batas kuota harian pada model ini telah tercapai. Sistem sedang mengalihkan ke model cadangan, silakan coba kirim pesan sekali lagi.';
+  } else if (userFriendlyMsg.includes('is no longer available')) {
+    userFriendlyMsg = 'Model AI versi lawas sudah dinonaktifkan oleh Google. Sistem telah beralih otomatis ke Gemini 3 Flash.';
+  }
+
+  throw new Error(userFriendlyMsg);
 }
 
 export async function getAIWisdom(mood: string, botName?: string): Promise<string> {

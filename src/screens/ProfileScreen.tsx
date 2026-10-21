@@ -1294,7 +1294,7 @@ export default function ProfileScreen() {
                 </View>
                 <View style={styles.infoRow}>
                   <Ionicons name="hardware-chip-outline" size={16} color={theme.accentLight} />
-                  <Text style={[styles.infoText, { color: theme.subtext }]}>AI Model Engine: Gemini 2.5 Flash</Text>
+                  <Text style={[styles.infoText, { color: theme.subtext }]}>AI Model Engine: Gemini 3 Flash Preview ⚡</Text>
                 </View>
               </View>
 

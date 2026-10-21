@@ -155,15 +155,16 @@ export default function AdminScreen() {
   const [botNameInput, setBotNameInput] = useState(aiBotName || 'Ara');
   const [promptText, setPromptText] = useState(aiPersona || PRESET_PERSONAS[0].prompt);
   const legacyModelMap: Record<string, string> = {
-    'gemini-3-flash-preview': 'gemini-3.8-flash',
-    'gemini-3.5-flash': 'gemini-3.6-flash',
-    'gemini-flash-latest': 'gemini-3.5-flash-lite',
-    'gemini-2.0-flash': 'gemini-3.8-flash',
+    'gemini-2.5-flash': 'gemini-3-flash-preview',
+    'gemini-3.5-flash': 'gemini-3.5-flash',
+    'gemini-3.6-flash': 'gemini-3-flash-preview',
+    'gemini-flash-latest': 'gemini-flash-latest',
+    'gemini-2.0-flash': 'gemini-3-flash-preview',
     'gemini-2.0-flash-lite': 'gemini-3.5-flash-lite',
-    'gemini-1.5-flash': 'gemini-2.5-flash',
-    'gemini-pro': 'gemini-3.8-flash',
+    'gemini-1.5-flash': 'gemini-3-flash-preview',
+    'gemini-pro': 'gemini-3-flash-preview',
   };
-  const rawModel = appSettings['ai_model'] || 'gemini-2.5-flash';
+  const rawModel = appSettings['ai_model'] || 'gemini-3-flash-preview';
   const [aiModelSelected, setAiModelSelected] = useState(legacyModelMap[rawModel] || rawModel);
   const [aiTempSelected, setAiTempSelected] = useState(appSettings['ai_temp'] || '0.7');
   const [aiTopPSelected, setAiTopPSelected] = useState(appSettings['ai_top_p'] || '0.95');
@@ -859,6 +860,44 @@ export default function AdminScreen() {
       setSavingKeysPool(false);
     }
   };
+
+  const handleCleanDeadKeysInPool = async () => {
+    // Cari kunci-kunci dengan service account mati / invalid dari hasil uji
+    const deadIndices = new Set<number>();
+    Object.entries(keyTestResults).forEach(([idxStr, res]) => {
+      if (!res.success && (
+        res.message.includes('Service Account') ||
+        res.message.includes('tidak aktif') ||
+        res.message.includes('tidak valid') ||
+        res.message.includes('deleted or disabled')
+      )) {
+        deadIndices.add(parseInt(idxStr, 10));
+      }
+    });
+
+    if (deadIndices.size === 0) {
+      showAlert('Info Pengujian', 'Belum ada kunci mati yang terdeteksi dari hasil uji. Klik "⚡ Uji Semua API" terlebih dahulu untuk mendeteksi kunci yang bermasalah.');
+      return;
+    }
+
+    const filtered = keysPool.filter((_, idx) => !deadIndices.has(idx));
+    confirmAction(
+      'Bersihkan Kunci Mati Otomatis',
+      `Terdeteksi ${deadIndices.size} kunci dengan Service Account mati / tidak valid. Bersihkan sekarang dan simpan sisa ${filtered.length} kunci aktif ke database?`,
+      async () => {
+        setKeysPool(filtered);
+        setKeyTestResults({});
+        setKeysPage(1);
+        try {
+          await updateGeminiApiKeys(filtered);
+          showAlert('Berhasil', `${deadIndices.size} kunci mati berhasil dihapus! Sisa ${filtered.length} kunci aktif tersimpan.`);
+        } catch (e) {
+          showAlert('Gagal', 'Gagal memperbarui pool kunci.');
+        }
+      },
+      'Bersihkan Sekarang'
+    );
+  };
   // Feature Flags Handlers
   // -------------------------------------------------------------
   const handleSaveFeatureFlags = async () => {
@@ -1482,7 +1521,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       </View>
                       <Text style={[styles.metricNum, { color: theme.text }]}>{stats.messages}</Text>
                       <Text style={[styles.metricLabel, { color: theme.subtext }]}>Pesan Curhat & Tanya AI</Text>
-                      <Text style={{ fontSize: 10, color: '#3B82F6', fontWeight: '700', marginTop: 4 }}>⚡ Gemini 2.5 Flash Engine</Text>
+                      <Text style={{ fontSize: 10, color: '#3B82F6', fontWeight: '700', marginTop: 4 }}>⚡ Gemini 3 Flash Engine</Text>
                     </View>
 
                     <View style={[styles.metricCard, { width: isMobile ? (isSmallPhone ? '100%' : '48%') : isTablet ? '48%' : '23.5%', minWidth: isMobile ? (isSmallPhone ? '100%' : 140) : 180, flexGrow: 1, backgroundColor: theme.card, borderColor: theme.border }]}>
@@ -3126,37 +3165,63 @@ showAlert('Gagal', 'Gagal mereset logo.');
 
                   {/* Test All Keys Button */}
                   {keysPool.length > 0 && (
-                    <TouchableOpacity
-                      style={[
-                        styles.saveAllPoolBtn,
-                        {
-                          backgroundColor: theme.cardInner,
-                          borderColor: '#3B82F6',
-                          borderWidth: 1.5,
-                          marginBottom: 10,
-                        },
-                        (isTestingAllKeys || keysPool.length === 0) && { opacity: 0.6 },
-                      ]}
-                      onPress={handleTestAllKeysInPool}
-                      disabled={isTestingAllKeys || keysPool.length === 0}
-                      activeOpacity={0.8}
-                    >
-                      {isTestingAllKeys ? (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <ActivityIndicator color="#3B82F6" size="small" />
-                          <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
-                            Menguji Seluruh {keysPool.length} Kunci Serentak...
-                          </Text>
-                        </View>
-                      ) : (
-                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                          <Ionicons name="flash" size={16} color="#3B82F6" />
-                          <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
-                            ⚡ Uji Semua API Sekaligus ({keysPool.length} Kunci)
-                          </Text>
-                        </View>
+                    <View style={{ gap: 8, marginBottom: 10 }}>
+                      <TouchableOpacity
+                        style={[
+                          styles.saveAllPoolBtn,
+                          {
+                            backgroundColor: theme.cardInner,
+                            borderColor: '#3B82F6',
+                            borderWidth: 1.5,
+                            marginBottom: 0,
+                          },
+                          (isTestingAllKeys || keysPool.length === 0) && { opacity: 0.6 },
+                        ]}
+                        onPress={handleTestAllKeysInPool}
+                        disabled={isTestingAllKeys || keysPool.length === 0}
+                        activeOpacity={0.8}
+                      >
+                        {isTestingAllKeys ? (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <ActivityIndicator color="#3B82F6" size="small" />
+                            <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
+                              Menguji Seluruh {keysPool.length} Kunci Serentak...
+                            </Text>
+                          </View>
+                        ) : (
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Ionicons name="flash" size={16} color="#3B82F6" />
+                            <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
+                              ⚡ Uji Semua API Sekaligus ({keysPool.length} Kunci)
+                            </Text>
+                          </View>
+                        )}
+                      </TouchableOpacity>
+
+                      {/* Clean Dead Keys Button (Active if any dead keys detected or to clean) */}
+                      {Object.values(keyTestResults).some(r => !r.success && (r.message.includes('Service Account') || r.message.includes('tidak aktif') || r.message.includes('tidak valid'))) && (
+                        <TouchableOpacity
+                          style={[
+                            styles.saveAllPoolBtn,
+                            {
+                              backgroundColor: '#EF444415',
+                              borderColor: '#EF4444',
+                              borderWidth: 1.5,
+                              marginBottom: 0,
+                            },
+                          ]}
+                          onPress={handleCleanDeadKeysInPool}
+                          activeOpacity={0.8}
+                        >
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <Ionicons name="trash-bin-outline" size={16} color="#EF4444" />
+                            <Text style={[styles.saveAllPoolText, { color: '#EF4444' }]}>
+                              🧹 Bersihkan Kunci Mati Otomatis dari Pool
+                            </Text>
+                          </View>
+                        </TouchableOpacity>
                       )}
-                    </TouchableOpacity>
+                    </View>
                   )}
 
                   {/* Save All Pool Button */}
@@ -3199,11 +3264,11 @@ showAlert('Gagal', 'Gagal mereset logo.');
                   <Text style={styles.inputLabel}>Versi AI Model:</Text>
                   <View style={styles.paramChipsRow}>
                     {[
-                      { id: 'gemini-2.5-flash', label: 'Gemini 2.5 Flash ⚡ (Paling Cepat & Stabil ~1.2s — Sangat Direkomendasikan)' },
-                      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview (Cepat & Pintar ~1.5s)' },
+                      { id: 'gemini-3-flash-preview', label: 'Gemini 3 Flash Preview ⚡ (Direkomendasikan - Paling Cepat & Stabil ~1.5s)' },
                       { id: 'gemini-3.8-flash', label: 'Gemini 3.8 Flash (Generasi Terbaru, Penalaran Cerdas)' },
                       { id: 'gemini-3.5-flash-lite', label: 'Gemini 3.5 Flash-Lite (Ultra Cepat & Ringan)' },
-                      { id: 'gemini-3.6-flash', label: 'Gemini 3.6 Flash (Stabil Multimodal)' },
+                      { id: 'gemini-flash-latest', label: 'Gemini Flash Latest (Versi Produksi Stabil)' },
+                      { id: 'gemini-3.5-flash', label: 'Gemini 3.5 Flash (Multimodal Stabil)' },
                     ].map(m => (
                       <TouchableOpacity
                         key={m.id}
