@@ -9,6 +9,7 @@ import * as FileSystem from 'expo-file-system';
 import { FlashcardItem } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
+import { calculateNextReview, ReviewGrade } from '../lib/spacedRepetition';
 
 interface Flashcard3DModalProps {
   visible: boolean;
@@ -198,14 +199,12 @@ export default function Flashcard3DModal({
     setEvaluationResult(null);
   };
 
-  // Grade SRS Mastery for the current card
+  // Grade SRS Mastery for the current card (SuperMemo SM-2 Spaced Repetition)
   const handleGrade = (difficulty: 'hard' | 'medium' | 'easy') => {
     const updatedCards = [...cards];
-    updatedCards[currentIndex] = {
-      ...updatedCards[currentIndex],
-      difficulty,
-      mastered: difficulty === 'easy',
-    };
+    const grade: ReviewGrade = difficulty === 'hard' ? 'hard' : difficulty === 'medium' ? 'good' : 'easy';
+    const srsUpdated = calculateNextReview(updatedCards[currentIndex], grade);
+    updatedCards[currentIndex] = srsUpdated;
     setCards(updatedCards);
     onSaveFlashcards?.(updatedCards);
 
@@ -487,25 +486,16 @@ Format output HARUS HANYA berupa JSON valid murni tanpa pembungkus markdown:
         setEvaluationResult(result);
         setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), 150);
 
-        if (result.status === 'correct' || result.score >= 75) {
-          const updatedCards = [...cards];
-          updatedCards[currentIndex] = {
-            ...updatedCards[currentIndex],
-            difficulty: 'easy',
-            mastered: true,
-          };
-          setCards(updatedCards);
-          onSaveFlashcards?.(updatedCards);
-        } else if (result.status === 'partial') {
-          const updatedCards = [...cards];
-          updatedCards[currentIndex] = {
-            ...updatedCards[currentIndex],
-            difficulty: 'medium',
-            mastered: false,
-          };
-          setCards(updatedCards);
-          onSaveFlashcards?.(updatedCards);
-        }
+        const srsGrade: ReviewGrade =
+          (result.status === 'correct' || result.score >= 80) ? 'easy'
+          : result.score >= 60 ? 'good'
+          : result.score >= 40 ? 'hard'
+          : 'again';
+
+        const updatedCards = [...cards];
+        updatedCards[currentIndex] = calculateNextReview(updatedCards[currentIndex], srsGrade);
+        setCards(updatedCards);
+        onSaveFlashcards?.(updatedCards);
       }
     } catch (e: any) {
       setEvaluationResult({

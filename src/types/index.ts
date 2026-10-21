@@ -36,7 +36,7 @@ export interface ChatMessage {
   attachment?: ChatAttachment | null;
   session_id?: string | null;
   created_at: string;
-  mode?: 'standard' | 'deep' | 'factual' | 'agent' | null;
+  mode?: 'standard' | 'deep' | 'factual' | 'agent' | 'debate' | 'code' | 'web' | null;
 }
 
 export interface JournalEntry {
@@ -66,6 +66,11 @@ export interface FlashcardItem {
   hint?: string;
   mastered?: boolean;
   difficulty?: 'easy' | 'medium' | 'hard';
+  // Spaced Repetition (SM-2) fields
+  interval?: number;
+  repetition?: number;
+  easeFactor?: number;
+  dueDate?: string; // ISO date string
 }
 
 export interface NoteAttachment {

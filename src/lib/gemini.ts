@@ -197,6 +197,8 @@ export interface SendMessageOptions {
   topP?: number;
   factual?: boolean;
   agent?: boolean;
+  webSearch?: boolean;
+  codeExecution?: boolean;
   /** External signal that lets the caller cancel an in-flight request. */
   signal?: AbortSignal;
   /** Explicit model override (e.g. from appSettings.ai_model) */
@@ -309,6 +311,18 @@ async function callSingleModelWithKey(
     ],
   };
 
+  // Tools: Python Code Execution & Google Search Grounding
+  const tools: any[] = [];
+  if (options?.codeExecution) {
+    tools.push({ codeExecution: {} });
+  }
+  if (options?.webSearch) {
+    tools.push({ googleSearch: {} });
+  }
+  if (tools.length > 0) {
+    requestBody.tools = tools;
+  }
+
   // Thinking budget: explicitly set 0 for normal mode agar model tidak
   // melakukan internal reasoning yang membuang waktu. Mode Deep Think
   // menggunakan budget terbatas (1024) — cukup untuk analisis mendalam
@@ -358,9 +372,20 @@ async function callSingleModelWithKey(
     const data = await response.json();
     const candidate = data.candidates?.[0];
     // Filter bagian "thought" internal AI agar tidak bocor ke tampilan chat.
+    // Parse juga executableCode dan codeExecutionResult jika ada.
     const replyText = candidate?.content?.parts
       ?.filter((p: any) => !p.thought)
-      ?.map((p: any) => p.text || '')
+      ?.map((p: any) => {
+        if (p.text) return p.text;
+        if (p.executableCode) {
+          return `\n\`\`\`python\n${p.executableCode.code.trim()}\n\`\`\`\n`;
+        }
+        if (p.codeExecutionResult) {
+          const out = p.codeExecutionResult.output ? p.codeExecutionResult.output.trim() : 'Selesai tanpa output';
+          return `\n> 🐍 **Output Sandbox:**\n> \`\`\`\n> ${out}\n> \`\`\`\n`;
+        }
+        return '';
+      })
       ?.join('') || '';
     if (!replyText) {
       throw new Error('AI tidak memberikan respon teks.');
@@ -487,6 +512,18 @@ async function streamSingleModelWithKey(
     ],
   };
 
+  // Tools: Python Code Execution & Google Search Grounding
+  const tools: any[] = [];
+  if (options?.codeExecution) {
+    tools.push({ codeExecution: {} });
+  }
+  if (options?.webSearch) {
+    tools.push({ googleSearch: {} });
+  }
+  if (tools.length > 0) {
+    requestBody.tools = tools;
+  }
+
   // Thinking budget: eksplisit matikan (0) untuk mode biasa agar model tidak
   // menghabiskan 10-15 detik untuk internal reasoning sebelum menjawab.
   // Mode Deep Think menggunakan budget 1024 — cukup mendalam, tetap responsif.
@@ -542,7 +579,17 @@ async function streamSingleModelWithKey(
           const parts: any[] = candidate?.content?.parts || [];
           const delta = parts
             .filter((p: any) => !p.thought)
-            .map((p: any) => p.text || '')
+            .map((p: any) => {
+              if (p.text) return p.text;
+              if (p.executableCode) {
+                return `\n\`\`\`python\n${p.executableCode.code.trim()}\n\`\`\`\n`;
+              }
+              if (p.codeExecutionResult) {
+                const out = p.codeExecutionResult.output ? p.codeExecutionResult.output.trim() : 'Selesai tanpa output';
+                return `\n> 🐍 **Output Sandbox:**\n> \`\`\`\n> ${out}\n> \`\`\`\n`;
+              }
+              return '';
+            })
             .join('');
           if (delta) {
             fullText += delta;
@@ -990,6 +1037,15 @@ export async function sendMessageToGemini(
     }
 
     console.warn(`[Auto-Model Fallback] Model ${model} selesai dievaluasi. Beralih otomatis ke model berikutnya di pool...`);
+  }
+
+  // Jika opsi webSearch aktif dan gagal karena kuota grounding, ulangi sekali lagi secara mulus tanpa webSearch
+  if (options?.webSearch) {
+    console.warn('[Web-Search Fallback] Grounding search kuota penuh. Mengulangi permintaan secara mulus tanpa grounding...');
+    return sendMessageToGemini(history, newMessage, attachment, customSystemInstruction, {
+      ...options,
+      webSearch: false,
+    });
   }
 
   // Pesan error terjemahan yang ramah jika SELURUH model cadangan sedang dicoba

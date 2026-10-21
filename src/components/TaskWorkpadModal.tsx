@@ -14,6 +14,12 @@ import { exportTaskToPdf } from '../lib/pdfExporter';
 import MarkdownRenderer from './MarkdownRenderer';
 import { parseDeadline } from '../lib/dateUtils';
 import { useNavigation } from '@react-navigation/native';
+import * as ImagePicker from 'expo-image-picker';
+import { compressImage } from '../lib/imageCompressor';
+import { uriToBase64 } from '../lib/fileReader';
+import { ChatAttachment } from '../types';
+import { paraphraseAcademic } from '../lib/academicShield';
+import { gradeHandwrittenWork } from '../lib/examGrader';
 
 interface TaskWorkpadModalProps {
   visible: boolean;
@@ -34,6 +40,8 @@ export default function TaskWorkpadModal({
   const [viewMode, setViewMode] = useState<'preview' | 'edit'>('preview');
   const [copied, setCopied] = useState(false);
   const [loadingAi, setLoadingAi] = useState(false);
+  const [paraphrasing, setParaphrasing] = useState(false);
+  const [grading, setGrading] = useState(false);
 
   useEffect(() => {
     if (task) {
@@ -97,6 +105,56 @@ export default function TaskWorkpadModal({
       showAlert('Gagal AI', err.message || 'Server AI sedang sibuk.');
     } finally {
       setLoadingAi(false);
+    }
+  };
+
+  const handleParaphrase = async () => {
+    if (!content.trim()) {
+      showAlert('Teks Kosong', 'Tuliskan draf teks tugas terlebih dahulu untuk diparafrase.');
+      return;
+    }
+    setParaphrasing(true);
+    try {
+      const res = await paraphraseAcademic(content, 'heavy_turnitin');
+      const formatted = `\n\n---\n### 🛡️ Hasil Parafrase Akademis (Risiko Turnitin: ${res.similarityRisk})\n${res.paraphrasedText}\n\n**Perubahan Kunci:**\n${res.changesSummary.map(c => `• ${c}`).join('\n')}`;
+      setContent(prev => prev + formatted);
+      setViewMode('preview');
+      showAlert('Parafrase Berhasil! 🛡️', 'Teks telah dipoles agar lolos uji kemiripan Turnitin.');
+    } catch (e: any) {
+      showAlert('Gagal Parafrase', e.message || 'Layanan AI sedang sibuk.');
+    } finally {
+      setParaphrasing(false);
+    }
+  };
+
+  const handleGradeExam = async () => {
+    try {
+      const pickRes = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: false,
+        quality: 0.8,
+      });
+      if (!pickRes.canceled && pickRes.assets[0]) {
+        const asset = pickRes.assets[0];
+        setGrading(true);
+        const compressedUri = await compressImage(asset.uri, { maxWidth: 800, quality: 0.55 });
+        const base64Data = await uriToBase64(compressedUri);
+        const attachment: ChatAttachment = {
+          type: 'image',
+          uri: compressedUri,
+          mimeType: 'image/jpeg',
+          base64: base64Data,
+        };
+        const res = await gradeHandwrittenWork(attachment, task?.title);
+        const formatted = `\n\n---\n### 📝 Hasil Koreksi Coretan PR (Estimasi Skor: ${res.estimatedScore}/100)\n**Status:** ${res.isCorrect ? '✅ Benar' : '⚠️ Ada Kesalahan'}\n${res.firstErrorStep ? `**Kesalahan Pertama:** ${res.firstErrorStep}\n` : ''}\n**Analisis Langkah:**\n${res.stepAnalysis}\n\n**Solusi Benar:**\n${res.correctSolution}`;
+        setContent(prev => prev + formatted);
+        setViewMode('preview');
+        showAlert('Koreksi Selesai! 📝', `Estimasi Skor: ${res.estimatedScore}/100. Cek evaluasi langkah demi langkah di lembar kerja.`);
+      }
+    } catch (e: any) {
+      showAlert('Gagal Koreksi', e.message || 'Gagal memproses foto.');
+    } finally {
+      setGrading(false);
     }
   };
 
@@ -220,6 +278,36 @@ export default function TaskWorkpadModal({
                       <Ionicons name="sparkles" size={12} color={theme.accentLight} />
                     )}
                     <Text style={[styles.aiActionBtnText, { color: theme.accentLight, fontWeight: '700' }]}>Outline AI</Text>
+                  </TouchableOpacity>
+
+                  {/* Turnitin Paraphrase Shield */}
+                  <TouchableOpacity
+                    style={[styles.aiActionBtn, { backgroundColor: theme.card, borderColor: theme.border }, paraphrasing && { opacity: 0.6 }]}
+                    onPress={handleParaphrase}
+                    disabled={paraphrasing || loadingAi || grading}
+                    activeOpacity={0.7}
+                  >
+                    {paraphrasing ? (
+                      <ActivityIndicator size="small" color="#10B981" style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <Ionicons name="shield-checkmark-outline" size={12} color="#10B981" />
+                    )}
+                    <Text style={[styles.aiActionBtnText, { color: '#10B981', fontWeight: '700' }]}>Parafrase</Text>
+                  </TouchableOpacity>
+
+                  {/* Hand-Written Exam Grader */}
+                  <TouchableOpacity
+                    style={[styles.aiActionBtn, { backgroundColor: theme.card, borderColor: theme.border }, grading && { opacity: 0.6 }]}
+                    onPress={handleGradeExam}
+                    disabled={grading || loadingAi || paraphrasing}
+                    activeOpacity={0.7}
+                  >
+                    {grading ? (
+                      <ActivityIndicator size="small" color="#EC4899" style={{ transform: [{ scale: 0.7 }] }} />
+                    ) : (
+                      <Ionicons name="camera-outline" size={12} color="#EC4899" />
+                    )}
+                    <Text style={[styles.aiActionBtnText, { color: '#EC4899', fontWeight: '700' }]}>Koreksi PR</Text>
                   </TouchableOpacity>
 
                   <TouchableOpacity

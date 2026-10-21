@@ -18,7 +18,9 @@ import { Audio } from 'expo-av';
 import * as FileSystem from 'expo-file-system';
 import { useTheme } from '../contexts/ThemeContext';
 import { useMoods } from '../contexts/MoodContext';
+import { useAuth } from '../contexts/AuthContext';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
+import { extractAgentAction, stripAgentActionBlock, executeAgentAction } from '../lib/agentActions';
 import { ChatMessage } from '../types';
 
 interface GeminiLiveVoiceModalProps {
@@ -95,6 +97,8 @@ export default function GeminiLiveVoiceModal({
   // Theme & Mood Context
   const { theme, isLightMode } = useTheme();
   const { customAiAvatar, customAiName } = useMoods();
+  const { user } = useAuth();
+  const effectiveUserId = user?.id || 'guest_user';
 
   // Avatar and Display Name Resolution
   const effectiveAvatar = botAvatar || customAiAvatar || null;
@@ -108,6 +112,7 @@ export default function GeminiLiveVoiceModal({
   const [isMicMuted, setIsMicMuted] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isRequestingPermission, setIsRequestingPermission] = useState(false);
+  const [agentStatusNotice, setAgentStatusNotice] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState<number>(0);
 
   // Call duration counter
@@ -728,8 +733,23 @@ export default function GeminiLiveVoiceModal({
           ...convoHistoryRef.current,
         ];
 
-        const reply = await sendMessageToGemini(historyWithPrompt, 'Dengarkan pesan suara saya ini dan tanggapi dengan santai.', audioAttachment);
-        const cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
+        const reply = await sendMessageToGemini(historyWithPrompt, 'Dengarkan pesan suara saya ini dan tanggapi dengan santai.', audioAttachment, undefined, { agent: true });
+        let cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
+
+        // Voice-Driven Action Agent Execution
+        const action = extractAgentAction(reply);
+        if (action) {
+          try {
+            const res = await executeAgentAction(effectiveUserId, action);
+            setAgentStatusNotice(`⚙️ ${res.message}`);
+            cleanReply = stripAgentActionBlock(reply).trim();
+            if (res.ok) {
+              cleanReply = `${cleanReply} ${res.message}`;
+            }
+          } catch (actErr) {
+            console.warn('[VoiceAgent Audio Error]', actErr);
+          }
+        }
 
         // Keep history bounded to last 8 entries to reduce future payload size
         const updatedHistory = [
@@ -785,8 +805,23 @@ export default function GeminiLiveVoiceModal({
         ...convoHistoryRef.current,
       ];
 
-      const reply = await sendMessageToGemini(historyWithPrompt, queryText);
-      const cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
+      const reply = await sendMessageToGemini(historyWithPrompt, queryText, null, undefined, { agent: true });
+      let cleanReply = (reply || 'Suaramu tadi agak putus-putus, bisa diulang lagi?').trim();
+
+      // Voice-Driven Action Agent Execution
+      const action = extractAgentAction(reply);
+      if (action) {
+        try {
+          const res = await executeAgentAction(effectiveUserId, action);
+          setAgentStatusNotice(`⚙️ ${res.message}`);
+          cleanReply = stripAgentActionBlock(reply).trim();
+          if (res.ok) {
+            cleanReply = `${cleanReply} ${res.message}`;
+          }
+        } catch (actErr) {
+          console.warn('[VoiceAgent Query Error]', actErr);
+        }
+      }
 
       // Keep history bounded to last 8 entries to reduce future payload size
       const updatedHistory = [
@@ -1410,6 +1445,15 @@ export default function GeminiLiveVoiceModal({
               )}
             </View>
 
+            {agentStatusNotice && (
+              <View style={[styles.agentStatusPill, { backgroundColor: isLightMode ? '#ECFDF5' : 'rgba(16, 185, 129, 0.2)', borderColor: '#10B981' }]}>
+                <Ionicons name="checkmark-circle" size={14} color="#10B981" />
+                <Text style={[styles.agentStatusText, { color: isLightMode ? '#065F46' : '#6EE7B7' }]}>
+                  {agentStatusNotice}
+                </Text>
+              </View>
+            )}
+
             {/* ======================================================================= */}
             {/* FLOATING LIVE DIALOGUE CARD (Speech Subtitles with Speaker Badges) */}
             {/* ======================================================================= */}
@@ -1945,6 +1989,21 @@ const styles = StyleSheet.create({
   },
   permissionCancelBtnText: {
     fontSize: 14,
+    fontWeight: '600',
+  },
+  agentStatusPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+    marginBottom: 8,
+    gap: 6,
+    alignSelf: 'center',
+  },
+  agentStatusText: {
+    fontSize: 12,
     fontWeight: '600',
   },
 });

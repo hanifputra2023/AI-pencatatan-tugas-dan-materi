@@ -39,6 +39,8 @@ import {
   PulseDot,
 } from '../components/DuolingoAnimations';
 import GeminiLiveVoiceModal from '../components/GeminiLiveVoiceModal';
+import { runMultiAgentDebate } from '../lib/multiAgentDebate';
+import { getProactiveBriefing } from '../lib/shadowAgent';
 
 const SUGGESTIONS = [
   'Hari ini lumayan melelahkan...',
@@ -129,6 +131,10 @@ export default function ChatScreen() {
   const [deepThinkEnabled, setDeepThinkEnabled] = useState(false);
   const [factualEnabled, setFactualEnabled] = useState(false);
   const [agentEnabled, setAgentEnabled] = useState(false);
+  const [codeExecutionEnabled, setCodeExecutionEnabled] = useState(false);
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false);
+  const [debateModeEnabled, setDebateModeEnabled] = useState(false);
+  const [proactiveBanner, setProactiveBanner] = useState<string | null>(null);
   const [showStopModal, setShowStopModal] = useState(false);
   const cancelRef = useRef<AbortController | null>(null);
 
@@ -289,6 +295,13 @@ export default function ChatScreen() {
       fetchHistory(currentSessionId);
     }
   }, [currentSessionId, fetchHistory]);
+
+  // Cek Morning Briefing / Evening Check-in dari Shadow Agent
+  useEffect(() => {
+    getProactiveBriefing(effectiveUserId).then((msg) => {
+      if (msg) setProactiveBanner(msg);
+    });
+  }, [effectiveUserId]);
 
   // -------------------------------------------------------------
   // Multi-Session Controls: New Chat, Switch Session, Delete Session
@@ -658,7 +671,14 @@ export default function ChatScreen() {
     };
 
     const tempAiId = 'ai_' + Date.now();
-    const activeMode: 'standard' | 'deep' | 'factual' | 'agent' = factualEnabled ? 'factual' : agentEnabled ? 'agent' : deepThinkEnabled ? 'deep' : 'standard';
+    const activeMode: 'standard' | 'deep' | 'factual' | 'agent' | 'debate' | 'code' | 'web' =
+      debateModeEnabled ? 'debate'
+      : codeExecutionEnabled ? 'code'
+      : webSearchEnabled ? 'web'
+      : factualEnabled ? 'factual'
+      : agentEnabled ? 'agent'
+      : deepThinkEnabled ? 'deep'
+      : 'standard';
     const streamingAiMsg: ChatMessage = {
       id: tempAiId,
       session_id: activeSessionId,
@@ -676,6 +696,46 @@ export default function ChatScreen() {
     cancelRef.current = cancel;
     scrollToBottom(50);
 
+    // MODE DEBAT PAKAR (Multi-Agent Debate)
+    if (debateModeEnabled) {
+      try {
+        let accumulatedDebate = '';
+        await runMultiAgentDebate(text, (turn) => {
+          const formatted = `### ${turn.avatarEmoji} ${turn.speakerName} (${turn.badge})\n\n${turn.content}`;
+          accumulatedDebate = accumulatedDebate
+            ? `${accumulatedDebate}\n\n---\n\n${formatted}`
+            : formatted;
+          setMessages(prev => prev.map(m => m.id === tempAiId ? { ...m, content: accumulatedDebate, mode: 'debate' } : m));
+          scrollToBottom(100);
+        });
+
+        const finalDebateList = [
+          ...messages,
+          tempUserMsg,
+          {
+            id: tempAiId,
+            session_id: activeSessionId,
+            user_id: effectiveUserId,
+            role: 'assistant' as const,
+            content: accumulatedDebate,
+            mode: 'debate' as const,
+            created_at: new Date().toISOString(),
+          }
+        ];
+        setMessages(finalDebateList);
+        await safeSaveChatMessages(effectiveUserId, activeSessionId, finalDebateList);
+      } catch (debErr: any) {
+        console.warn('[Debate Error]', debErr);
+      } finally {
+        setLoading(false);
+        setIsStreaming(false);
+        setStreamingMsgId(null);
+        cancelRef.current = null;
+        scrollToBottom(150);
+      }
+      return;
+    }
+
     // Helper: kirim request, auto-retry sekali jika semua model sedang spike (503)
     const sendWithAutoRetry = async (): Promise<string> => {
       const history: GeminiMessage[] = messages.slice(-16).map(m => ({
@@ -689,6 +749,8 @@ export default function ChatScreen() {
         deepThink: deepThinkEnabled,
         factual: factualEnabled,
         agent: agentEnabled,
+        codeExecution: codeExecutionEnabled,
+        webSearch: webSearchEnabled,
         signal: cancel.signal,
         temperature: factualEnabled ? factualTemperature : chatTemperature,
         topP: factualEnabled ? factualTopP : chatTopP,
@@ -982,30 +1044,58 @@ export default function ChatScreen() {
                 {item.mode && item.mode !== 'standard' && streamingMsgId !== item.id && (
                   <View style={[
                     styles.modeBadge,
-                    { borderColor: item.mode === 'factual'
+                    {
+                      borderColor: item.mode === 'factual'
                         ? (isLightMode ? '#F59E0B' : '#FBBF24')
                         : item.mode === 'agent'
                           ? (isLightMode ? '#14B8A6' : '#5EEAD4')
-                          : (isLightMode ? '#8B5CF6' : '#A78BFA') }
+                          : item.mode === 'debate'
+                            ? (isLightMode ? '#EC4899' : '#F472B6')
+                            : item.mode === 'code'
+                              ? (isLightMode ? '#10B981' : '#34D399')
+                              : item.mode === 'web'
+                                ? (isLightMode ? '#3B82F6' : '#60A5FA')
+                                : (isLightMode ? '#8B5CF6' : '#A78BFA')
+                    }
                   ]}>
                     <Ionicons
-                      name={item.mode === 'factual' ? 'shield-checkmark-outline' : item.mode === 'agent' ? 'rocket-outline' : 'bulb-outline'}
+                      name={
+                        item.mode === 'factual' ? 'shield-checkmark-outline'
+                        : item.mode === 'agent' ? 'rocket-outline'
+                        : item.mode === 'debate' ? 'people-outline'
+                        : item.mode === 'code' ? 'code-slash'
+                        : item.mode === 'web' ? 'globe-outline'
+                        : 'bulb-outline'
+                      }
                       size={9}
-                      color={item.mode === 'factual'
-                        ? (isLightMode ? '#B45309' : '#FBBF24')
-                        : item.mode === 'agent'
-                          ? (isLightMode ? '#0F766E' : '#5EEAD4')
-                          : (isLightMode ? '#6D28D9' : '#A78BFA')}
+                      color={
+                        item.mode === 'factual' ? (isLightMode ? '#B45309' : '#FBBF24')
+                        : item.mode === 'agent' ? (isLightMode ? '#0F766E' : '#5EEAD4')
+                        : item.mode === 'debate' ? (isLightMode ? '#BE185D' : '#F472B6')
+                        : item.mode === 'code' ? (isLightMode ? '#047857' : '#34D399')
+                        : item.mode === 'web' ? (isLightMode ? '#1D4ED8' : '#60A5FA')
+                        : (isLightMode ? '#6D28D9' : '#A78BFA')
+                      }
                     />
                     <Text style={[
                       styles.modeBadgeText,
-                      { color: item.mode === 'factual'
-                          ? (isLightMode ? '#B45309' : '#FBBF24')
-                          : item.mode === 'agent'
-                            ? (isLightMode ? '#0F766E' : '#5EEAD4')
-                            : (isLightMode ? '#6D28D9' : '#A78BFA') }
+                      {
+                        color: item.mode === 'factual' ? (isLightMode ? '#B45309' : '#FBBF24')
+                        : item.mode === 'agent' ? (isLightMode ? '#0F766E' : '#5EEAD4')
+                        : item.mode === 'debate' ? (isLightMode ? '#BE185D' : '#F472B6')
+                        : item.mode === 'code' ? (isLightMode ? '#047857' : '#34D399')
+                        : item.mode === 'web' ? (isLightMode ? '#1D4ED8' : '#60A5FA')
+                        : (isLightMode ? '#6D28D9' : '#A78BFA')
+                      }
                     ]}>
-                      {item.mode === 'factual' ? 'Akurat' : item.mode === 'agent' ? 'Agent' : 'Deep'}
+                      {
+                        item.mode === 'factual' ? 'Akurat'
+                        : item.mode === 'agent' ? 'Agent'
+                        : item.mode === 'debate' ? 'Debat'
+                        : item.mode === 'code' ? 'Python'
+                        : item.mode === 'web' ? 'Web'
+                        : 'Deep'
+                      }
                     </Text>
                   </View>
                 )}
@@ -1307,6 +1397,18 @@ export default function ChatScreen() {
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 88 : 0}
           >
+            {proactiveBanner && (
+              <View style={[styles.proactiveBannerWrap, { backgroundColor: isLightMode ? '#EFF6FF' : '#1E293B', borderColor: isLightMode ? '#BFDBFE' : '#334155' }]}>
+                <Ionicons name="sparkles" size={15} color="#3B82F6" style={{ marginTop: 2 }} />
+                <View style={{ flex: 1 }}>
+                  <MarkdownRenderer content={proactiveBanner} fontSize={12.5} textColor={theme.text} />
+                </View>
+                <TouchableOpacity onPress={() => setProactiveBanner(null)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                  <Ionicons name="close" size={16} color={theme.subtext} />
+                </TouchableOpacity>
+              </View>
+            )}
+
             {messages.length === 0 ? (
               <ScrollView
                 style={isWide ? styles.emptyScrollWide : undefined}
@@ -1483,6 +1585,42 @@ export default function ChatScreen() {
                   bg: agentEnabled ? (isLightMode ? '#CCFBF1' : '#0F2A26') : theme.accentBg,
                   border: agentEnabled ? (isLightMode ? '#14B8A6' : '#5EEAD4') : theme.border,
                   color: agentEnabled ? (isLightMode ? '#0F766E' : '#5EEAD4') : theme.accentLight,
+                },
+                {
+                  key: 'code',
+                  label: 'Python',
+                  icon: 'code-slash' as const,
+                  onPress: () => {
+                    setCodeExecutionEnabled(p => !p);
+                    setDebateModeEnabled(false);
+                  },
+                  active: codeExecutionEnabled,
+                  bg: codeExecutionEnabled ? (isLightMode ? '#ECFDF5' : '#064E3B') : theme.accentBg,
+                  border: codeExecutionEnabled ? (isLightMode ? '#10B981' : '#34D399') : theme.border,
+                  color: codeExecutionEnabled ? (isLightMode ? '#047857' : '#34D399') : theme.accentLight,
+                },
+                {
+                  key: 'web',
+                  label: 'Web',
+                  icon: 'globe-outline' as const,
+                  onPress: () => setWebSearchEnabled(p => !p),
+                  active: webSearchEnabled,
+                  bg: webSearchEnabled ? (isLightMode ? '#EFF6FF' : '#1E3A8A') : theme.accentBg,
+                  border: webSearchEnabled ? (isLightMode ? '#3B82F6' : '#60A5FA') : theme.border,
+                  color: webSearchEnabled ? (isLightMode ? '#1D4ED8' : '#60A5FA') : theme.accentLight,
+                },
+                {
+                  key: 'debate',
+                  label: 'Debat',
+                  icon: 'people-outline' as const,
+                  onPress: () => {
+                    setDebateModeEnabled(p => !p);
+                    setCodeExecutionEnabled(false);
+                  },
+                  active: debateModeEnabled,
+                  bg: debateModeEnabled ? (isLightMode ? '#FDF2F8' : '#831843') : theme.accentBg,
+                  border: debateModeEnabled ? (isLightMode ? '#EC4899' : '#F472B6') : theme.border,
+                  color: debateModeEnabled ? (isLightMode ? '#BE185D' : '#F472B6') : theme.accentLight,
                 },
               ];
 
@@ -2537,6 +2675,17 @@ const styles = StyleSheet.create({
     shadowRadius: 8,
     elevation: 8,
     zIndex: 99,
+  },
+  proactiveBannerWrap: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginHorizontal: 16,
+    marginTop: 8,
+    marginBottom: 6,
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    gap: 8,
   },
 });
 

@@ -30,6 +30,7 @@ import {
   getCachedNotes,
   getCachedTasks,
 } from '../lib/offlineSync';
+import { isShadowAgentEnabled, setShadowAgentEnabled } from '../lib/shadowAgent';
 import { getBossTrophies, BossTrophy } from '../lib/rpgStorage';
 import BossAvatarIllustration from '../components/BossAvatarIllustration';
 import {
@@ -268,6 +269,7 @@ export default function ProfileScreen() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [stats, setStats] = useState({ total: 0, streak: 0, chats: 0 });
+  const [shadowEnabled, setShadowEnabled] = useState(true);
 
   // Secret Admin Claim Dialog State
   const [showClaimModal, setShowClaimModal] = useState(false);
@@ -353,6 +355,16 @@ export default function ProfileScreen() {
   useEffect(() => { setCustomAccentHex(theme.primary); }, [theme.primary]);
   useEffect(() => { setCustomTextHex(theme.text); }, [theme.text]);
   useEffect(() => { setCustomSubtextHex(theme.subtext); }, [theme.subtext]);
+
+  useEffect(() => {
+    isShadowAgentEnabled().then(setShadowEnabled);
+  }, []);
+
+  const handleToggleShadowAgent = async () => {
+    const nextVal = !shadowEnabled;
+    setShadowEnabled(nextVal);
+    await setShadowAgentEnabled(nextVal);
+  };
 
   const handleBgHexChange = (val: string) => {
     setCustomBgHex(val);
@@ -2026,6 +2038,32 @@ export default function ProfileScreen() {
                     activeOpacity={0.8}
                   >
                     <View style={[styles.switchThumb, isStrictLocal && styles.switchThumbActive]} />
+                  </TouchableOpacity>
+                </View>
+
+                {/* Midnight Shadow Proactive Agent Toggle Card */}
+                <View style={[styles.privacyToggleCard, { backgroundColor: theme.cardInner, borderColor: theme.border, marginTop: 10 }]}>
+                  <View style={{ flex: 1, paddingRight: 10 }}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                      <Ionicons name="sparkles" size={15} color="#8B5CF6" />
+                      <Text style={[styles.privacyToggleTitle, { color: theme.text }]}>Asisten Proaktif Pagi & Malam</Text>
+                    </View>
+                    <Text style={[styles.privacyToggleDesc, { color: theme.subtext }]}>
+                      {shadowEnabled
+                        ? '☀️ Aktif: Ara mengirim Morning Briefing jam 06.30 dan Daily Review jam 21.00 secara otomatis.'
+                        : '🌙 Nonaktif: Pengingat otonom pagi & malam dimatikan.'}
+                    </Text>
+                  </View>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.customSwitch,
+                      { backgroundColor: shadowEnabled ? '#8B5CF6' : (isLightMode ? '#CBD5E1' : '#334155') }
+                    ]}
+                    onPress={handleToggleShadowAgent}
+                    activeOpacity={0.8}
+                  >
+                    <View style={[styles.switchThumb, shadowEnabled && styles.switchThumbActive]} />
                   </TouchableOpacity>
                 </View>
 
