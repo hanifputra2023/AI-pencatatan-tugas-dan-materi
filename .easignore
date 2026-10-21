@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Local build and export artifacts
+dist/
+web-build/
+.expo/
+android/
+ios/
+
+# Root media files (keep only assets/)
+*.mp4
+*.png
+*.jpg
+*.jpeg
+!assets/**
+
+# Documentation and backend scripts not needed in client APK
+*.md
+backend/
+supabase_schema.sql
+
+# Environment files
+.env*
+!.env.example
+
+# Git
+.git/
+
+# Logs and system files
+.DS_Store
+Thumbs.db
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+*.log
