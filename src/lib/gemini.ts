@@ -220,27 +220,59 @@ const CONTINUE_PROMPT =
   '"Maaf", "Sepertinya jawaban terpotong", "Kita lanjutkan lagi" dan sejenisnya. ' +
   'Kalimat baru yang kamu tulis harus langsung menjadi lanjutan kalimat sebelumnya hingga jawaban selesai tuntas.';
 
-const AGENT_INSTRUCTIONS =
-  '\n\nMODE AGENT AKTIF - KAMU BISA MELAKUKAN AKSI NYATA:\n' +
-  'Jika pengguna MEMINTA AKSI (bukan sekadar bertanya), lakukan aksi dengan menambahkan blok JSON khusus di AKHIR jawabanmu. Formatnya persis seperti ini:\n' +
-  '<AGENT_ACTION>{"action":"create_task","data":{"title":"...","due_date":"...","subject":"...","priority":"high|medium|low","notes":"..."}}</AGENT_ACTION>\n' +
-  '\nAksi yang tersedia:\n' +
-  '1. create_task - buat tugas/jadwal belajar. data: title (wajib), due_date ("besok", "2026-09-10", atau ISO), subject, priority (high/medium/low), notes.\n' +
-  '2. update_task - ubah tugas yang sudah ada. data: title/id (untuk menemukan tugas), is_completed (true/false), due_date, subject, priority, notes.\n' +
-  '3. delete_task - hapus tugas. data: title atau id.\n' +
-  '4. save_journal - catat jurnal. data: content (wajib), title, mood (neutral/ceria/gelisah/capek dll), tags (array).\n' +
-  '5. delete_journal - hapus jurnal. data: title atau id.\n' +
-  '6. create_note - buat catatan belajar. data: title (wajib), content, subject, summary.\n' +
-  '7. delete_note - hapus catatan. data: title atau id.\n' +
-  '8. create_quiz - buat kuis & flashcard. data: title, subject, quiz (array {question, options[4], correctIndex, explanation}), flashcards (array {front, back}).\n' +
-  '9. search_data - cari data pengguna. data: type ("tasks"/"notes"/"journals"/"all"), query, limit. Hasilnya akan ditampilkan otomatis sebagai pesan konfirmasi.\n' +
-  '10. summarize - ringkas data. data: type, since ("minggu ini"/"bulan ini"), topic. Hasil rangkuman ditampilkan otomatis.\n' +
-  '11. create_study_plan - buat rencana belajar multi-sesi. data: goal, subject, exam_date, sessions (array {title, due_date, priority, subject, notes}).\n' +
-  '\nAturan:\n' +
-  '- Hanya sertakan blok <AGENT_ACTION> jika pengguna benar-benar meminta aksi. Jika ragu, JANGAN sertakan blok lalu cukup jawab dan tanya konfirmasi.\n' +
-  '- Untuk aksi search_data / summarize, jawaban teksmu cukup singkat saja ("Sebentar, saya cari dulu ya..."), karena hasil datanya akan muncul sebagai pesan konfirmasi terpisah.\n' +
-  '- Jawaban tetap kamu tulis secara alami; blok JSON hanyalah lampiran di akhir, tidak perlu disebutkan ke pengguna.\n' +
-  '- Tanggal "besok" berarti besok, "nanti malam" berarti hari ini, "minggu ini" = 7 hari terakhir terhitung awal pekan.\n';
+function getAgentInstructions(): string {
+  const now = new Date();
+  const currentYear = now.getFullYear();
+  const todayFormatted = now.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+  const pad = (n: number) => n.toString().padStart(2, '0');
+  const todayIso = `${currentYear}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
+
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowIso = `${tomorrow.getFullYear()}-${pad(tomorrow.getMonth() + 1)}-${pad(tomorrow.getDate())}`;
+
+  const lusa = new Date(now);
+  lusa.setDate(lusa.getDate() + 2);
+  const lusaIso = `${lusa.getFullYear()}-${pad(lusa.getMonth() + 1)}-${pad(lusa.getDate())}`;
+
+  return (
+    `\n\nMODE AGENT AKTIF - KAMU BISA MELAKUKAN AKSI NYATA:\n` +
+    `[KALENDER & WAKTU SISTEM REAL-TIME (ACUAN MUTLAK)]:\n` +
+    `- Hari ini: ${todayFormatted} (Format ISO: ${todayIso})\n` +
+    `- Besok: ${tomorrowIso}\n` +
+    `- Lusa: ${lusaIso}\n` +
+    `- TAHUN SAAT INI ADALAH ${currentYear}. DILARANG KERAS MENGGUNAKAN TAHUN LAMPAU (2023, 2024, ATAU 2025)!\n\n` +
+    `Jika pengguna MEMINTA AKSI (bukan sekadar bertanya), lakukan aksi dengan menambahkan blok JSON khusus di AKHIR jawabanmu. Formatnya persis seperti ini:\n` +
+    `<AGENT_ACTION>{"action":"create_task","data":{"title":"...","due_date":"...","subject":"...","priority":"high|medium|low","notes":"..."}}</AGENT_ACTION>\n\n` +
+    `Aksi yang tersedia:\n` +
+    `1. create_task - buat tugas/jadwal belajar. data: title (wajib), due_date ("besok", "${tomorrowIso}T23:59", atau "${lusaIso}T23:59"), subject, priority (high/medium/low), notes.\n` +
+    `   * ATURAN TENGGAT WAKTU (DUE_DATE):\n` +
+    `     - Jika pengguna bilang "besok", set due_date ke "besok" atau "${tomorrowIso}T23:59".\n` +
+    `     - Jika pengguna bilang "lusa", set due_date ke "lusa" atau "${lusaIso}T23:59".\n` +
+    `     - Jika pengguna bilang "hari ini" atau "nanti malam", set due_date ke "${todayIso}T23:59".\n` +
+    `     - Jika pengguna menyebut jam (misal: "besok jam 8 malam"), set "${tomorrowIso}T20:00".\n` +
+    `     - Pastikan TAHUN SELALU ${currentYear} atau setelahnya, JANGAN PERNAH mundur ke tahun lampau!\n` +
+    `2. update_task - ubah tugas yang sudah ada. data: title/id (untuk menemukan tugas), is_completed (true/false), due_date, subject, priority, notes.\n` +
+    `3. delete_task - hapus tugas. data: title atau id.\n` +
+    `4. save_journal - catat jurnal. data: content (wajib), title, mood (neutral/ceria/gelisah/capek dll), tags (array).\n` +
+    `5. delete_journal - hapus jurnal. data: title atau id.\n` +
+    `6. create_note - buat catatan belajar. data: title (wajib), content, subject, summary.\n` +
+    `7. delete_note - hapus catatan. data: title atau id.\n` +
+    `8. create_quiz - buat kuis & flashcard. data: title, subject, quiz (array {question, options[4], correctIndex, explanation}), flashcards (array {front, back}).\n` +
+    `9. search_data - cari data pengguna. data: type ("tasks"/"notes"/"journals"/"all"), query, limit. Hasilnya akan ditampilkan otomatis sebagai pesan konfirmasi.\n` +
+    `10. summarize - ringkas data. data: type, since ("minggu ini"/"bulan ini"), topic. Hasil rangkuman ditampilkan otomatis.\n` +
+    `11. create_study_plan - buat rencana belajar multi-sesi. data: goal, subject, exam_date, sessions (array {title, due_date, priority, subject, notes}).\n\n` +
+    `Aturan:\n` +
+    `- Hanya sertakan blok <AGENT_ACTION> jika pengguna benar-benar meminta aksi. Jika ragu, JANGAN sertakan blok lalu cukup jawab dan tanya konfirmasi.\n` +
+    `- Untuk aksi search_data / summarize, jawaban teksmu cukup singkat saja ("Sebentar, saya cari dulu ya..."), karena hasil datanya akan muncul sebagai pesan konfirmasi terpisah.\n` +
+    `- Jawaban tetap kamu tulis secara alami; blok JSON hanyalah lampiran di akhir, tidak perlu disebutkan ke pengguna.\n`
+  );
+}
 
 const FACTUAL_GUARDRAIL =
   '\n\nATURAN KETAT KEABSAHAN DATA (WAJIB DIPATUHI):\n' +
@@ -966,14 +998,25 @@ export async function sendMessageToGemini(
     },
   ];
 
+  const now = new Date();
+  const todayFormatted = now.toLocaleDateString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+  });
+
   let systemPrompt = customSystemInstruction || DEFAULT_SYSTEM_INSTRUCTION;
+  // Always inject real-world system calendar anchor so AI never assumes past year
+  systemPrompt = `[WAKTU SISTEM REAL-TIME: ${todayFormatted} (Tahun ${now.getFullYear()})]\n\n` + systemPrompt;
+
   // Faktual/akurat mode: tambahkan guardrails ketat anti halusinasi
   if (options?.factual) {
     systemPrompt += FACTUAL_GUARDRAIL;
   }
   // Agent mode: izinkan AI melakukan aksi nyata (task/jurnal/catatan)
   if (options?.agent) {
-    systemPrompt += AGENT_INSTRUCTIONS;
+    systemPrompt += getAgentInstructions();
   }
 
   let lastError: any = null;

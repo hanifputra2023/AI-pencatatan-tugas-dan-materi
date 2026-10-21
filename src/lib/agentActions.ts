@@ -1,4 +1,5 @@
 import { StudentTask, StudyNote, JournalEntry, QuizQuestion, FlashcardItem } from '../types';
+import { toLocalIsoString } from './dateUtils';
 import {
   localSaveTask,
   localDeleteTask,
@@ -49,41 +50,168 @@ function genId(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
 }
 
-// Parse a loose date string (from the AI) into an ISO string or null.
-function normalizeDate(value: any): string | null {
+// Parse a loose date string (from the AI or user) into a local ISO string or null.
+export function normalizeDate(value: any): string | null {
   if (!value) return null;
   const s = String(value).trim();
   if (!s) return null;
 
-  // Already ISO / full timestamp
-  const iso = new Date(s);
-  if (!isNaN(iso.getTime())) return iso.toISOString();
+  const now = new Date();
+  const currentYear = now.getFullYear();
 
-  // dd/mm/yyyy or dd-mm-yyyy or dd/mm/yy
+  // 1. Ekstraksi jam dan menit spesifik (contoh: "jam 8 malam", "20:00", "pukul 14.30")
+  let targetHours = 23;
+  let targetMinutes = 59;
+  let hasExplicitTime = false;
+
+  const timeMatch = s.match(/(?:jam|pukul)?\s*(\d{1,2})[:.](\d{2})/i);
+  if (timeMatch) {
+    targetHours = parseInt(timeMatch[1], 10);
+    targetMinutes = parseInt(timeMatch[2], 10);
+    hasExplicitTime = true;
+  } else {
+    const wordTimeMatch = s.match(/(?:jam|pukul)\s*(\d{1,2})(?:\s*(pagi|siang|sore|malam))?/i);
+    if (wordTimeMatch) {
+      let h = parseInt(wordTimeMatch[1], 10);
+      const period = (wordTimeMatch[2] || '').toLowerCase();
+      if ((period === 'malam' || period === 'sore') && h < 12) h += 12;
+      if (period === 'siang' && h < 11) h += 12;
+      if (period === 'pagi' && h === 12) h = 0;
+      targetHours = h;
+      targetMinutes = 0;
+      hasExplicitTime = true;
+    }
+  }
+
+  const lower = s.toLowerCase();
+
+  // 2. Cek kata-kata relatif TERLEBIH DAHULU (Prioritas Tertinggi Anti-Halusinasi AI)
+  if (lower.includes('besok') || lower.includes('tomorrow') || lower.includes('bsk')) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 1);
+    d.setHours(targetHours, targetMinutes, 0, 0);
+    return toLocalIsoString(d);
+  }
+
+  if (lower.includes('lusa') || lower.includes('day after tomorrow')) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 2);
+    d.setHours(targetHours, targetMinutes, 0, 0);
+    return toLocalIsoString(d);
+  }
+
+  if (lower.includes('hari ini') || lower.includes('today') || lower.includes('nanti malam') || lower.includes('malam ini') || lower.includes('nanti sore')) {
+    const d = new Date(now);
+    d.setHours(targetHours, targetMinutes, 0, 0);
+    return toLocalIsoString(d);
+  }
+
+  const daysAheadMatch = lower.match(/(\d+)\s*hari\s*lagi/);
+  if (daysAheadMatch) {
+    const addDays = parseInt(daysAheadMatch[1], 10);
+    const d = new Date(now);
+    d.setDate(d.getDate() + addDays);
+    d.setHours(targetHours, targetMinutes, 0, 0);
+    return toLocalIsoString(d);
+  }
+
+  if (lower.includes('minggu depan') || lower.includes('next week')) {
+    const d = new Date(now);
+    d.setDate(d.getDate() + 7);
+    d.setHours(targetHours, targetMinutes, 0, 0);
+    return toLocalIsoString(d);
+  }
+
+  // Hari dalam sepekan (senin depan, selasa, rabu, kamis, jumat, sabtu, minggu)
+  const weekdays = ['minggu', 'senin', 'selasa', 'rabu', 'kamis', 'jumat', 'sabtu'];
+  for (let i = 0; i < weekdays.length; i++) {
+    const dayName = weekdays[i];
+    if (lower.includes(dayName)) {
+      const currentDay = now.getDay();
+      let diff = i - currentDay;
+      if (diff <= 0 || lower.includes('depan')) {
+        diff += 7;
+      }
+      const d = new Date(now);
+      d.setDate(d.getDate() + diff);
+      d.setHours(targetHours, targetMinutes, 0, 0);
+      return toLocalIsoString(d);
+    }
+  }
+
+  // 3. Tanggal Kalender Teks (contoh: "25 Oktober", "25 Okt", "25 Oktober 2026")
+  const MONTHS: Record<string, number> = {
+    jan: 0, januari: 0, january: 0,
+    feb: 1, februari: 1, february: 1,
+    mar: 2, maret: 2, march: 2,
+    apr: 3, april: 3,
+    mei: 4, may: 4,
+    jun: 5, juni: 5, june: 5,
+    jul: 6, juli: 6, july: 6,
+    agu: 7, agustus: 7, august: 7,
+    sep: 8, september: 8,
+    okt: 9, oktober: 9, october: 9,
+    nov: 10, november: 10,
+    des: 11, desember: 11, december: 11,
+  };
+
+  const textDateMatch = lower.match(/(\d{1,2})\s+([a-z]{3,9})(?:\s+(\d{2,4}))?/);
+  if (textDateMatch) {
+    const day = parseInt(textDateMatch[1], 10);
+    const monthKey = textDateMatch[2];
+    const month = MONTHS[monthKey];
+    if (month !== undefined) {
+      let year = textDateMatch[3] ? parseInt(textDateMatch[3], 10) : currentYear;
+      if (year < 100) year += 2000;
+      // Auto-heal tahun lampau (misal: AI menulis 2023 / 2024)
+      if (year < currentYear) year = currentYear;
+      const d = new Date(year, month, day, targetHours, targetMinutes, 0, 0);
+      // Jika tanggal sudah lewat di tahun ini dan tahun tidak ditulis spesifik oleh user, geser ke tahun depan
+      if (!textDateMatch[3] && d.getTime() < now.getTime()) {
+        d.setFullYear(currentYear + 1);
+      }
+      return toLocalIsoString(d);
+    }
+  }
+
+  // 4. dd/mm/yyyy atau dd-mm-yyyy atau dd/mm/yy
   const short = s.match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?$/);
   if (short) {
-    let year = short[3] ? parseInt(short[3], 10) : new Date().getFullYear();
+    let year = short[3] ? parseInt(short[3], 10) : currentYear;
     if (year < 100) year += 2000;
+    if (year < currentYear) year = currentYear;
     const month = parseInt(short[2], 10) - 1;
     const day = parseInt(short[1], 10);
-    const d = new Date(year, month, day);
-    if (!isNaN(d.getTime())) return d.toISOString();
+    const d = new Date(year, month, day, targetHours, targetMinutes, 0, 0);
+    if (!isNaN(d.getTime())) {
+      if (!short[3] && d.getTime() < now.getTime()) {
+        d.setFullYear(currentYear + 1);
+      }
+      return toLocalIsoString(d);
+    }
   }
 
-  // "besok" / "lusa" / "hari ini"
-  const rel = s.toLowerCase();
-  if (rel.includes('besok')) {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString();
-  }
-  if (rel.includes('lusa')) {
-    const d = new Date();
-    d.setDate(d.getDate() + 2);
-    return d.toISOString();
-  }
-  if (rel.includes('hari ini') || rel.includes('nanti malam') || rel.includes('nanti sore')) {
-    return new Date().toISOString();
+  // 5. ISO Date Parsing dengan AUTO-HEAL Tahun Lampau
+  const parsed = new Date(s);
+  if (!isNaN(parsed.getTime())) {
+    const d = new Date(parsed);
+    // Jika AI mengirimkan tahun lampau (misal: 2023 atau 2024 karena cutoff training)
+    if (d.getFullYear() < currentYear) {
+      console.warn(`[Auto-Heal Date] Memperbaiki tahun lampau dari AI (${d.getFullYear()}) menjadi ${currentYear}`);
+      d.setFullYear(currentYear);
+      // Jika setelah diganti tahun ini ternyata tanggalnya sudah lewat, jadikan besok
+      if (d.getTime() < now.getTime()) {
+        const tomorrow = new Date(now);
+        tomorrow.setDate(tomorrow.getDate() + 1);
+        tomorrow.setHours(targetHours, targetMinutes, 0, 0);
+        return toLocalIsoString(tomorrow);
+      }
+    }
+    // Jika jam:menit adalah 00:00 (default ISO date-only), ubah ke 23:59:00 agar tidak langsung kedaluwarsa di pagi hari
+    if (!hasExplicitTime && d.getHours() === 0 && d.getMinutes() === 0) {
+      d.setHours(23, 59, 0, 0);
+    }
+    return toLocalIsoString(d);
   }
 
   return null;
@@ -147,7 +275,16 @@ function fmtDateShort(iso: string | null): string {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d.getTime())) return '';
-  return d.toLocaleDateString('id-ID', { day: 'numeric', month: 'short' });
+  const now = new Date();
+  const isThisYear = d.getFullYear() === now.getFullYear();
+  const dateStr = d.toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'short',
+    year: isThisYear ? undefined : 'numeric',
+  });
+  const timeStr = d.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' });
+  const isEndOfDay = d.getHours() === 23 && d.getMinutes() === 59;
+  return isEndOfDay ? dateStr : `${dateStr} ${timeStr}`;
 }
 
 // Find an item by explicit id, then by title/query sub-string match.
