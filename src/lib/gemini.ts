@@ -373,7 +373,7 @@ async function callSingleModelWithKey(
     const candidate = data.candidates?.[0];
     // Filter bagian "thought" internal AI agar tidak bocor ke tampilan chat.
     // Parse juga executableCode dan codeExecutionResult jika ada.
-    const replyText = candidate?.content?.parts
+    let replyText = candidate?.content?.parts
       ?.filter((p: any) => !p.thought)
       ?.map((p: any) => {
         if (p.text) return p.text;
@@ -387,6 +387,21 @@ async function callSingleModelWithKey(
         return '';
       })
       ?.join('') || '';
+
+    // Cantumkan tautan referensi web jika tersedia dari Google Search Grounding
+    if (candidate?.groundingMetadata?.groundingChunks?.length) {
+      const sources: string[] = [];
+      for (const chunk of candidate.groundingMetadata.groundingChunks) {
+        if (chunk.web?.uri) {
+          const title = chunk.web.title || chunk.web.uri;
+          sources.push(`- [${title}](${chunk.web.uri})`);
+        }
+      }
+      if (sources.length > 0) {
+        replyText += `\n\n---\n🌐 **Sumber Rujukan Web:**\n${sources.slice(0, 5).join('\n')}`;
+      }
+    }
+
     if (!replyText) {
       throw new Error('AI tidak memberikan respon teks.');
     }
@@ -548,6 +563,7 @@ async function streamSingleModelWithKey(
     let finishReason: string | undefined;
     let processedLength = 0;
     let userCancelled = false;
+    let groundingSources = '';
 
     // Sambungkan AbortSignal external (tombol Stop di chat) ke XHR
     const externalSignal = options?.signal;
@@ -574,6 +590,21 @@ async function streamSingleModelWithKey(
         try {
           const data = JSON.parse(payload);
           const candidate = data.candidates?.[0];
+
+          // Tangkap tautan sumber grounding web jika ada
+          if (candidate?.groundingMetadata?.groundingChunks?.length) {
+            const sources: string[] = [];
+            for (const chunk of candidate.groundingMetadata.groundingChunks) {
+              if (chunk.web?.uri) {
+                const title = chunk.web.title || chunk.web.uri;
+                sources.push(`- [${title}](${chunk.web.uri})`);
+              }
+            }
+            if (sources.length > 0 && !groundingSources) {
+              groundingSources = `\n\n---\n🌐 **Sumber Rujukan Web:**\n${sources.slice(0, 5).join('\n')}`;
+            }
+          }
+
           // Filter bagian "thought" (monolog penalaran internal AI) agar tidak
           // bocor ke streaming bubble chat pengguna. Hanya ambil part non-thought.
           const parts: any[] = candidate?.content?.parts || [];
@@ -616,6 +647,12 @@ async function streamSingleModelWithKey(
       // Proses sisa data yang mungkin belum ter-cover oleh onprogress terakhir
       const remaining = xhr.responseText.slice(processedLength);
       if (remaining.trim()) parseNewChunk(remaining);
+
+      // Cantumkan tautan referensi web jika ditemukan
+      if (groundingSources && !fullText.includes('Sumber Rujukan Web')) {
+        fullText += groundingSources;
+        options.onToken?.(fullText);
+      }
 
       if (xhr.status >= 400) {
         // KRITIS: Google kadang mengembalikan error 503/429 dalam format SSE ("data: {...}")
