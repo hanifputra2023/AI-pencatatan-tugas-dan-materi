@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Platform } from 'react-native';
 import { ChatAttachment } from '../types';
+import { searchLiveWeb } from './webSearchService';
 
 let inMemoryApiKeys: string[] = [];
 
@@ -311,13 +312,10 @@ async function callSingleModelWithKey(
     ],
   };
 
-  // Tools: Python Code Execution & Google Search Grounding
+  // Tools: Python Code Execution
   const tools: any[] = [];
   if (options?.codeExecution) {
     tools.push({ codeExecution: {} });
-  }
-  if (options?.webSearch) {
-    tools.push({ googleSearch: {} });
   }
   if (tools.length > 0) {
     requestBody.tools = tools;
@@ -527,13 +525,10 @@ async function streamSingleModelWithKey(
     ],
   };
 
-  // Tools: Python Code Execution & Google Search Grounding
+  // Tools: Python Code Execution
   const tools: any[] = [];
   if (options?.codeExecution) {
     tools.push({ codeExecution: {} });
-  }
-  if (options?.webSearch) {
-    tools.push({ googleSearch: {} });
   }
   if (tools.length > 0) {
     requestBody.tools = tools;
@@ -924,9 +919,24 @@ export async function sendMessageToGemini(
     }
   }
 
+  let liveWebContext = '';
+  if (options?.webSearch) {
+    try {
+      const searchRes = await searchLiveWeb(newMessage);
+      if (searchRes && searchRes.contextText) {
+        liveWebContext = `${searchRes.contextText}\n\n`;
+      }
+    } catch (webErr) {
+      console.warn('[Live Web Search Exception]', webErr);
+    }
+  }
+
   let fullPrompt = newMessage;
+  if (liveWebContext) {
+    fullPrompt = `${liveWebContext}${newMessage}`;
+  }
   if (accumulatedDocText) {
-    fullPrompt = `${accumulatedDocText}\n\n${newMessage}`;
+    fullPrompt = `${accumulatedDocText}\n\n${fullPrompt}`;
   }
 
   userParts.push({ text: fullPrompt || 'Halo Ara' });

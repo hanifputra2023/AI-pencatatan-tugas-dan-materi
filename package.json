@@ -8,6 +8,7 @@
     "android": "npx expo start --android",
     "ios": "npx expo start --ios",
     "web": "npx expo start --web",
+    "proxy": "node scripts/searchProxy.js",
     "build": "npx expo export --platform web",
     "build:web": "npx expo export --platform web"
   },
