@@ -772,19 +772,13 @@ export default function ChatScreen() {
       try {
         return await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, geminiOpts);
       } catch (firstErr: any) {
-        // Jika semua model sedang spike 503, tunggu 2 detik lalu coba sekali lagi otomatis
-        const is503 = firstErr?.status === 503 ||
-          (firstErr?.message && (
-            firstErr.message.includes('high demand') ||
-            firstErr.message.includes('overloaded') ||
-            firstErr.message.includes('temporarily unavailable')
-          ));
-        if (is503 && !firstErr?.cancelled) {
-          console.warn('[Auto-Retry] Semua model 503, tunggu 2 detik lalu coba sekali lagi...');
-          await new Promise(res => setTimeout(res, 2000));
-          return await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, geminiOpts);
+        // Jika user sengaja klik stop/batal, jangan coba lagi
+        if (firstErr?.cancelled) {
+          throw firstErr;
         }
-        throw firstErr;
+        console.warn('[Auto-Retry] Mengulangi pengiriman secara mulus di latar belakang...', firstErr?.message);
+        await new Promise(res => setTimeout(res, 1000));
+        return await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, geminiOpts);
       }
     };
 
