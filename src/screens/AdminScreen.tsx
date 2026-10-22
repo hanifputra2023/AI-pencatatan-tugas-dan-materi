@@ -6,12 +6,27 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import * as Clipboard from 'expo-clipboard';
 import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
 import { useTheme } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
-import { sendMessageToGemini, testGeminiApiKey, setInMemoryApiKey, setInMemoryApiKeys, setPreferredModel } from '../lib/gemini';
+import {
+  sendMessageToGemini,
+  testGeminiApiKey,
+  setInMemoryApiKey,
+  setInMemoryApiKeys,
+  setPreferredModel,
+  getKeyCooldownInfo,
+  getAllKeyCooldowns,
+  resetAllCooldowns,
+  getPoolHealthSummary,
+  getKeyUsageStats,
+  getAllKeyUsageStats,
+  resetAllKeyUsageStats,
+  KeyUsageStats,
+} from '../lib/gemini';
 import { useResponsive } from '../hooks/useResponsive';
 import { showAlert, confirmAction } from '../lib/alert';
 import { PersonaPreset, DEFAULT_PERSONAS, DailyRoutineReminder, DEFAULT_DAILY_ROUTINES } from '../types';
@@ -151,6 +166,23 @@ export default function AdminScreen() {
   const [keysPage, setKeysPage] = useState(1);
   const [keysPerPage, setKeysPerPage] = useState<number>(5);
 
+  // Live Cooldown & Usage Metrics State
+  const [keyCooldowns, setKeyCooldowns] = useState<Record<string, number>>({});
+  const [keyUsageStatsMap, setKeyUsageStatsMap] = useState<Record<string, KeyUsageStats>>({});
+  const [poolHealth, setPoolHealth] = useState({ total: 0, healthy: 0, cooling: 0, coolingPercentage: 0 });
+  const [showFullKeys, setShowFullKeys] = useState<Record<number, boolean>>({});
+  const [copiedKeyIdx, setCopiedKeyIdx] = useState<number | null>(null);
+
+  // Bulk Import State
+  const [showBulkImportModal, setShowBulkImportModal] = useState(false);
+  const [bulkImportText, setBulkImportText] = useState('');
+
+  // Admin Security PIN & Audit Log State
+  const [adminPinEnabled, setAdminPinEnabled] = useState(false);
+  const [adminPinCode, setAdminPinCode] = useState('');
+  const [newPinInput, setNewPinInput] = useState('');
+  const [adminLogs, setAdminLogs] = useState<Array<{ id: string; action: string; time: string; icon: string }>>([]);
+
   // AI Configuration State
   const [botNameInput, setBotNameInput] = useState(aiBotName || 'Ara');
   const [promptText, setPromptText] = useState(aiPersona || PRESET_PERSONAS[0].prompt);
@@ -259,6 +291,33 @@ export default function AdminScreen() {
       setKeysPool(geminiApiKeys);
     }
   }, [geminiApiKeys]);
+
+  // Real-Time Cooldown & Health Metrics Polling (Every 1s)
+  useEffect(() => {
+    const updateMetrics = () => {
+      setKeyCooldowns(getAllKeyCooldowns());
+      setKeyUsageStatsMap(getAllKeyUsageStats());
+      setPoolHealth(getPoolHealthSummary());
+    };
+    updateMetrics();
+    const interval = setInterval(updateMetrics, 1000);
+    return () => clearInterval(interval);
+  }, [keysPool]);
+
+  // Load Admin Logs & Security PIN on Mount
+  useEffect(() => {
+    AsyncStorage.getItem('@admin_audit_logs').then(val => {
+      if (val) {
+        try { setAdminLogs(JSON.parse(val)); } catch (e) {}
+      }
+    });
+    AsyncStorage.getItem('@admin_pin_code').then(val => {
+      if (val && val.trim().length >= 4) {
+        setAdminPinCode(val.trim());
+        setAdminPinEnabled(true);
+      }
+    });
+  }, []);
 
   useEffect(() => {
     if (globalAnnouncement !== undefined) {
@@ -853,6 +912,7 @@ export default function AdminScreen() {
     setSavingKeysPool(true);
     try {
       await updateGeminiApiKeys(keysPool);
+      logAdminAction(`Menyimpan ${keysPool.length} Kunci API ke Cloud Database`, 'cloud-done');
       showAlert('Berhasil', `Total ${keysPool.length} Kunci API berhasil disimpan! Multi-Key Fallback Routing & Load Balancing aktif secara instan.`);
     } catch (e) {
       showAlert('Gagal', 'Gagal menyimpan pool kunci ke database.');
@@ -890,12 +950,157 @@ export default function AdminScreen() {
         setKeysPage(1);
         try {
           await updateGeminiApiKeys(filtered);
+          logAdminAction(`Membersihkan ${deadIndices.size} kunci mati dari pool`, 'trash');
           showAlert('Berhasil', `${deadIndices.size} kunci mati berhasil dihapus! Sisa ${filtered.length} kunci aktif tersimpan.`);
         } catch (e) {
           showAlert('Gagal', 'Gagal memperbarui pool kunci.');
         }
       },
       'Bersihkan Sekarang'
+    );
+  };
+
+  // -------------------------------------------------------------
+  // Admin Audit Log & Security Handlers
+  // -------------------------------------------------------------
+  const logAdminAction = (action: string, icon = 'shield-checkmark') => {
+    const newLog = {
+      id: Date.now().toString() + '_' + Math.random().toString(36).substr(2, 4),
+      action,
+      time: new Date().toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' • ' + new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'short' }),
+      icon,
+    };
+    setAdminLogs(prev => {
+      const updated = [newLog, ...prev.slice(0, 49)];
+      AsyncStorage.setItem('@admin_audit_logs', JSON.stringify(updated)).catch(() => {});
+      return updated;
+    });
+  };
+
+  const handleCopyKey = async (key: string, index: number) => {
+    try {
+      await Clipboard.setStringAsync(key);
+      setCopiedKeyIdx(index);
+      setTimeout(() => setCopiedKeyIdx(null), 2000);
+    } catch (e) {
+      showAlert('Info', 'Gagal menyalin kunci API ke clipboard.');
+    }
+  };
+
+  const handleResetAllCooldowns = () => {
+    resetAllCooldowns();
+    setKeyCooldowns({});
+    setPoolHealth(getPoolHealthSummary());
+    logAdminAction('Mereset cooldown rate limit seluruh kunci API', 'refresh-circle');
+    showAlert('Cooldown Direset! ⚡', 'Status pendinginan (429) pada seluruh kunci telah dipulihkan. Kunci siap menerima request kembali.');
+  };
+
+  const handleResetAllKeyStats = () => {
+    confirmAction(
+      'Reset Statistik Penggunaan?',
+      'Seluruh counter request, sukses, dan rate limit pada setiap kunci akan dikosongkan.',
+      async () => {
+        await resetAllKeyUsageStats();
+        setKeyUsageStatsMap({});
+        logAdminAction('Mereset statistik hit dan error API', 'trash-outline');
+        showAlert('Direset', 'Statistik performa kunci API berhasil dibersihkan.');
+      },
+      'Reset Sekarang'
+    );
+  };
+
+  const handleProcessBulkImport = () => {
+    const raw = bulkImportText.trim();
+    if (!raw) {
+      showAlert('Peringatan', 'Tempel daftar API Key terlebih dahulu.');
+      return;
+    }
+    // Pisahkan berdasarkan baris baru, koma, titik koma, atau spasi
+    const tokens = raw
+      .split(/[\r\n,;]+/)
+      .map(t => t.trim())
+      .filter(t => t.length >= 20 && (t.startsWith('AIza') || t.includes('-') || t.length >= 30));
+
+    if (tokens.length === 0) {
+      showAlert('Format Tidak Dikenali', 'Tidak ditemukan API Key Gemini yang valid (biasanya diawali "AIzaSy..." dengan panjang minimal 35 karakter).');
+      return;
+    }
+
+    const existingSet = new Set(keysPool);
+    const uniqueNew = Array.from(new Set(tokens)).filter(k => !existingSet.has(k));
+    const duplicatesCount = tokens.length - uniqueNew.length;
+
+    if (uniqueNew.length === 0) {
+      showAlert('Kunci Sudah Terdaftar', `Seluruh ${tokens.length} API Key yang dimasukkan sudah ada di dalam pool.`);
+      return;
+    }
+
+    const updated = [...keysPool, ...uniqueNew];
+    setKeysPool(updated);
+    setBulkImportText('');
+    setShowBulkImportModal(false);
+    setKeysPage(Math.ceil(updated.length / keysPerPage));
+    logAdminAction(`Mengimpor ${uniqueNew.length} Kunci API secara massal`, 'cloud-upload');
+
+    showAlert(
+      'Impor Massal Berhasil! 🎉',
+      `Berhasil menambahkan ${uniqueNew.length} API Key baru ke dalam pool.` +
+      (duplicatesCount > 0 ? `\n(${duplicatesCount} kunci duplikat dilewati).` : '') +
+      '\n\nSilakan klik tombol "Simpan & Aktifkan ke Database Cloud" agar tersinkronisasi ke seluruh user.'
+    );
+  };
+
+  const handleSaveAdminPin = async () => {
+    const clean = newPinInput.trim();
+    if (clean.length < 4) {
+      showAlert('PIN Terlalu Pendek', 'PIN Keamanan Admin minimal harus 4 digit.');
+      return;
+    }
+    try {
+      await AsyncStorage.setItem('@admin_pin_code', clean);
+      setAdminPinCode(clean);
+      setAdminPinEnabled(true);
+      setNewPinInput('');
+      logAdminAction('Memperbarui PIN Keamanan Administrator', 'key');
+      showAlert('PIN Tersimpan 🛡️', 'PIN Keamanan Administrator aktif untuk melindungi pengaturan sensitif.');
+    } catch (e) {
+      showAlert('Gagal', 'Gagal menyimpan PIN Keamanan.');
+    }
+  };
+
+  const handleToggleAdminPin = async (enable: boolean) => {
+    if (!enable) {
+      confirmAction(
+        'Nonaktifkan PIN Keamanan Admin?',
+        'Siapapun yang memiliki role Admin dapat langsung mengakses seluruh fitur tanpa verifikasi PIN tambahan.',
+        async () => {
+          await AsyncStorage.removeItem('@admin_pin_code');
+          setAdminPinCode('');
+          setAdminPinEnabled(false);
+          logAdminAction('Menonaktifkan PIN Keamanan Administrator', 'lock-open');
+          showAlert('PIN Dinonaktifkan', 'Proteksi PIN Admin telah dimatikan.');
+        },
+        'Nonaktifkan'
+      );
+    } else {
+      if (!adminPinCode) {
+        showAlert('Setel PIN Terlebih Dahulu', 'Masukkan 4 digit PIN baru di form bawah sebelum mengaktifkan.');
+      } else {
+        setAdminPinEnabled(true);
+      }
+    }
+  };
+
+  const handleClearAdminLogs = () => {
+    confirmAction(
+      'Bersihkan Riwayat Audit Log?',
+      'Catatan riwayat perubahan aktivitas admin akan dihapus permanen.',
+      async () => {
+        await AsyncStorage.removeItem('@admin_audit_logs');
+        setAdminLogs([]);
+        showAlert('Log Dikosongkan', 'Riwayat aktivitas admin berhasil dibersihkan.');
+      },
+      'Bersihkan Log'
     );
   };
   // Feature Flags Handlers
@@ -2902,8 +3107,100 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     Tambahkan beberapa API Key Gemini ke dalam Pool. Jika satu kunci terkena batas kuota (15 RPM / Rate Limit), sistem otomatis beralih ke kunci berikutnya tanpa membuat user error!
                   </Text>
 
-                  {/* Add New Key Input Row */}
-                  <Text style={styles.inputLabel}>Tambah Kunci API Baru ke Pool:</Text>
+                  {/* 🚨 RATE LIMIT ALERT BANNER (Active if >=30% cooling or healthy keys empty) */}
+                  {((poolHealth.coolingPercentage >= 30 && poolHealth.cooling > 0) || (keysPool.length > 0 && poolHealth.healthy === 0)) && (
+                    <View style={styles.rateLimitAlertCard}>
+                      <View style={styles.rateLimitAlertHeader}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                          <Ionicons name="warning" size={20} color="#F59E0B" />
+                          <Text style={styles.rateLimitAlertTitle}>
+                            Peringatan Kapasitas API ({poolHealth.coolingPercentage}% Terlimit)
+                          </Text>
+                        </View>
+                        <View style={styles.rateLimitAlertPill}>
+                          <Text style={styles.rateLimitAlertPillText}>KRITIS</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.rateLimitAlertDesc}>
+                        {poolHealth.healthy === 0
+                          ? `⚠️ Seluruh ${poolHealth.total} Kunci API sedang dalam masa pendinginan (429)! Pengguna mungkin mengalami antrian AI. Segera tambah kunci baru ke pool atau klik Reset Cooldown jika kuota telah pulih.`
+                          : `⚠️ Sebanyak ${poolHealth.cooling} dari ${poolHealth.total} Kunci API sedang mengalami batas kuota (429). Kunci aktif tersisa tinggal ${poolHealth.healthy} unit. Tambahkan kunci baru agar AI tetap responsif.`}
+                      </Text>
+                      <View style={styles.rateLimitAlertBtnRow}>
+                        <TouchableOpacity
+                          style={styles.alertResetBtn}
+                          onPress={handleResetAllCooldowns}
+                        >
+                          <Ionicons name="refresh-circle" size={16} color="#FFFFFF" />
+                          <Text style={styles.alertResetBtnText}>Reset Semua Cooldown</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.alertAddKeyBtn}
+                          onPress={() => setShowBulkImportModal(true)}
+                        >
+                          <Ionicons name="add-circle" size={16} color="#FFFFFF" />
+                          <Text style={styles.alertAddKeyBtnText}>+ Impor Kunci Tambahan</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* 📊 LIVE HEALTH & TELEMETRY METRICS CARDS */}
+                  {keysPool.length > 0 && (
+                    <View style={styles.apiMetricsGrid}>
+                      <View style={[styles.apiMetricCard, { borderColor: '#10B98144' }]}>
+                        <View style={styles.metricCardHeader}>
+                          <Text style={styles.metricCardLabel}>KUNCI SIAP PAKAI</Text>
+                          <Ionicons name="checkmark-circle" size={15} color="#10B981" />
+                        </View>
+                        <Text style={[styles.metricCardVal, { color: '#10B981' }]}>
+                          {poolHealth.healthy} / {poolHealth.total}
+                        </Text>
+                        <Text style={styles.metricCardSub}>
+                          {poolHealth.total > 0 ? Math.round((poolHealth.healthy / poolHealth.total) * 100) : 0}% Kapasitas Siap
+                        </Text>
+                      </View>
+
+                      <View style={[styles.apiMetricCard, { borderColor: poolHealth.cooling > 0 ? '#F59E0B66' : '#64748B33' }]}>
+                        <View style={styles.metricCardHeader}>
+                          <Text style={styles.metricCardLabel}>COOLDOWN (429)</Text>
+                          <Ionicons name="time" size={15} color={poolHealth.cooling > 0 ? '#F59E0B' : '#94A3B8'} />
+                        </View>
+                        <Text style={[styles.metricCardVal, { color: poolHealth.cooling > 0 ? '#F59E0B' : theme.text }]}>
+                          {poolHealth.cooling} Kunci
+                        </Text>
+                        <Text style={styles.metricCardSub}>
+                          {poolHealth.coolingPercentage}% Dalam Pendinginan
+                        </Text>
+                      </View>
+
+                      <View style={[styles.apiMetricCard, { borderColor: '#3B82F644' }]}>
+                        <View style={styles.metricCardHeader}>
+                          <Text style={styles.metricCardLabel}>TOTAL REQUEST</Text>
+                          <Ionicons name="stats-chart" size={15} color="#3B82F6" />
+                        </View>
+                        <Text style={[styles.metricCardVal, { color: '#3B82F6' }]}>
+                          {Object.values(keyUsageStatsMap).reduce((acc, curr) => acc + (curr.requests || 0), 0)}
+                        </Text>
+                        <Text style={styles.metricCardSub}>
+                          {Object.values(keyUsageStatsMap).reduce((acc, curr) => acc + (curr.successes || 0), 0)} Sukses • {Object.values(keyUsageStatsMap).reduce((acc, curr) => acc + (curr.rateLimits429 || 0), 0)} Limit
+                        </Text>
+                      </View>
+                    </View>
+                  )}
+
+                  {/* Add New Key Input Row + Bulk Import Button */}
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 8, marginBottom: 4 }}>
+                    <Text style={[styles.inputLabel, { marginVertical: 0 }]}>Tambah Kunci API Baru ke Pool:</Text>
+                    <TouchableOpacity
+                      style={styles.bulkImportQuickBtn}
+                      onPress={() => setShowBulkImportModal(true)}
+                    >
+                      <Ionicons name="documents-outline" size={13} color="#3B82F6" />
+                      <Text style={styles.bulkImportQuickText}>📋 Impor Banyak (Bulk)</Text>
+                    </TouchableOpacity>
+                  </View>
+
                   <View style={styles.apiKeyInputRow}>
                     <TextInput
                       style={styles.apiKeyInput}
@@ -3004,9 +3301,14 @@ showAlert('Gagal', 'Gagal mereset logo.');
                             const realIdx = (keysPage - 1) * keysPerPage + pIdx;
                             const isTesting = testingKeyIdx === realIdx || (isTestingAllKeys && !keyTestResults[realIdx]);
                             const result = keyTestResults[realIdx];
-                            const preview = k.substring(0, 10) + '••••••••' + k.substring(k.length - 4);
+                            const isShowFull = showFullKeys[realIdx];
+                            const isCopied = copiedKeyIdx === realIdx;
+                            const coolingSec = keyCooldowns[k] || 0;
+                            const stats = keyUsageStatsMap[k] || { requests: 0, successes: 0, rateLimits429: 0, errors: 0 };
+                            const preview = isShowFull ? k : (k.substring(0, 10) + '••••••••' + k.substring(k.length - 4));
+
                             return (
-                              <View key={`${k}-${realIdx}`} style={styles.keyItemCard}>
+                              <View key={`${k}-${realIdx}`} style={[styles.keyItemCard, coolingSec > 0 && { borderColor: '#F59E0B66' }]}>
                                 <View style={styles.keyItemTop}>
                                   <View style={styles.keyIndexWrap}>
                                     <View style={[styles.keyIndexBadge, realIdx === 0 && styles.keyIndexBadgePrimary]}>
@@ -3014,10 +3316,55 @@ showAlert('Gagal', 'Gagal mereset logo.');
                                         {realIdx === 0 ? 'UTAMA #1' : `CADANGAN #${realIdx + 1}`}
                                       </Text>
                                     </View>
-                                    <Text style={styles.keyPreviewText}>{preview}</Text>
+
+                                    {/* Real-time Status Badge */}
+                                    {coolingSec > 0 ? (
+                                      <View style={styles.keyCooldownBadge}>
+                                        <Ionicons name="hourglass" size={11} color="#F59E0B" />
+                                        <Text style={styles.keyCooldownText}>Cooldown {coolingSec}s</Text>
+                                      </View>
+                                    ) : result?.success ? (
+                                      <View style={styles.keyHealthyBadge}>
+                                        <Ionicons name="checkmark-circle" size={11} color="#10B981" />
+                                        <Text style={styles.keyHealthyText}>Siap Pakai</Text>
+                                      </View>
+                                    ) : result && !result.success ? (
+                                      <View style={styles.keyErrorBadge}>
+                                        <Ionicons name="close-circle" size={11} color="#EF4444" />
+                                        <Text style={styles.keyErrorText}>Error</Text>
+                                      </View>
+                                    ) : (
+                                      <View style={styles.keyIdleBadge}>
+                                        <Ionicons name="shield-checkmark" size={11} color="#60A5FA" />
+                                        <Text style={styles.keyIdleText}>Aktif</Text>
+                                      </View>
+                                    )}
+
+                                    <Text style={styles.keyPreviewText} numberOfLines={isShowFull ? undefined : 1}>
+                                      {preview}
+                                    </Text>
                                   </View>
 
                                   <View style={styles.keyItemActions}>
+                                    {/* Show/Hide Full Key Toggle */}
+                                    <TouchableOpacity
+                                      style={styles.keyActionIconBtn}
+                                      onPress={() => setShowFullKeys(prev => ({ ...prev, [realIdx]: !prev[realIdx] }))}
+                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                      <Ionicons name={isShowFull ? 'eye-off' : 'eye'} size={14} color="#94A3B8" />
+                                    </TouchableOpacity>
+
+                                    {/* Copy Key to Clipboard */}
+                                    <TouchableOpacity
+                                      style={styles.keyActionIconBtn}
+                                      onPress={() => handleCopyKey(k, realIdx)}
+                                      hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                    >
+                                      <Ionicons name={isCopied ? 'checkmark' : 'copy-outline'} size={14} color={isCopied ? '#10B981' : '#94A3B8'} />
+                                    </TouchableOpacity>
+
+                                    {/* Single Test Button */}
                                     <TouchableOpacity
                                       style={styles.testSmallBtn}
                                       onPress={() => handleTestKeyInPool(k, realIdx)}
@@ -3033,6 +3380,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                                       )}
                                     </TouchableOpacity>
 
+                                    {/* Delete Button */}
                                     <TouchableOpacity
                                       style={styles.deleteSmallBtn}
                                       onPress={() => handleRemoveKeyFromPool(realIdx)}
@@ -3040,6 +3388,19 @@ showAlert('Gagal', 'Gagal mereset logo.');
                                       <Ionicons name="trash-outline" size={14} color="#EF4444" />
                                     </TouchableOpacity>
                                   </View>
+                                </View>
+
+                                {/* Key Usage Telemetry Row */}
+                                <View style={styles.keyTelemetryRow}>
+                                  <Text style={styles.keyTelemetryText}>
+                                    🚀 {stats.successes || 0} Sukses  •  ⚠️ {stats.rateLimits429 || 0} Rate Limit  •  ❌ {stats.errors || 0} Error
+                                  </Text>
+                                  {stats.lastUsed && (
+                                    <Text style={styles.keyTelemetryTime}>
+                                      Terakhir: {new Date(stats.lastUsed).toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit' })}
+                                      {stats.lastModel ? ` (${stats.lastModel})` : ''}
+                                    </Text>
+                                  )}
                                 </View>
 
                                 {result && (
@@ -3087,7 +3448,7 @@ showAlert('Gagal', 'Gagal mereset logo.');
                           </View>
                         </View>
 
-                        {/* Baris Bawah: Tombol Rata Kanan-Kiri (Sebelumnya di KIRI, Nomor di TENGAH, Selanjutnya di KANAN) */}
+                        {/* Baris Bawah: Tombol Rata Kanan-Kiri */}
                         {Math.ceil(keysPool.length / keysPerPage) > 1 && (
                           <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', width: '100%' }}>
                             {/* Tombol Sebelumnya (Rata Kiri) */}
@@ -3163,40 +3524,61 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     </>
                   )}
 
-                  {/* Test All Keys Button */}
+                  {/* Action Toolbar Buttons */}
                   {keysPool.length > 0 && (
-                    <View style={{ gap: 8, marginBottom: 10 }}>
-                      <TouchableOpacity
-                        style={[
-                          styles.saveAllPoolBtn,
-                          {
-                            backgroundColor: theme.cardInner,
-                            borderColor: '#3B82F6',
-                            borderWidth: 1.5,
-                            marginBottom: 0,
-                          },
-                          (isTestingAllKeys || keysPool.length === 0) && { opacity: 0.6 },
-                        ]}
-                        onPress={handleTestAllKeysInPool}
-                        disabled={isTestingAllKeys || keysPool.length === 0}
-                        activeOpacity={0.8}
-                      >
-                        {isTestingAllKeys ? (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <View style={{ gap: 8, marginTop: 12, marginBottom: 10 }}>
+                      <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                        {/* Test All Keys Button */}
+                        <TouchableOpacity
+                          style={[
+                            styles.actionToolbarBtn,
+                            { backgroundColor: theme.cardInner, borderColor: '#3B82F6', flex: 1 },
+                            (isTestingAllKeys || keysPool.length === 0) && { opacity: 0.6 },
+                          ]}
+                          onPress={handleTestAllKeysInPool}
+                          disabled={isTestingAllKeys || keysPool.length === 0}
+                          activeOpacity={0.8}
+                        >
+                          {isTestingAllKeys ? (
                             <ActivityIndicator color="#3B82F6" size="small" />
-                            <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
-                              Menguji Seluruh {keysPool.length} Kunci Serentak...
-                            </Text>
-                          </View>
-                        ) : (
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                            <Ionicons name="flash" size={16} color="#3B82F6" />
-                            <Text style={[styles.saveAllPoolText, { color: '#3B82F6' }]}>
-                              ⚡ Uji Semua API Sekaligus ({keysPool.length} Kunci)
-                            </Text>
-                          </View>
-                        )}
-                      </TouchableOpacity>
+                          ) : (
+                            <Ionicons name="flash" size={14} color="#3B82F6" />
+                          )}
+                          <Text style={[styles.actionToolbarBtnText, { color: '#3B82F6' }]}>
+                            {isTestingAllKeys ? 'Menguji...' : `⚡ Uji Semua API (${keysPool.length})`}
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* Reset All Cooldowns Button */}
+                        <TouchableOpacity
+                          style={[
+                            styles.actionToolbarBtn,
+                            { backgroundColor: theme.cardInner, borderColor: '#F59E0B', flex: 1 },
+                          ]}
+                          onPress={handleResetAllCooldowns}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="refresh-circle" size={15} color="#F59E0B" />
+                          <Text style={[styles.actionToolbarBtnText, { color: '#F59E0B' }]}>
+                            🔄 Reset Cooldown
+                          </Text>
+                        </TouchableOpacity>
+
+                        {/* Reset Key Stats Button */}
+                        <TouchableOpacity
+                          style={[
+                            styles.actionToolbarBtn,
+                            { backgroundColor: theme.cardInner, borderColor: theme.border, paddingHorizontal: 10 },
+                          ]}
+                          onPress={handleResetAllKeyStats}
+                          activeOpacity={0.8}
+                        >
+                          <Ionicons name="stats-chart-outline" size={14} color={theme.subtext} />
+                          <Text style={[styles.actionToolbarBtnText, { color: theme.subtext }]}>
+                            Reset Stat
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
 
                       {/* Clean Dead Keys Button (Active if any dead keys detected or to clean) */}
                       {Object.values(keyTestResults).some(r => !r.success && (r.message.includes('Service Account') || r.message.includes('tidak aktif') || r.message.includes('tidak valid'))) && (
@@ -3637,6 +4019,113 @@ showAlert('Gagal', 'Gagal mereset logo.');
                       </>
                     )}
                   </TouchableOpacity>
+                </View>
+
+                {/* ========================================================= */}
+                {/* 🛡️ KEAMANAN ADMINISTRATOR & AUDIT LOG */}
+                {/* ========================================================= */}
+                <View style={styles.card}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="shield-checkmark" size={18} color="#3B82F6" />
+                      <Text style={styles.cardTitle}>Keamanan Akses & Pengamanan Admin</Text>
+                    </View>
+                    <View style={[styles.badgeKpi, { backgroundColor: adminPinEnabled ? '#10B98125' : '#64748B25', borderColor: adminPinEnabled ? '#10B98155' : '#64748B55' }]}>
+                      <Text style={[styles.badgeKpiText, { color: adminPinEnabled ? '#10B981' : theme.subtext }]}>
+                        {adminPinEnabled ? 'PIN AKTIF' : 'PIN TIDAK AKTIF'}
+                      </Text>
+                    </View>
+                  </View>
+                  <Text style={styles.cardSub}>
+                    Amankan akses Administrator Studio dengan PIN 4 digit untuk mencegah perubahan data penting oleh pihak tidak berwenang.
+                  </Text>
+
+                  {/* Toggle PIN Admin */}
+                  <View style={styles.switchRowItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.switchItemTitle}>Kunci Pengaman PIN Administrator</Text>
+                      <Text style={styles.switchItemSub}>
+                        {adminPinEnabled
+                          ? 'PIN Keamanan aktif. Pengaturan sensitif terkunci aman.'
+                          : 'Aktifkan untuk meminta verifikasi PIN 4 digit pada aksi sensitif.'}
+                      </Text>
+                    </View>
+                    <Switch
+                      value={adminPinEnabled}
+                      onValueChange={handleToggleAdminPin}
+                      trackColor={{ false: '#222938', true: '#10B981' }}
+                      thumbColor={adminPinEnabled ? '#FFFFFF' : '#9CA3AF'}
+                    />
+                  </View>
+
+                  {/* Set / Change PIN Form */}
+                  <View style={{ marginTop: 12, padding: 12, borderRadius: 10, backgroundColor: theme.cardInner, borderWidth: 1, borderColor: theme.border }}>
+                    <Text style={[styles.inputLabel, { marginVertical: 0, marginBottom: 6 }]}>
+                      {adminPinCode ? 'Ubah Kode PIN Admin:' : 'Buat PIN Admin Baru (Minimal 4 Angka):'}
+                    </Text>
+                    <View style={{ flexDirection: 'row', gap: 8 }}>
+                      <TextInput
+                        style={[styles.textInput, { flex: 1, marginBottom: 0 }]}
+                        value={newPinInput}
+                        onChangeText={setNewPinInput}
+                        placeholder={adminPinCode ? 'Ketik PIN baru...' : 'Misal: 1234'}
+                        placeholderTextColor="#4B5565"
+                        keyboardType="numeric"
+                        secureTextEntry
+                        maxLength={8}
+                      />
+                      <TouchableOpacity
+                        style={[styles.saveActionBtn, { paddingHorizontal: 16 }]}
+                        onPress={handleSaveAdminPin}
+                        disabled={newPinInput.trim().length < 4}
+                      >
+                        <Ionicons name="key" size={15} color="#FFFFFF" />
+                        <Text style={styles.saveActionText}>Simpan PIN</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </View>
+
+                {/* 📜 AUDIT LOG AKTIVITAS ADMIN CARD */}
+                <View style={styles.card}>
+                  <View style={styles.cardHeaderRow}>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                      <Ionicons name="newspaper" size={18} color="#8B5CF6" />
+                      <Text style={styles.cardTitle}>Riwayat Audit Aktivitas Admin</Text>
+                    </View>
+                    {adminLogs.length > 0 && (
+                      <TouchableOpacity onPress={handleClearAdminLogs} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Ionicons name="trash-outline" size={13} color="#EF4444" />
+                        <Text style={{ fontSize: 11, color: '#EF4444', fontWeight: '700' }}>Bersihkan</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                  <Text style={styles.cardSub}>
+                    Catatan otomatis setiap perubahan kunci API, reset limit, update persona, dan sakelar fitur yang dilakukan di Admin Studio.
+                  </Text>
+
+                  {adminLogs.length === 0 ? (
+                    <View style={{ padding: 18, alignItems: 'center', justifyContent: 'center' }}>
+                      <Ionicons name="shield-outline" size={28} color="#64748B" />
+                      <Text style={{ color: theme.subtext, fontSize: 12, marginTop: 6, textAlign: 'center' }}>
+                        Belum ada aktivitas admin yang tercatat di sesi ini.
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={{ marginTop: 8, gap: 2 }}>
+                      {adminLogs.slice(0, 10).map(log => (
+                        <View key={log.id} style={styles.auditLogItem}>
+                          <View style={styles.auditLogIconWrap}>
+                            <Ionicons name={(log.icon as any) || 'shield-checkmark'} size={14} color={theme.accentLight} />
+                          </View>
+                          <View style={{ flex: 1 }}>
+                            <Text style={styles.auditLogAction}>{log.action}</Text>
+                            <Text style={styles.auditLogTime}>{log.time}</Text>
+                          </View>
+                        </View>
+                      ))}
+                    </View>
+                  )}
                 </View>
 
               </View>
@@ -4257,6 +4746,95 @@ showAlert('Gagal', 'Gagal mereset logo.');
                     <Text style={styles.modalSubmitText}>Simpan & Terapkan Preset</Text>
                   </>
                 )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ========================================================= */}
+      {/* MODAL: IMPOR BANYAK KUNCI API SEKALIGUS (BULK IMPORT) */}
+      {/* ========================================================= */}
+      <Modal
+        visible={showBulkImportModal}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setShowBulkImportModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <TouchableOpacity
+            style={styles.modalBackdrop}
+            activeOpacity={1}
+            onPress={() => setShowBulkImportModal(false)}
+          />
+
+          <View style={styles.presetModalCard}>
+            <View style={styles.presetModalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <View style={[styles.presetModalIconWrap, { backgroundColor: '#3B82F620' }]}>
+                  <Ionicons name="documents" size={16} color="#3B82F6" />
+                </View>
+                <View>
+                  <Text style={styles.presetModalTitle}>Impor Banyak Kunci API Sekaligus</Text>
+                  <Text style={styles.presetModalSub}>Tempel daftar API Key dari Google AI Studio</Text>
+                </View>
+              </View>
+              <TouchableOpacity onPress={() => setShowBulkImportModal(false)} style={styles.closeModalBtn}>
+                <Ionicons name="close" size={18} color="#9CA3AF" />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={{ maxHeight: 350, marginVertical: 10 }}>
+              <Text style={{ fontSize: 12, color: theme.subtext, marginBottom: 8, lineHeight: 17 }}>
+                Tempel beberapa Kunci API Gemini kamu di kotak bawah. Kunci bisa dipisahkan dengan baris baru (Enter), koma, atau spasi. Sistem akan otomatis memfilter duplikat dan kunci tidak valid.
+              </Text>
+
+              <TextInput
+                style={[
+                  styles.textInput,
+                  {
+                    height: 140,
+                    textAlignVertical: 'top',
+                    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+                    fontSize: 11.5,
+                  },
+                ]}
+                value={bulkImportText}
+                onChangeText={setBulkImportText}
+                placeholder="AIzaSyA123456789...&#10;AIzaSyB987654321...&#10;AIzaSyC555555555..."
+                placeholderTextColor="#4B5565"
+                multiline
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 4 }}>
+                <Text style={{ fontSize: 11, color: theme.subtext }}>
+                  Format: Diawali "AIzaSy..." minimal 35 karakter
+                </Text>
+                {bulkImportText.trim().length > 0 && (
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: theme.accentLight }}>
+                    ~{bulkImportText.split(/[\r\n,;]+/).filter(k => k.trim().length >= 20).length} Kunci Terdeteksi
+                  </Text>
+                )}
+              </View>
+            </ScrollView>
+
+            <View style={styles.modalBtnRow}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                onPress={() => { setShowBulkImportModal(false); setBulkImportText(''); }}
+              >
+                <Text style={styles.modalCancelText}>Batal</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.modalSubmitBtn, !bulkImportText.trim() && { opacity: 0.5 }]}
+                onPress={handleProcessBulkImport}
+                disabled={!bulkImportText.trim()}
+              >
+                <Ionicons name="cloud-upload" size={16} color="#FFFFFF" />
+                <Text style={styles.modalSubmitText}>Tambahkan ke Pool</Text>
               </TouchableOpacity>
             </View>
           </View>
@@ -5595,5 +6173,267 @@ const getStyles = (theme: any, isLightMode: boolean) => StyleSheet.create({
     fontSize: 13,
     fontWeight: '700',
     textAlign: 'center',
+  },
+
+  // 🚨 Rate Limit Alert Banner Styles
+  rateLimitAlertCard: {
+    backgroundColor: isLightMode ? '#FEF3C7' : '#78350F25',
+    borderColor: '#F59E0B',
+    borderWidth: 1.5,
+    borderRadius: 12,
+    padding: 12,
+    marginBottom: 14,
+  },
+  rateLimitAlertHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 6,
+  },
+  rateLimitAlertTitle: {
+    color: isLightMode ? '#92400E' : '#FCD34D',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  rateLimitAlertPill: {
+    backgroundColor: '#EF4444',
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  rateLimitAlertPillText: {
+    color: '#FFFFFF',
+    fontSize: 10,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  rateLimitAlertDesc: {
+    color: isLightMode ? '#78350F' : '#FDE68A',
+    fontSize: 11.5,
+    lineHeight: 16,
+  },
+  rateLimitAlertBtnRow: {
+    flexDirection: 'row',
+    gap: 8,
+    marginTop: 10,
+    flexWrap: 'wrap',
+  },
+  alertResetBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#D97706',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  alertResetBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  alertAddKeyBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    backgroundColor: '#2563EB',
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: 8,
+  },
+  alertAddKeyBtnText: {
+    color: '#FFFFFF',
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+
+  // 📊 API Metrics Grid Styles
+  apiMetricsGrid: {
+    flexDirection: 'row',
+    gap: 8,
+    marginBottom: 14,
+    flexWrap: 'wrap',
+  },
+  apiMetricCard: {
+    flex: 1,
+    minWidth: 100,
+    backgroundColor: theme.cardInner,
+    borderRadius: 10,
+    borderWidth: 1,
+    padding: 10,
+  },
+  metricCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 4,
+  },
+  metricCardLabel: {
+    color: theme.subtext,
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  metricCardVal: {
+    fontSize: 16,
+    fontWeight: '900',
+  },
+  metricCardSub: {
+    color: theme.subtext,
+    fontSize: 10,
+    marginTop: 2,
+  },
+
+  // 📋 Bulk Import Quick Button
+  bulkImportQuickBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: theme.accentBg,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 6,
+  },
+  bulkImportQuickText: {
+    color: theme.accentLight,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+
+  // 🏷️ Key Status Badges & Actions
+  keyCooldownBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isLightMode ? '#FEF3C7' : '#78350F40',
+    borderColor: '#F59E0B88',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  keyCooldownText: {
+    color: isLightMode ? '#B45309' : '#FCD34D',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  keyHealthyBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isLightMode ? '#ECFDF5' : '#064E3B40',
+    borderColor: '#10B98188',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  keyHealthyText: {
+    color: isLightMode ? '#047857' : '#34D399',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  keyErrorBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isLightMode ? '#FEF2F2' : '#7F1D1D40',
+    borderColor: '#EF444488',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  keyErrorText: {
+    color: isLightMode ? '#B91C1C' : '#F87171',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  keyIdleBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: isLightMode ? '#EFF6FF' : '#1E3A8A40',
+    borderColor: '#3B82F688',
+    borderWidth: 1,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  keyIdleText: {
+    color: isLightMode ? '#1D4ED8' : '#93C5FD',
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  keyActionIconBtn: {
+    padding: 5,
+    backgroundColor: theme.cardInner,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: theme.border,
+  },
+  keyTelemetryRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 6,
+    paddingTop: 6,
+    borderTopWidth: 1,
+    borderTopColor: isLightMode ? '#E2E8F0' : '#1E293B',
+    flexWrap: 'wrap',
+    gap: 4,
+  },
+  keyTelemetryText: {
+    color: theme.subtext,
+    fontSize: 10.5,
+    fontWeight: '600',
+  },
+  keyTelemetryTime: {
+    color: theme.subtext,
+    fontSize: 10,
+  },
+
+  // 🛠️ Action Toolbar
+  actionToolbarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  actionToolbarBtnText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+
+  // 📜 Audit Logs Styles
+  auditLogItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 8,
+    borderBottomWidth: 1,
+    borderBottomColor: theme.border,
+  },
+  auditLogIconWrap: {
+    width: 28,
+    height: 28,
+    borderRadius: 7,
+    backgroundColor: theme.accentBg,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  auditLogAction: {
+    color: theme.text,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  auditLogTime: {
+    color: theme.subtext,
+    fontSize: 10.5,
+    marginTop: 1,
   },
 });

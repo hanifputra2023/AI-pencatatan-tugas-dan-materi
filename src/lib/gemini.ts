@@ -29,6 +29,96 @@ const blacklistedKeys = new Set<string>();
 // Map untuk melacak kunci yang terkena 429 (Rate Limit / Quota Exceeded) dengan timestamp pendinginan (cooldown)
 const rateLimitCooldowns = new Map<string, number>();
 
+export interface KeyUsageStats {
+  requests: number;
+  successes: number;
+  rateLimits429: number;
+  errors: number;
+  lastUsed?: number;
+  lastModel?: string;
+}
+
+let keyUsageStats: Record<string, KeyUsageStats> = {};
+
+// Load usage stats cache asynchronously
+AsyncStorage.getItem('@gemini_keys_stats').then(val => {
+  if (val) {
+    try {
+      keyUsageStats = JSON.parse(val);
+    } catch (e) {}
+  }
+});
+
+let statsSaveTimeout: any = null;
+const debouncedSaveStats = () => {
+  if (statsSaveTimeout) clearTimeout(statsSaveTimeout);
+  statsSaveTimeout = setTimeout(() => {
+    AsyncStorage.setItem('@gemini_keys_stats', JSON.stringify(keyUsageStats)).catch(() => {});
+  }, 1000);
+};
+
+export const getKeyUsageStats = (key: string): KeyUsageStats => {
+  const k = key.trim();
+  return keyUsageStats[k] || { requests: 0, successes: 0, rateLimits429: 0, errors: 0 };
+};
+
+export const getAllKeyUsageStats = (): Record<string, KeyUsageStats> => {
+  return { ...keyUsageStats };
+};
+
+export const recordKeyUsage = (key: string, type: 'success' | '429' | 'error', model?: string) => {
+  if (!key) return;
+  const k = key.trim();
+  const current = keyUsageStats[k] || { requests: 0, successes: 0, rateLimits429: 0, errors: 0 };
+  current.requests = (current.requests || 0) + 1;
+  current.lastUsed = Date.now();
+  if (model) current.lastModel = model;
+
+  if (type === 'success') {
+    current.successes = (current.successes || 0) + 1;
+  } else if (type === '429') {
+    current.rateLimits429 = (current.rateLimits429 || 0) + 1;
+  } else {
+    current.errors = (current.errors || 0) + 1;
+  }
+  keyUsageStats[k] = current;
+  debouncedSaveStats();
+};
+
+export const getKeyCooldownInfo = (key: string): { isCooling: boolean; remainingSec: number } => {
+  if (!key) return { isCooling: false, remainingSec: 0 };
+  const until = rateLimitCooldowns.get(key.trim());
+  if (!until) return { isCooling: false, remainingSec: 0 };
+  const diff = until - Date.now();
+  if (diff <= 0) {
+    rateLimitCooldowns.delete(key.trim());
+    return { isCooling: false, remainingSec: 0 };
+  }
+  return { isCooling: true, remainingSec: Math.ceil(diff / 1000) };
+};
+
+export const getAllKeyCooldowns = (): Record<string, number> => {
+  const now = Date.now();
+  const res: Record<string, number> = {};
+  rateLimitCooldowns.forEach((until, k) => {
+    if (until > now) {
+      res[k] = Math.ceil((until - now) / 1000);
+    } else {
+      rateLimitCooldowns.delete(k);
+    }
+  });
+  return res;
+};
+
+export const resetAllCooldowns = () => {
+  rateLimitCooldowns.clear();
+};
+
+export const resetAllKeyUsageStats = async () => {
+  keyUsageStats = {};
+  await AsyncStorage.removeItem('@gemini_keys_stats').catch(() => {});
+};
+
 export const markKeyRateLimited = (key: string, durationMs = 60000) => {
   if (!key) return;
   rateLimitCooldowns.set(key.trim(), Date.now() + durationMs);
@@ -42,6 +132,27 @@ export const isKeyCoolingDown = (key: string): boolean => {
     return false;
   }
   return true;
+};
+
+export const getPoolHealthSummary = () => {
+  const allKeys = getGeminiApiKeysPool();
+  let healthy = 0;
+  let cooling = 0;
+  allKeys.forEach(k => {
+    if (isKeyCoolingDown(k)) {
+      cooling++;
+    } else {
+      healthy++;
+    }
+  });
+  const total = allKeys.length;
+  const coolingPercentage = total > 0 ? Math.round((cooling / total) * 100) : 0;
+  return {
+    total,
+    healthy,
+    cooling,
+    coolingPercentage,
+  };
 };
 
 export const blacklistGeminiKey = (key: string) => {
@@ -210,10 +321,16 @@ export const testGeminiApiKey = async (
         const msg = isFallback
           ? `Koneksi Berhasil via Fallback [${model}] (${latency}ms): "${reply.trim()}" (Model utama ${targetFirst} sedang sibuk)`
           : `Koneksi Berhasil! Model [${model}] merespon (${latency}ms): "${reply.trim()}"`;
+        recordKeyUsage(testKey, 'success', model);
         return { success: true, message: msg, latency, modelUsed: model };
       } else {
         const err = await res.json().catch(() => ({}));
         const rawErr = err?.error?.message || `HTTP ${res.status}`;
+        if (res.status === 429 || rawErr.includes('Quota exceeded') || rawErr.includes('RESOURCE_EXHAUSTED')) {
+          recordKeyUsage(testKey, '429', model);
+        } else {
+          recordKeyUsage(testKey, 'error', model);
+        }
         if (rawErr.includes('service account is deleted or disabled') || rawErr.includes('bound service account')) {
           blacklistGeminiKey(testKey);
           return {
@@ -1128,6 +1245,7 @@ export async function sendMessageToGemini(
           setPreferredModel(model);
         }
 
+        recordKeyUsage(currentKey, 'success', model);
         return finalReply;
       } catch (err: any) {
         lastError = err;
@@ -1150,6 +1268,7 @@ export async function sendMessageToGemini(
 
         if (isKeyDead) {
           console.warn(`[Auto-Prune] Kunci ${keyPreview} dinonaktifkan oleh Google. Mengeluarkan dari pool.`);
+          recordKeyUsage(currentKey, 'error', model);
           blacklistGeminiKey(currentKey);
           continue; // Langsung coba kunci berikutnya
         }
@@ -1163,6 +1282,7 @@ export async function sendMessageToGemini(
 
         if (isModelGone) {
           console.warn(`[Silent-Auto-Switch] Model ${model} tidak aktif/404 (${errMsg}). Otomatis beralih ke model cadangan...`);
+          recordKeyUsage(currentKey, 'error', model);
           break; // Keluar dari loop kunci untuk model ini, LANGSUNG COBA MODEL BERIKUTNYA!
         }
 
@@ -1177,6 +1297,7 @@ export async function sendMessageToGemini(
 
         if (isModelOverloaded) {
           console.warn(`[Silent-Auto-Switch] Model ${model} sedang 503 high demand. Langsung beralih ke model cadangan...`);
+          recordKeyUsage(currentKey, 'error', model);
           break; // SEGERA BERALIH KE MODEL CADANGAN BERIKUTNYA!
         }
 
@@ -1192,6 +1313,7 @@ export async function sendMessageToGemini(
           consecutiveQuotaCount++;
           // Beri jeda pendinginan 60 detik pada kunci ini agar panggilan berikutnya tidak memakainya lagi!
           markKeyRateLimited(currentKey, 60000);
+          recordKeyUsage(currentKey, '429', model);
           console.warn(`[Auto-Failover] Model ${model} pada Kunci (${keyPreview}) limit kuota 429. Masuk cooldown 60s.`);
 
           // Jika sudah 3 kunci limit berturut-turut pada model ini, beralih ke model cadangan
@@ -1205,9 +1327,11 @@ export async function sendMessageToGemini(
         // 5. Timeout atau gangguan koneksi
         if (errMsg.includes('timeout') || errMsg.includes('Network request failed') || errMsg.includes('Failed to fetch')) {
           console.warn(`[Silent-Auto-Switch] Model ${model} timeout / gangguan koneksi. Beralih ke model berikutnya...`);
+          recordKeyUsage(currentKey, 'error', model);
           break;
         }
 
+        recordKeyUsage(currentKey, 'error', model);
         // Error lainnya: coba kunci berikutnya
         continue;
       }
