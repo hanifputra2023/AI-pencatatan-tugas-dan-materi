@@ -26,6 +26,23 @@ AsyncStorage.getItem('@gemini_api_keys').then(val => {
 });
 
 const blacklistedKeys = new Set<string>();
+// Map untuk melacak kunci yang terkena 429 (Rate Limit / Quota Exceeded) dengan timestamp pendinginan (cooldown)
+const rateLimitCooldowns = new Map<string, number>();
+
+export const markKeyRateLimited = (key: string, durationMs = 60000) => {
+  if (!key) return;
+  rateLimitCooldowns.set(key.trim(), Date.now() + durationMs);
+};
+
+export const isKeyCoolingDown = (key: string): boolean => {
+  const until = rateLimitCooldowns.get(key.trim());
+  if (!until) return false;
+  if (Date.now() > until) {
+    rateLimitCooldowns.delete(key.trim());
+    return false;
+  }
+  return true;
+};
 
 export const blacklistGeminiKey = (key: string) => {
   if (!key) return;
@@ -60,6 +77,14 @@ export const getGeminiApiKeysPool = (): string[] => {
     ...(envKey ? [envKey] : [])
   ])).filter(k => k && k.trim() !== '' && !blacklistedKeys.has(k.trim()));
   return pool;
+};
+
+// Ambil daftar kunci aktif yang sedang SEHAT (tidak dalam status cooldown 429)
+export const getAvailableGeminiApiKeys = (): string[] => {
+  const all = getGeminiApiKeysPool();
+  const healthy = all.filter(k => !isKeyCoolingDown(k));
+  // Jika seluruh kunci sedang kena cooldown, gunakan semua kunci kembali (siapa tahu kuota sudah reset)
+  return healthy.length > 0 ? healthy : all;
 };
 
 // Pastikan kunci API telah termuat secara dinamis (Memory -> AsyncStorage -> Supabase DB)
@@ -1068,8 +1093,6 @@ export async function sendMessageToGemini(
   }
 
   let lastError: any = null;
-  const totalKeys = keysPool.length;
-  const startOffset = Math.floor(Math.random() * totalKeys);
 
   // Daftar model yang akan dicoba secara berurutan:
   // Selalu sanitasi model pilihan aktif, lalu otomatis siapkan seluruh model cadangan
@@ -1083,12 +1106,15 @@ export async function sendMessageToGemini(
   for (const model of modelsToTry) {
     let consecutiveQuotaCount = 0;
 
-    // 2. TIER 2 (MULTI-KEY LOAD BALANCING): Untuk model yang sedang dicoba,
-    // coba kunci di pool secara bergantian (maksimal 3 kunci per model agar respon tetap kilat)
-    const maxKeyAttempts = Math.min(3, totalKeys);
+    // Ambil kunci yang segar (tidak sedang dalam cooldown 429)
+    const freshKeys = getAvailableGeminiApiKeys();
+    // Acak urutan agar beban terbagi merata di seluruh kunci yang sehat
+    const shuffledKeys = [...freshKeys].sort(() => Math.random() - 0.5);
+
+    // Coba hingga 5 kunci sehat per model agar jika ada beberapa kunci limit, tetap menemukan yang sehat
+    const maxKeyAttempts = Math.min(5, shuffledKeys.length);
     for (let step = 0; step < maxKeyAttempts; step++) {
-      const keyIdx = (startOffset + step) % totalKeys;
-      const currentKey = keysPool[keyIdx];
+      const currentKey = shuffledKeys[step];
       const keyPreview = currentKey.substring(0, 8) + '...' + currentKey.substring(currentKey.length - 4);
 
       try {
@@ -1114,7 +1140,6 @@ export async function sendMessageToGemini(
         const errMsg = err?.message || '';
 
         // 1. Jika kunci mati permanen (service account dihapus/dinonaktifkan atau key invalid)
-        // PERHATIAN: JANGAN blacklist pada HTTP 400 biasa karena itu bisa disebabkan argumen/formatting
         const isKeyDead =
           errMsg.includes('service account is deleted or disabled') ||
           errMsg.includes('bound service account') ||
@@ -1165,15 +1190,16 @@ export async function sendMessageToGemini(
 
         if (isQuotaExceeded) {
           consecutiveQuotaCount++;
-          console.warn(`[Auto-Failover] Model ${model} pada Kunci #${keyIdx + 1} (${keyPreview}) kuota limit.`);
+          // Beri jeda pendinginan 60 detik pada kunci ini agar panggilan berikutnya tidak memakainya lagi!
+          markKeyRateLimited(currentKey, 60000);
+          console.warn(`[Auto-Failover] Model ${model} pada Kunci (${keyPreview}) limit kuota 429. Masuk cooldown 60s.`);
 
-          // Jika sudah 2 kunci limit pada model ini, ATAU pool kunci sedikit:
-          // Langsung ganti ke model AI berikutnya!
-          if (consecutiveQuotaCount >= 2 || totalKeys <= 2) {
-            console.warn(`[Silent-Auto-Switch] Model ${model} mencapai batas kuota pool. Beralih ke model cadangan...`);
+          // Jika sudah 3 kunci limit berturut-turut pada model ini, beralih ke model cadangan
+          if (consecutiveQuotaCount >= 3) {
+            console.warn(`[Silent-Auto-Switch] Model ${model} mencapai batas kuota beruntun. Beralih ke model cadangan...`);
             break; // LANGSUNG GANTI MODEL!
           }
-          continue; // Coba kunci lain pada model ini
+          continue; // Coba kunci sehat lain pada model ini
         }
 
         // 5. Timeout atau gangguan koneksi

@@ -165,6 +165,8 @@ export default function GeminiLiveVoiceModal({
   const vadIsUserTalkingRef = useRef<boolean>(false);
   const vadSilenceTimerRef = useRef<any>(null);
   const lastMeteringUpdateRef = useRef<number>(0);
+  // Guard flag to prevent double-processing native audio
+  const isProcessingNativeAudioRef = useRef<boolean>(false);
 
   // Sync mic mute ref
   useEffect(() => {
@@ -683,6 +685,10 @@ export default function GeminiLiveVoiceModal({
   };
 
   const stopNativeRecordingAndProcess = async () => {
+    // ── Guard: prevent double-trigger from VAD ──────────────────────────────
+    if (isProcessingNativeAudioRef.current) return;
+    isProcessingNativeAudioRef.current = true;
+
     // Clear VAD state immediately to prevent double-trigger
     if (vadSilenceTimerRef.current) {
       clearTimeout(vadSilenceTimerRef.current);
@@ -690,7 +696,10 @@ export default function GeminiLiveVoiceModal({
     }
     vadIsUserTalkingRef.current = false;
 
-    if (!nativeRecordingRef.current) return;
+    if (!nativeRecordingRef.current) {
+      isProcessingNativeAudioRef.current = false;
+      return;
+    }
     try {
       const recording = nativeRecordingRef.current;
       nativeRecordingRef.current = null;
@@ -698,6 +707,19 @@ export default function GeminiLiveVoiceModal({
       setLiveState('thinking');
 
       await recording.stopAndUnloadAsync();
+
+      // ── CRITICAL FIX: Switch audio mode to PLAYBACK before TTS ──────────
+      // Without this, on Android/iOS the TTS audio gets routed back through
+      // the mic/earpiece instead of the speaker, making it sound like the
+      // user's own voice is being echoed back at them.
+      await Audio.setAudioModeAsync({
+        allowsRecordingIOS: false,
+        playsInSilentModeIOS: true,
+        staysActiveInBackground: false,
+        shouldDuckAndroid: false,
+        playThroughEarpieceAndroid: false,
+      });
+
       const uri = recording.getURI();
       if (uri) {
         // Read base64 audio and send to Gemini Multimodal Audio
@@ -705,9 +727,17 @@ export default function GeminiLiveVoiceModal({
           encoding: FileSystem.EncodingType.Base64,
         });
 
-        const userMsg = 'Halo!';
+        // Validasi: rekaman audio terlalu pendek (< 300 char base64 ≈ 0.1s)
+        if (!base64Data || base64Data.length < 300) {
+          isProcessingNativeAudioRef.current = false;
+          const shortMsg = 'Suaramu belum tertangkap jelas. Coba bicara lagi ya.';
+          setDisplayedAiSpeech(shortMsg);
+          speakAiVoice(shortMsg);
+          return;
+        }
+
         setUserTranscript('Suara terkirim...');
-        
+
         const audioAttachment = {
           id: Date.now().toString(),
           name: 'audio_record.m4a',
@@ -764,11 +794,19 @@ export default function GeminiLiveVoiceModal({
         }
 
         speakAiVoice(cleanReply);
+      } else {
+        // No URI — beritahu pengguna secara ramah
+        isProcessingNativeAudioRef.current = false;
+        const noAudioMsg = 'Suaramu belum tertangkap jelas. Coba bicara lagi ya.';
+        setDisplayedAiSpeech(noAudioMsg);
+        speakAiVoice(noAudioMsg);
       }
     } catch (e: any) {
       console.warn('Native recording process error:', e);
-      setLiveState('listening');
-      startListeningSession();
+      isProcessingNativeAudioRef.current = false;
+      const friendlyErr = e?.message || 'Maaf, server AI sedang sibuk. Coba bicara lagi ya.';
+      setDisplayedAiSpeech(friendlyErr);
+      speakAiVoice(friendlyErr);
     }
   };
 
@@ -836,10 +874,11 @@ export default function GeminiLiveVoiceModal({
       }
 
       speakAiVoice(cleanReply);
-    } catch (e) {
+    } catch (e: any) {
       console.log('Gemini voice query error:', e);
-      setLiveState('listening');
-      startListeningSession();
+      const friendlyErr = e?.message || 'Maaf, server AI sedang sibuk. Coba tanyakan lagi ya.';
+      setDisplayedAiSpeech(friendlyErr);
+      speakAiVoice(friendlyErr);
     }
   };
 
@@ -872,6 +911,7 @@ export default function GeminiLiveVoiceModal({
 
     const onSpeechFinished = () => {
       isAiSpeakingRef.current = false;
+      isProcessingNativeAudioRef.current = false;
       if (ttsTimeoutRef.current) clearTimeout(ttsTimeoutRef.current);
       if (streamTimerRef.current) clearInterval(streamTimerRef.current);
       setDisplayedAiSpeech(fullAiTextRef.current);
@@ -879,10 +919,22 @@ export default function GeminiLiveVoiceModal({
       if (!isMicMutedRef.current && isComponentMounted.current) {
         setUserTranscript('');
         setLiveState('listening');
-        // Give 300ms buffer before restarting mic to prevent hearing AI's own echo
-        setTimeout(() => {
-          startListeningSession();
-        }, 300);
+        // ── CRITICAL FIX: Switch audio mode BACK to RECORDING before mic restart
+        // This ensures Android/iOS properly routes mic input again after TTS playback
+        Audio.setAudioModeAsync({
+          allowsRecordingIOS: true,
+          playsInSilentModeIOS: true,
+          staysActiveInBackground: false,
+          shouldDuckAndroid: true,
+          playThroughEarpieceAndroid: false,
+        }).catch(() => {}).finally(() => {
+          // Give 350ms buffer before restarting mic to prevent hearing AI's own echo
+          setTimeout(() => {
+            if (isComponentMounted.current && !isMicMutedRef.current) {
+              startListeningSession();
+            }
+          }, 350);
+        });
       } else {
         setLiveState('idle');
       }
