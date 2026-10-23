@@ -34,24 +34,42 @@ async function setLastNotifiedChest(count: number): Promise<void> {
 async function evaluateAndNotifyEvents() {
   let newData = false;
 
-  // 1. Boss Event
+  // 1. Boss Event (Hanya dievaluasi dan dikirim jika ada catatan belajar di perangkat ini)
   try {
-    const current = await getCurrentBossEvent();
-    const lastNotified = await getLastNotifiedBoss();
-    if (!current) {
-      // Belum ada boss aktif: coba spawn (peluang 30%, max sekali/4 jam)
-      const spawned = await trySpawnBossEvent();
-      if (spawned && lastNotified !== spawned.id) {
-        newData = true;
-        await setLastNotifiedBoss(spawned.id);
-        sendImmediateNotification(
-          '⚔️ Boss Event Terbatas Muncul!',
-          `"${spawned.name}" menantangmu! Kalahkan dalam 24 jam untuk klaim Gelar Legendaris & Hadiah Langka!`
-        );
+    let hasNotesOnDevice = false;
+    const allKeys = await AsyncStorage.getAllKeys();
+    const noteKeys = allKeys.filter(k => k.startsWith('@cached_study_notes_'));
+    for (const nk of noteKeys) {
+      const val = await AsyncStorage.getItem(nk);
+      if (val) {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed) && parsed.length > 0) {
+            hasNotesOnDevice = true;
+            break;
+          }
+        } catch {}
       }
-    } else if (lastNotified !== current.id) {
-      // Jangan notif ulang boss yang sudah pernah dimunculkan
-      await setLastNotifiedBoss(current.id);
+    }
+
+    if (hasNotesOnDevice) {
+      const current = await getCurrentBossEvent();
+      const lastNotified = await getLastNotifiedBoss();
+      if (!current) {
+        // Belum ada boss aktif: coba spawn (peluang 30%, max sekali/4 jam)
+        const spawned = await trySpawnBossEvent();
+        if (spawned && lastNotified !== spawned.id) {
+          newData = true;
+          await setLastNotifiedBoss(spawned.id);
+          sendImmediateNotification(
+            '⚔️ Boss Event Terbatas Muncul!',
+            `"${spawned.name}" menantangmu! Kalahkan dalam 24 jam untuk klaim Gelar Legendaris & Hadiah Langka!`
+          );
+        }
+      } else if (lastNotified !== current.id) {
+        // Jangan notif ulang boss yang sudah pernah dimunculkan
+        await setLastNotifiedBoss(current.id);
+      }
     }
   } catch (e) {
     console.log('Boss event background eval error:', e);

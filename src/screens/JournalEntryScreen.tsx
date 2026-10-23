@@ -9,7 +9,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useRoute, useNavigation, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
-import { useTheme } from '../contexts/ThemeContext';
+import { useTheme, getSemanticColors } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { JournalEntry } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -33,6 +33,7 @@ export default function JournalEntryScreen() {
   const { user } = useAuth();
   const { moods, aiBotName } = useMoods();
   const { theme, isLightMode } = useTheme();
+  const semantic = React.useMemo(() => getSemanticColors(isLightMode), [isLightMode]);
   const route = useRoute<JournalEntryRouteProp>();
   const navigation = useNavigation();
   const { isDesktop, isTablet } = useResponsive();
@@ -455,9 +456,9 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
         <View style={{ flex: 1, paddingHorizontal: 10 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
             {isDraft && (
-              <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#3B2412', borderColor: isLightMode ? '#FCD34D' : '#78350F' }]}>
-                <Ionicons name="document-text" size={9} color={isLightMode ? '#D97706' : '#FBBF24'} />
-                <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Draf</Text>
+              <View style={[styles.draftBadge, { backgroundColor: semantic.warningBg, borderColor: semantic.warningBorder }]}>
+                <Ionicons name="document-text" size={9} color={semantic.warning} />
+                <Text style={[styles.draftBadgeText, { color: semantic.warningStrong }]}>Draf</Text>
               </View>
             )}
             <Text style={[styles.topHeaderTitle, { color: theme.text }]} numberOfLines={1}>
@@ -473,12 +474,12 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
           {isEditing ? (
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
               <TouchableOpacity
-                style={[styles.headerDraftBtn, { backgroundColor: isLightMode ? '#FEF3C7' : '#2A1D14', borderColor: isLightMode ? '#FCD34D' : '#593914' }]}
+                style={[styles.headerDraftBtn, { backgroundColor: semantic.warningBg, borderColor: semantic.warningBorder }]}
                 onPress={() => handleSave(true)}
                 disabled={loading || (!title.trim() && !content.trim())}
               >
-                <Ionicons name="document-text-outline" size={13} color={isLightMode ? '#B45309' : '#FBBF24'} />
-                <Text style={[styles.headerDraftBtnText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Draf</Text>
+                <Ionicons name="document-text-outline" size={13} color={semantic.warning} />
+                <Text style={[styles.headerDraftBtnText, { color: semantic.warningStrong }]}>Draf</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -507,10 +508,10 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.headerDeleteBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2C1216' }]}
+                style={[styles.headerDeleteBtn, { backgroundColor: semantic.dangerBg }]}
                 onPress={handleDelete}
               >
-                <Ionicons name="trash-outline" size={16} color="#EF4444" />
+                <Ionicons name="trash-outline" size={16} color={semantic.danger} />
               </TouchableOpacity>
             </>
           )}
@@ -519,7 +520,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 
       {/* Pending Draft Confirmation Banner */}
       {pendingDraft && isEditing && !entryId && (
-        <View style={[styles.pendingDraftBanner, { backgroundColor: isLightMode ? '#EFF6FF' : '#141E2E', borderColor: isLightMode ? '#BFDBFE' : '#2A3C59' }]}>
+        <View style={[styles.pendingDraftBanner, { backgroundColor: semantic.infoBg, borderColor: semantic.infoBorder }]}>
           <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1, gap: 6 }}>
             <Ionicons name="document-text" size={15} color={theme.accentLight} />
             <Text style={[styles.pendingDraftText, { color: theme.text }]} numberOfLines={1}>
@@ -531,8 +532,8 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
               <Ionicons name="refresh" size={12} color="#FFFFFF" />
               <Text style={styles.draftRestoreText}>Pulihkan</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.draftDiscardBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#3B181E', borderColor: isLightMode ? '#FCA5A5' : '#5C1D24' }]} onPress={handleDiscardDraft}>
-              <Ionicons name="trash-outline" size={12} color="#EF4444" />
+            <TouchableOpacity style={[styles.draftDiscardBtn, { backgroundColor: semantic.dangerBg, borderColor: semantic.dangerBorder }]} onPress={handleDiscardDraft}>
+              <Ionicons name="trash-outline" size={12} color={semantic.danger} />
               <Text style={styles.draftDiscardText}>Buang</Text>
             </TouchableOpacity>
           </View>
@@ -541,9 +542,9 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
 
       {/* Auto-saved Status Banner */}
       {draftStatus && !pendingDraft && isEditing && !entryId && (
-        <View style={[styles.draftBanner, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
-          <Ionicons name="cloud-done-outline" size={13} color="#10B981" />
-          <Text style={[styles.draftBannerText, { color: isLightMode ? '#15803D' : '#34D399' }]}>{draftStatus}</Text>
+        <View style={[styles.draftBanner, { backgroundColor: semantic.successBg, borderColor: semantic.successBorder }]}>
+          <Ionicons name="cloud-done-outline" size={13} color={semantic.success} />
+          <Text style={[styles.draftBannerText, { color: semantic.success }]}>{draftStatus}</Text>
         </View>
       )}
 
@@ -688,7 +689,7 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
           {/* Title Input */}
           <TextInput
             style={[styles.titleInput, { backgroundColor: theme.card, borderColor: theme.border, color: theme.text }]}
-            placeholder="Judul catatan harian..."
+            placeholder=" Judul catatan harian..."
             placeholderTextColor={theme.muted}
             value={title}
             onChangeText={setTitle}
@@ -809,8 +810,8 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
               style={[
                 styles.saveBtn,
                 {
-                  backgroundColor: isLightMode ? '#FEF3C7' : '#2A1D14',
-                  borderColor: isLightMode ? '#FCD34D' : '#593914',
+                  backgroundColor: semantic.warningBg,
+                  borderColor: semantic.warningBorder,
                   flex: 1,
                   marginTop: 0,
                   flexDirection: 'row',
@@ -821,8 +822,8 @@ Berikan tanggapan yang hangat, menenangkan, validasi perasaannya, dan berikan 1 
               onPress={() => handleSave(true)}
               disabled={loading}
             >
-              <Ionicons name="document-text-outline" size={16} color={isLightMode ? '#B45309' : '#FDE68A'} />
-              <Text style={[styles.saveBtnText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>
+              <Ionicons name="document-text-outline" size={16} color={semantic.warning} />
+              <Text style={[styles.saveBtnText, { color: semantic.warningStrong }]}>
                 Simpan Draf
               </Text>
             </TouchableOpacity>
@@ -1039,6 +1040,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#202634',
     minHeight: 120,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   readerStatsBar: {
     flexDirection: 'row',
@@ -1055,6 +1061,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#1E3050',
     gap: 10,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   aiInsightHeader: {
     flexDirection: 'row',
@@ -1188,12 +1199,12 @@ const styles = StyleSheet.create({
   },
   contentInput: {
     backgroundColor: '#141822',
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 14,
+    padding: 16,
     color: '#F3F4F6',
-    fontSize: 14,
-    lineHeight: 22,
-    minHeight: 220,
+    fontSize: 15,
+    lineHeight: 24,
+    minHeight: 320,
     borderWidth: 1,
     borderColor: '#202634',
     marginBottom: 12,

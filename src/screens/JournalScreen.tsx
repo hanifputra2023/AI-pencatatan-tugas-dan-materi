@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
 import {
-  View, Text, FlatList, TouchableOpacity,
+  View, Text, FlatList, TouchableOpacity, ScrollView,
   StyleSheet, SafeAreaView, ActivityIndicator,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -8,7 +8,7 @@ import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useAuth } from '../contexts/AuthContext';
 import { useMoods } from '../contexts/MoodContext';
-import { useTheme, isColorLight } from '../contexts/ThemeContext';
+import { useTheme, isColorLight, getSemanticColors } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { JournalEntry } from '../types';
 import { RootStackParamList } from '../navigation/AppNavigator';
@@ -27,6 +27,7 @@ export default function JournalScreen() {
   const { user } = useAuth();
   const { moods } = useMoods();
   const { theme, isLightMode } = useTheme();
+  const semantic = useMemo(() => getSemanticColors(isLightMode), [isLightMode]);
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { isDesktop, isTablet } = useResponsive();
   const isWide = isDesktop || isTablet;
@@ -113,9 +114,9 @@ export default function JournalScreen() {
         <View style={styles.cardHeader}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1 }}>
             {item.is_draft && (
-              <View style={[styles.draftBadge, { backgroundColor: isLightMode ? '#FEF3C7' : '#3B2412', borderColor: isLightMode ? '#FCD34D' : '#78350F' }]}>
-                <Ionicons name="document-text" size={10} color={isLightMode ? '#D97706' : '#FBBF24'} />
-                <Text style={[styles.draftBadgeText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>Draf</Text>
+              <View style={[styles.draftBadge, { backgroundColor: semantic.warningBg, borderColor: semantic.warningBorder }]}>
+                <Ionicons name="document-text" size={10} color={semantic.warning} />
+                <Text style={[styles.draftBadgeText, { color: semantic.warningStrong }]}>Draf</Text>
               </View>
             )}
             <Text style={[styles.cardTitle, { color: theme.text }]} numberOfLines={1}>
@@ -132,7 +133,7 @@ export default function JournalScreen() {
           {item.tags?.length > 0 && (
             <View style={styles.tagsRow}>
               {item.tags.slice(0, 3).map(tag => (
-                <View key={tag} style={[styles.tag, { backgroundColor: theme.cardInner }]}>
+                <View key={tag} style={[styles.tag, { backgroundColor: theme.cardInner, borderColor: theme.border, borderWidth: 1 }]}>
                   <Text style={[styles.tagText, { color: theme.accentLight }]}>#{tag}</Text>
                 </View>
               ))}
@@ -183,45 +184,54 @@ export default function JournalScreen() {
           style={[
             styles.tabSegmentBtn,
             { backgroundColor: theme.card, borderColor: theme.border },
-            activeTab === 'drafts' && [styles.tabSegmentBtnActive, { backgroundColor: isLightMode ? '#FEF3C7' : '#332014', borderColor: isLightMode ? '#F59E0B' : '#78350F' }]
+            activeTab === 'drafts' && [styles.tabSegmentBtnActive, { backgroundColor: semantic.warningBg, borderColor: semantic.warningBorder }]
           ]}
           onPress={() => setActiveTab('drafts')}
           activeOpacity={0.8}
         >
-          <Ionicons name="document-text" size={15} color={activeTab === 'drafts' ? (isLightMode ? '#D97706' : '#FBBF24') : theme.subtext} />
-          <Text style={[styles.tabSegmentText, { color: theme.subtext }, activeTab === 'drafts' && [styles.tabSegmentTextActive, { color: isLightMode ? '#B45309' : '#FDE68A', fontWeight: '700' }]]}>
+          <Ionicons name="document-text" size={15} color={activeTab === 'drafts' ? semantic.warning : theme.subtext} />
+          <Text style={[styles.tabSegmentText, { color: theme.subtext }, activeTab === 'drafts' && [styles.tabSegmentTextActive, { color: semantic.warningStrong, fontWeight: '700' }]]}>
             Draf Saya ({draftEntries.length})
           </Text>
         </TouchableOpacity>
       </View>
 
-      {/* Mood Filter Chips */}
-      <View style={styles.filterContainer}>
-        <TouchableOpacity
-          style={[
-            styles.filterChip,
-            { backgroundColor: theme.card, borderColor: theme.border },
-            !filterMood && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+      {/* Mood Filter Chips (Responsive Horizontal Scroll on Mobile, Wrap on Desktop) */}
+      <View style={styles.filterWrapper}>
+        <ScrollView
+          horizontal={!isWide}
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={[
+            styles.filterScrollContent,
+            isWide && styles.filterScrollContentWide,
           ]}
-          onPress={() => setFilterMood(null)}
         >
-          <Text style={[styles.filterText, { color: theme.subtext }, !filterMood && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>Semua Mood</Text>
-        </TouchableOpacity>
-        {moods.map(m => (
           <TouchableOpacity
-            key={m.type}
             style={[
               styles.filterChip,
               { backgroundColor: theme.card, borderColor: theme.border },
-              filterMood === m.type && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+              !filterMood && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
             ]}
-            onPress={() => setFilterMood(filterMood === m.type ? null : m.type)}
+            onPress={() => setFilterMood(null)}
           >
-            <Text style={[styles.filterText, { color: theme.subtext }, filterMood === m.type && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
-              {m.emoji} {m.label}
-            </Text>
+            <Text style={[styles.filterText, { color: theme.subtext }, !filterMood && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>Semua Mood</Text>
           </TouchableOpacity>
-        ))}
+          {moods.map(m => (
+            <TouchableOpacity
+              key={m.type}
+              style={[
+                styles.filterChip,
+                { backgroundColor: theme.card, borderColor: theme.border },
+                filterMood === m.type && [styles.filterChipActive, { backgroundColor: theme.accentBg, borderColor: theme.accent }]
+              ]}
+              onPress={() => setFilterMood(filterMood === m.type ? null : m.type)}
+            >
+              <Text style={[styles.filterText, { color: theme.subtext }, filterMood === m.type && [styles.filterTextActive, { color: theme.accentLight, fontWeight: '700' }]]}>
+                {m.emoji} {m.label}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
       </View>
 
       {loading ? (
@@ -351,33 +361,33 @@ const styles = StyleSheet.create({
     fontSize: 11,
     fontWeight: '700',
   },
-  filterContainer: {
+  filterWrapper: {
+    marginBottom: 14,
+  },
+  filterScrollContent: {
     flexDirection: 'row',
-    flexWrap: 'wrap',
+    alignItems: 'center',
     paddingHorizontal: 18,
     gap: 6,
-    marginBottom: 14,
+  },
+  filterScrollContentWide: {
+    flexWrap: 'wrap',
   },
   filterChip: {
     paddingHorizontal: 12,
     paddingVertical: 6,
-    backgroundColor: '#141822',
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: '#202634',
   },
   filterChipActive: {
-    backgroundColor: '#1E293B',
-    borderColor: '#3B82F6',
+    shadowOpacity: 0.1,
   },
   filterText: {
-    color: '#9CA3AF',
     fontSize: 11,
     fontWeight: '500',
   },
   filterTextActive: {
-    color: '#F3F4F6',
-    fontWeight: '600',
+    fontWeight: '700',
   },
   loaderCenter: {
     flex: 1,
@@ -391,11 +401,14 @@ const styles = StyleSheet.create({
   },
   card: {
     flex: 1,
-    backgroundColor: '#141822',
     borderRadius: 14,
     padding: 16,
     borderWidth: 1,
-    borderColor: '#202634',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   cardWide: {
     minHeight: 120,
@@ -407,7 +420,6 @@ const styles = StyleSheet.create({
     marginBottom: 6,
   },
   cardTitle: {
-    color: '#F3F4F6',
     fontSize: 14,
     fontWeight: '600',
     flex: 1,
@@ -417,7 +429,6 @@ const styles = StyleSheet.create({
     marginLeft: 8,
   },
   cardContent: {
-    color: '#9CA3AF',
     fontSize: 12,
     lineHeight: 18,
   },
@@ -425,24 +436,24 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
     marginTop: 12,
   },
   cardDate: {
-    color: '#6B7280',
     fontSize: 11,
   },
   tagsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 4,
   },
   tag: {
-    backgroundColor: '#1C2230',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 6,
   },
   tagText: {
-    color: '#9CA3AF',
     fontSize: 11,
     fontWeight: '500',
   },

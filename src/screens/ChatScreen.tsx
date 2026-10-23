@@ -176,6 +176,7 @@ export default function ChatScreen() {
   // Attachment state
   const [attachment, setAttachment] = useState<ChatAttachment | null>(null);
   const [showAttachMenu, setShowAttachMenu] = useState(false);
+  const [showAiModePanel, setShowAiModePanel] = useState(false);
   const [showScrollBottomBtn, setShowScrollBottomBtn] = useState(false);
 
   const flatListRef = useRef<FlatList>(null);
@@ -1543,113 +1544,111 @@ export default function ChatScreen() {
               </View>
             )}
 
-            {/* Attachment Options Menu Popup (single scrollable row, items resize to fit) */}
-            {showAttachMenu && (() => {
-              const menuItems = [
-                { key: 'galeri', label: 'Galeri', icon: 'images' as const, onPress: pickImage, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
-                { key: 'kamera', label: 'Kamera', icon: 'camera' as const, onPress: takePhoto, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
-                { key: 'audio', label: 'Audio', icon: 'mic' as const, onPress: pickAudio, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
-                { key: 'dokumen', label: 'Dokumen', icon: 'document-text' as const, onPress: pickDocument, active: false, bg: theme.accentBg, border: theme.border, color: theme.accentLight },
+            {/* ========== MEDIA ATTACH MENU (clean 4-item grid) ========== */}
+            {showAttachMenu && (
+              <View style={[styles.attachMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.attachMenuGrid}>
+                  {[
+                    { key: 'galeri', label: 'Galeri', icon: 'images' as const, onPress: pickImage, color: isLightMode ? '#7C3AED' : '#A78BFA', bg: isLightMode ? '#EDE9FE' : '#241B38' },
+                    { key: 'kamera', label: 'Kamera', icon: 'camera' as const, onPress: takePhoto, color: isLightMode ? '#2563EB' : '#60A5FA', bg: isLightMode ? '#EFF6FF' : '#1E3A5F' },
+                    { key: 'audio', label: 'Audio', icon: 'mic' as const, onPress: pickAudio, color: isLightMode ? '#D97706' : '#FBBF24', bg: isLightMode ? '#FEF3C7' : '#3A2A0A' },
+                    { key: 'dokumen', label: 'Dokumen', icon: 'document-text' as const, onPress: pickDocument, color: isLightMode ? '#059669' : '#34D399', bg: isLightMode ? '#ECFDF5' : '#064E3B' },
+                  ].map(it => (
+                    <TouchableOpacity
+                      key={it.key}
+                      style={styles.attachGridItem}
+                      onPress={() => { it.onPress(); setShowAttachMenu(false); }}
+                      disabled={loading}
+                      activeOpacity={0.7}
+                      accessibilityLabel={it.label}
+                    >
+                      <View style={[styles.attachIconWrap, { backgroundColor: it.bg, borderColor: theme.border }]}>
+                        <Ionicons name={it.icon} size={17} color={it.color} />
+                      </View>
+                      <Text style={[styles.attachLabel, { color: theme.subtext }]}>{it.label}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {/* ========== AI MODE CHIPS ROW (collapsible, above input) ========== */}
+            {showAiModePanel && (() => {
+              const aiModes = [
                 {
-                  key: 'deep',
-                  label: 'Deep',
-                  icon: 'bulb-outline' as const,
-                  onPress: () => setDeepThinkEnabled(p => !p),
-                  active: deepThinkEnabled,
-                  bg: deepThinkEnabled ? (isLightMode ? '#EDE9FE' : '#241B38') : theme.accentBg,
-                  border: deepThinkEnabled ? (isLightMode ? '#8B5CF6' : '#A78BFA') : theme.border,
-                  color: deepThinkEnabled ? (isLightMode ? '#6D28D9' : '#A78BFA') : theme.accentLight,
+                  key: 'deep', label: 'Deep', icon: 'bulb-outline' as const,
+                  active: deepThinkEnabled, onPress: () => setDeepThinkEnabled(p => !p),
+                  activeColor: isLightMode ? '#6D28D9' : '#A78BFA',
+                  activeBg: isLightMode ? '#EDE9FE' : '#241B38',
+                  activeBorder: isLightMode ? '#8B5CF6' : '#A78BFA',
                 },
                 {
-                  key: 'akurat',
-                  label: 'Akurat',
-                  icon: 'shield-checkmark-outline' as const,
-                  onPress: () => setFactualEnabled(p => !p),
-                  active: factualEnabled,
-                  bg: factualEnabled ? (isLightMode ? '#FEF3C7' : '#3A2A0A') : theme.accentBg,
-                  border: factualEnabled ? (isLightMode ? '#F59E0B' : '#FBBF24') : theme.border,
-                  color: factualEnabled ? (isLightMode ? '#D97706' : '#FBBF24') : theme.accentLight,
+                  key: 'akurat', label: 'Akurat', icon: 'shield-checkmark-outline' as const,
+                  active: factualEnabled, onPress: () => setFactualEnabled(p => !p),
+                  activeColor: isLightMode ? '#D97706' : '#FBBF24',
+                  activeBg: isLightMode ? '#FEF3C7' : '#3A2A0A',
+                  activeBorder: isLightMode ? '#F59E0B' : '#FBBF24',
                 },
                 {
-                  key: 'agent',
-                  label: 'Agent',
-                  icon: 'rocket-outline' as const,
-                  onPress: () => setAgentEnabled(p => !p),
-                  active: agentEnabled,
-                  bg: agentEnabled ? (isLightMode ? '#CCFBF1' : '#0F2A26') : theme.accentBg,
-                  border: agentEnabled ? (isLightMode ? '#14B8A6' : '#5EEAD4') : theme.border,
-                  color: agentEnabled ? (isLightMode ? '#0F766E' : '#5EEAD4') : theme.accentLight,
+                  key: 'agent', label: 'Agent', icon: 'rocket-outline' as const,
+                  active: agentEnabled, onPress: () => setAgentEnabled(p => !p),
+                  activeColor: isLightMode ? '#0F766E' : '#5EEAD4',
+                  activeBg: isLightMode ? '#CCFBF1' : '#0F2A26',
+                  activeBorder: isLightMode ? '#14B8A6' : '#5EEAD4',
                 },
                 {
-                  key: 'code',
-                  label: 'Python',
-                  icon: 'code-slash' as const,
-                  onPress: () => {
-                    setCodeExecutionEnabled(p => !p);
-                    setDebateModeEnabled(false);
-                  },
+                  key: 'code', label: 'Python', icon: 'code-slash' as const,
                   active: codeExecutionEnabled,
-                  bg: codeExecutionEnabled ? (isLightMode ? '#ECFDF5' : '#064E3B') : theme.accentBg,
-                  border: codeExecutionEnabled ? (isLightMode ? '#10B981' : '#34D399') : theme.border,
-                  color: codeExecutionEnabled ? (isLightMode ? '#047857' : '#34D399') : theme.accentLight,
+                  onPress: () => { setCodeExecutionEnabled(p => !p); setDebateModeEnabled(false); },
+                  activeColor: isLightMode ? '#047857' : '#34D399',
+                  activeBg: isLightMode ? '#ECFDF5' : '#064E3B',
+                  activeBorder: isLightMode ? '#10B981' : '#34D399',
                 },
                 {
-                  key: 'web',
-                  label: 'Web',
-                  icon: 'globe-outline' as const,
-                  onPress: () => setWebSearchEnabled(p => !p),
-                  active: webSearchEnabled,
-                  bg: webSearchEnabled ? (isLightMode ? '#EFF6FF' : '#1E3A8A') : theme.accentBg,
-                  border: webSearchEnabled ? (isLightMode ? '#3B82F6' : '#60A5FA') : theme.border,
-                  color: webSearchEnabled ? (isLightMode ? '#1D4ED8' : '#60A5FA') : theme.accentLight,
+                  key: 'web', label: 'Web', icon: 'globe-outline' as const,
+                  active: webSearchEnabled, onPress: () => setWebSearchEnabled(p => !p),
+                  activeColor: isLightMode ? '#1D4ED8' : '#60A5FA',
+                  activeBg: isLightMode ? '#EFF6FF' : '#1E3A8A',
+                  activeBorder: isLightMode ? '#3B82F6' : '#60A5FA',
                 },
                 {
-                  key: 'debate',
-                  label: 'Debat',
-                  icon: 'people-outline' as const,
-                  onPress: () => {
-                    setDebateModeEnabled(p => !p);
-                    setCodeExecutionEnabled(false);
-                  },
+                  key: 'debate', label: 'Debat', icon: 'people-outline' as const,
                   active: debateModeEnabled,
-                  bg: debateModeEnabled ? (isLightMode ? '#FDF2F8' : '#831843') : theme.accentBg,
-                  border: debateModeEnabled ? (isLightMode ? '#EC4899' : '#F472B6') : theme.border,
-                  color: debateModeEnabled ? (isLightMode ? '#BE185D' : '#F472B6') : theme.accentLight,
+                  onPress: () => { setDebateModeEnabled(p => !p); setCodeExecutionEnabled(false); },
+                  activeColor: isLightMode ? '#BE185D' : '#F472B6',
+                  activeBg: isLightMode ? '#FDF2F8' : '#831843',
+                  activeBorder: isLightMode ? '#EC4899' : '#F472B6',
                 },
               ];
 
-              // Evenly distribute buttons across the row when they fit on screen; when
-              // they overflow, keep them at the min width so the row scrolls sideways
-              // instead of piling up into multiple rows (matches the "slide" design).
-              const MAX_ROW_W = 900;
-              const available = Math.max(Math.min(width, MAX_ROW_W) - 28, 200);
-              const MIN_ITEM = 64;
-              const itemWidth = Math.round(Math.max(available / menuItems.length, MIN_ITEM));
-
               return (
-                <View style={[styles.attachMenu, { backgroundColor: theme.card, borderColor: theme.border }]}>
-                  <ScrollView
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    contentContainerStyle={styles.attachMenuScroll}
-                  >
-                    {menuItems.map(it => (
+                <View style={[styles.aiModePanel, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                  <View style={styles.aiModePanelHeader}>
+                    <Ionicons name="flash" size={12} color={theme.accentLight} />
+                    <Text style={[styles.aiModePanelTitle, { color: theme.subtext }]}>Mode AI</Text>
+                  </View>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.aiModeChipsRow}>
+                    {aiModes.map(m => (
                       <TouchableOpacity
-                        key={it.key}
-                        style={[styles.attachOption, { width: itemWidth }]}
-                        onPress={it.onPress}
+                        key={m.key}
+                        style={[
+                          styles.aiModeChip,
+                          {
+                            backgroundColor: m.active ? m.activeBg : theme.cardInner,
+                            borderColor: m.active ? m.activeBorder : theme.border,
+                          },
+                        ]}
+                        onPress={m.onPress}
                         disabled={loading}
                         activeOpacity={0.7}
-                        accessibilityLabel={it.label}
-                        accessibilityState={{ selected: it.active }}
+                        accessibilityLabel={m.label}
+                        accessibilityState={{ selected: m.active }}
                       >
-                        <View style={[styles.attachIconWrap, { backgroundColor: it.bg, borderColor: it.border }]}>
-                          <Ionicons name={it.icon} size={16} color={it.color} />
-                        </View>
-                        <View style={styles.attachLabelRow}>
-                          <Text style={[styles.attachLabel, { color: it.active ? it.color : theme.subtext }]}>{it.label}</Text>
-                          {it.active && <Ionicons name="checkmark-circle" size={12} color={it.color} />}
-                        </View>
+                        <Ionicons name={m.icon} size={13} color={m.active ? m.activeColor : theme.subtext} />
+                        <Text style={[styles.aiModeChipText, { color: m.active ? m.activeColor : theme.subtext }]}>
+                          {m.label}
+                        </Text>
+                        {m.active && <Ionicons name="checkmark-circle" size={11} color={m.activeColor} />}
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
@@ -1661,6 +1660,18 @@ export default function ChatScreen() {
             {/* FLOATING CAPSULE INPUT BAR */}
             {/* ======================================================================= */}
             <View style={styles.floatingInputWrapper}>
+              {/* Active AI Modes Indicator (compact pills below mode panel, above capsule) */}
+              {!showAiModePanel && (deepThinkEnabled || factualEnabled || agentEnabled || codeExecutionEnabled || webSearchEnabled || debateModeEnabled) && (
+                <View style={styles.activeModesRow}>
+                  {deepThinkEnabled && <View style={[styles.activeModeIndicator, { backgroundColor: isLightMode ? '#EDE9FE' : '#241B38', borderColor: isLightMode ? '#8B5CF6' : '#A78BFA' }]}><Text style={[styles.activeModeIndicatorText, { color: isLightMode ? '#6D28D9' : '#A78BFA' }]}>Deep</Text></View>}
+                  {factualEnabled && <View style={[styles.activeModeIndicator, { backgroundColor: isLightMode ? '#FEF3C7' : '#3A2A0A', borderColor: isLightMode ? '#F59E0B' : '#FBBF24' }]}><Text style={[styles.activeModeIndicatorText, { color: isLightMode ? '#D97706' : '#FBBF24' }]}>Akurat</Text></View>}
+                  {agentEnabled && <View style={[styles.activeModeIndicator, { backgroundColor: isLightMode ? '#CCFBF1' : '#0F2A26', borderColor: isLightMode ? '#14B8A6' : '#5EEAD4' }]}><Text style={[styles.activeModeIndicatorText, { color: isLightMode ? '#0F766E' : '#5EEAD4' }]}>Agent</Text></View>}
+                  {codeExecutionEnabled && <View style={[styles.activeModeIndicator, { backgroundColor: isLightMode ? '#ECFDF5' : '#064E3B', borderColor: isLightMode ? '#10B981' : '#34D399' }]}><Text style={[styles.activeModeIndicatorText, { color: isLightMode ? '#047857' : '#34D399' }]}>Python</Text></View>}
+                  {webSearchEnabled && <View style={[styles.activeModeIndicator, { backgroundColor: isLightMode ? '#EFF6FF' : '#1E3A8A', borderColor: isLightMode ? '#3B82F6' : '#60A5FA' }]}><Text style={[styles.activeModeIndicatorText, { color: isLightMode ? '#1D4ED8' : '#60A5FA' }]}>Web</Text></View>}
+                  {debateModeEnabled && <View style={[styles.activeModeIndicator, { backgroundColor: isLightMode ? '#FDF2F8' : '#831843', borderColor: isLightMode ? '#EC4899' : '#F472B6' }]}><Text style={[styles.activeModeIndicatorText, { color: isLightMode ? '#BE185D' : '#F472B6' }]}>Debat</Text></View>}
+                </View>
+              )}
+
               <View style={[styles.capsuleInputCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
                 
                 {/* Plus Attachment Button */}
@@ -1669,7 +1680,7 @@ export default function ChatScreen() {
                     styles.capsuleAttachBtn,
                     { backgroundColor: showAttachMenu ? theme.accentBg : theme.cardInner, borderColor: theme.border }
                   ]}
-                  onPress={() => setShowAttachMenu(!showAttachMenu)}
+                  onPress={() => { setShowAttachMenu(!showAttachMenu); setShowAiModePanel(false); }}
                   disabled={loading}
                   activeOpacity={0.7}
                 >
@@ -1685,6 +1696,7 @@ export default function ChatScreen() {
                   value={inputText}
                   onChangeText={(v) => {
                     if (showAttachMenu) setShowAttachMenu(false);
+                    if (showAiModePanel) setShowAiModePanel(false);
                     setInputText(v);
                   }}
                   multiline
@@ -1693,6 +1705,39 @@ export default function ChatScreen() {
                   // @ts-ignore
                   onKeyDown={handleKeyDown}
                 />
+
+                {/* AI Mode Toggle Button */}
+                <TouchableOpacity
+                  style={[
+                    styles.capsuleModeBtn,
+                    {
+                      backgroundColor: showAiModePanel
+                        ? theme.accentBg
+                        : (deepThinkEnabled || factualEnabled || agentEnabled || codeExecutionEnabled || webSearchEnabled || debateModeEnabled)
+                          ? (isLightMode ? '#EDE9FE' : '#241B38')
+                          : theme.cardInner,
+                      borderColor: showAiModePanel
+                        ? theme.accentLight
+                        : (deepThinkEnabled || factualEnabled || agentEnabled || codeExecutionEnabled || webSearchEnabled || debateModeEnabled)
+                          ? (isLightMode ? '#8B5CF6' : '#A78BFA')
+                          : theme.border,
+                    },
+                  ]}
+                  onPress={() => { setShowAiModePanel(!showAiModePanel); setShowAttachMenu(false); }}
+                  disabled={loading}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Mode AI"
+                >
+                  <Ionicons
+                    name="flash"
+                    size={14}
+                    color={
+                      showAiModePanel || deepThinkEnabled || factualEnabled || agentEnabled || codeExecutionEnabled || webSearchEnabled || debateModeEnabled
+                        ? theme.accentLight
+                        : theme.subtext
+                    }
+                  />
+                </TouchableOpacity>
 
                 {/* Voice / Stop / Send Button */}
                 {loading ? (
@@ -2247,6 +2292,11 @@ const styles = StyleSheet.create({
   msgCardAi: {
     maxWidth: '92%',
     borderBottomLeftRadius: 4,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 1,
   },
   msgBodyWrap: {
     marginBottom: 4,
@@ -2318,29 +2368,31 @@ const styles = StyleSheet.create({
     maxWidth: 200,
   },
 
-  /* Attachment Popup Menu */
+  /* Attachment Popup Menu (clean grid) */
   attachMenu: {
     borderRadius: 16,
     borderWidth: 1,
-    paddingVertical: 8,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
     marginHorizontal: 14,
     marginBottom: 8,
   },
-  attachMenuScroll: {
+  attachMenuGrid: {
     flexDirection: 'row',
+    justifyContent: 'space-evenly',
     alignItems: 'center',
-    gap: 8,
-    paddingHorizontal: 6,
+    gap: 6,
   },
-  attachOption: {
+  attachGridItem: {
     alignItems: 'center',
-    gap: 4,
-    paddingVertical: 8,
+    gap: 5,
+    paddingVertical: 6,
+    flex: 1,
   },
   attachIconWrap: {
-    width: 38,
-    height: 38,
-    borderRadius: 11,
+    width: 42,
+    height: 42,
+    borderRadius: 13,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
@@ -2353,6 +2405,66 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 3,
+  },
+
+  /* AI Mode Panel */
+  aiModePanel: {
+    borderRadius: 14,
+    borderWidth: 1,
+    paddingVertical: 8,
+    paddingHorizontal: 10,
+    marginHorizontal: 14,
+    marginBottom: 8,
+  },
+  aiModePanelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    marginBottom: 8,
+  },
+  aiModePanelTitle: {
+    fontSize: 10.5,
+    fontWeight: '700',
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  aiModeChipsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingRight: 4,
+  },
+  aiModeChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: 20,
+    borderWidth: 1,
+  },
+  aiModeChipText: {
+    fontSize: 11.5,
+    fontWeight: '600',
+  },
+
+  /* Active Mode Indicators */
+  activeModesRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginBottom: 6,
+    paddingHorizontal: 2,
+  },
+  activeModeIndicator: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  activeModeIndicatorText: {
+    fontSize: 10,
+    fontWeight: '700',
   },
 
   /* Floating Capsule Input Bar */
@@ -2382,6 +2494,14 @@ const styles = StyleSheet.create({
     width: 34,
     height: 34,
     borderRadius: 17,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  capsuleModeBtn: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,

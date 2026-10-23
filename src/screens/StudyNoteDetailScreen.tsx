@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useRoute, useNavigation, useFocusEffect, RouteProp } from '@react-navigation/native';
 import { useAuth } from '../contexts/AuthContext';
 import { useSubjects } from '../contexts/SubjectContext';
-import { useTheme, isColorLight } from '../contexts/ThemeContext';
+import { useTheme, isColorLight, getSemanticColors } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, extractJsonFromText } from '../lib/gemini';
 import { StudyNote, QuizQuestion, FlashcardItem, NoteAttachment } from '../types';
@@ -52,6 +52,7 @@ export default function StudyNoteDetailScreen() {
   const { user } = useAuth();
   const { subjects, addSubject } = useSubjects();
   const { theme, isLightMode } = useTheme();
+  const semantic = React.useMemo(() => getSemanticColors(isLightMode), [isLightMode]);
   const route = useRoute<StudyNoteRouteProp>();
   const navigation = useNavigation();
   const { isDesktop, isTablet } = useResponsive();
@@ -158,11 +159,26 @@ export default function StudyNoteDetailScreen() {
     }
   };
 
+  const loadedNoteIdRef = useRef<string | null>(null);
   const contentInputRef = useRef<TextInput>(null);
-  const [editorFontSize, setEditorFontSize] = useState(14);
-  const [contentHeight, setContentHeight] = useState(260);
-  const [selection, setSelection] = useState<{ start: number; end: number }>({ start: 0, end: 0 });
+  const [editorFontSize, setEditorFontSize] = useState(15);
+  const [contentHeight, setContentHeight] = useState(isWide ? 480 : 360);
+  const contentHeightRef = useRef(isWide ? 480 : 360);
   const lastSelectionRef = useRef<{ start: number; end: number }>({ start: 0, end: 0 });
+
+  // Helper to update selection ref and programmatically apply on web textarea
+  const setSelection = useCallback((sel: { start: number; end: number }) => {
+    lastSelectionRef.current = sel;
+    if (Platform.OS === 'web' && contentInputRef.current) {
+      const ta = (contentInputRef.current as any)?._node || (contentInputRef.current as any);
+      if (ta && typeof ta.setSelectionRange === 'function') {
+        try {
+          ta.setSelectionRange(sel.start, sel.end);
+        } catch (_) {}
+      }
+    }
+  }, []);
+
   const [editTab, setEditTab] = useState<'write' | 'preview'>('write');
 
   const FONT_SIZES = [12, 14, 16, 18, 20];
@@ -367,24 +383,71 @@ export default function StudyNoteDetailScreen() {
     return `@study_note_draft_${user?.id || 'anonymous'}`;
   }, [user]);
 
+  const fetchNote = useCallback(async () => {
+    if (!noteId) {
+      setFetching(false);
+      return;
+    }
+    if (!user) {
+      setFetching(false);
+      return;
+    }
+    try {
+      setFetching(true);
+      const cached = await getCachedNotes(user.id);
+      let found = cached.find(n => n.id === noteId);
+
+      if (!found) {
+        // Fallback: Query Supabase directly
+        const { data, error } = await supabase
+          .from('study_notes')
+          .select('*')
+          .eq('id', noteId)
+          .single();
+        if (data && !error) {
+          found = data;
+          const nextCached = [data, ...cached.filter(n => n.id !== noteId)];
+          await cacheNotesLocally(user.id, nextCached).catch(() => {});
+        }
+      }
+
+      if (found) {
+        setTitle(found.title || '');
+        setSubject(found.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
+        setContent(found.content || '');
+        setSummary(found.summary || null);
+        setQuizData(found.quiz_data || []);
+        setFlashcards(found.flashcards || []);
+        setAttachments(found.attachments || []);
+        setCreatedAt(found.created_at || '');
+        loadedNoteIdRef.current = noteId;
+      }
+    } catch (e) {
+      console.log('Error fetching note:', e);
+    } finally {
+      setFetching(false);
+    }
+  }, [user, noteId, subjects]);
+
   // Load Note from DB or Restore Local Draft on Focus / Mount
   useFocusEffect(
     useCallback(() => {
       if (noteId) {
-        // Reset semua state catatan ke kosong SEBELUM fetch agar tidak ada
-        // "ghost" konten catatan sebelumnya tampil selama loading
-        setTitle('');
-        setContent('');
-        setSummary(null);
-        setQuizData([]);
-        setFlashcards([]);
-        setAttachments([]);
-        setCreatedAt('');
-        setSelectedAnswers({});
-        setFetching(true);
+        if (loadedNoteIdRef.current !== noteId) {
+          setTitle('');
+          setContent('');
+          setSummary(null);
+          setQuizData([]);
+          setFlashcards([]);
+          setAttachments([]);
+          setCreatedAt('');
+          setSelectedAnswers({});
+          setFetching(true);
+        }
         fetchNote();
         setViewMode('reader');
       } else {
+        loadedNoteIdRef.current = null;
         setViewMode('edit');
         if (isSavedRef.current) {
           isSavedRef.current = false;
@@ -424,20 +487,19 @@ export default function StudyNoteDetailScreen() {
             console.log('Error loading note draft:', e);
           }
 
-          setTitle('');
-          setSubject(subjects.length > 0 ? subjects[0].name : 'Umum');
-          setContent('');
-          setSummary(null);
-          setQuizData([]);
-          setSelectedAnswers({});
-          setCreatedAt('');
           setFetching(false);
         };
 
         loadDraft();
       }
-    }, [noteId, getDraftKey, subjects])
+    }, [noteId, getDraftKey, subjects, user, fetchNote])
   );
+
+  useEffect(() => {
+    if (noteId && user) {
+      fetchNote();
+    }
+  }, [noteId, user, fetchNote]);
 
   // Auto-Save Draft to Local Storage (Debounced 700ms)
   useEffect(() => {
@@ -530,42 +592,7 @@ export default function StudyNoteDetailScreen() {
     );
   };
 
-  const fetchNote = async () => {
-    if (!user || !noteId) {
-      setFetching(false);
-      return;
-    }
-    try {
-      const cached = await getCachedNotes(user.id);
-      const found = cached.find(n => n.id === noteId);
-      if (found) {
-        // Set semua field catatan sekaligus (atomic) agar tidak ada
-        // frame yang menampilkan state setengah-setengah
-        setTitle(found.title);
-        setSubject(found.subject || (subjects.length > 0 ? subjects[0].name : 'Umum'));
-        setContent(found.content);
-        setSummary(found.summary || null);
-        setQuizData(found.quiz_data || []);
-        setFlashcards(found.flashcards || []);
-        setAttachments(found.attachments || []);
-        setCreatedAt(found.created_at);
-      } else {
-        // Note tidak ditemukan di cache — kosongkan state
-        setTitle('');
-        setSubject(subjects.length > 0 ? subjects[0].name : 'Umum');
-        setContent('');
-        setSummary(null);
-        setQuizData([]);
-        setFlashcards([]);
-        setAttachments([]);
-        setCreatedAt('');
-      }
-    } catch (e) {
-      console.log('Error fetching local note:', e);
-    } finally {
-      setFetching(false);
-    }
-  };
+  // fetchNote is defined above useFocusEffect
 
   // AI Feature 1: Advanced Structured Academic Summarizer
   const handleGenerateSummary = async () => {
@@ -868,34 +895,35 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
     if (selectedAnswers[qIndex] !== undefined) return;
     const isCorrect = optIndex === quizData[qIndex]?.correctIndex;
 
-    setSelectedAnswers(prev => {
-      const updated = { ...prev, [qIndex]: optIndex };
+    // Compute new state value outside of setState updater (no side effects inside)
+    const updated = { ...selectedAnswers, [qIndex]: optIndex };
 
-      if (isCorrect) {
-        setXpAmount(10);
-        setShowXpPopup(false);
-        setTimeout(() => setShowXpPopup(true), 50);
-      } else {
-        setShakeQuestionIndex(qIndex);
-        setTimeout(() => setShakeQuestionIndex(null), 500);
+    // Set state with value (not updater function) to avoid React re-invoking it
+    setSelectedAnswers(updated);
+
+    // All side effects run outside setState
+    if (isCorrect) {
+      setXpAmount(10);
+      setShowXpPopup(false);
+      setTimeout(() => setShowXpPopup(true), 50);
+    } else {
+      setShakeQuestionIndex(qIndex);
+      setTimeout(() => setShakeQuestionIndex(null), 500);
+    }
+
+    // Check if all questions are now answered
+    const answeredTotal = Object.keys(updated).length;
+    if (answeredTotal === quizData.length) {
+      const correctTotal = Object.entries(updated).filter(
+        ([idx, ans]) => ans === quizData[Number(idx)]?.correctIndex
+      ).length;
+      if (correctTotal >= Math.ceil(quizData.length * 0.6)) {
+        setTimeout(() => {
+          setShowConfetti(true);
+          setTimeout(() => setShowConfetti(false), 3500);
+        }, 350);
       }
-
-      // Check if all questions are answered
-      const answeredTotal = Object.keys(updated).length;
-      if (answeredTotal === quizData.length) {
-        const correctTotal = Object.entries(updated).filter(
-          ([idx, ans]) => ans === quizData[Number(idx)]?.correctIndex
-        ).length;
-        if (correctTotal >= Math.ceil(quizData.length * 0.6)) {
-          setTimeout(() => {
-            setShowConfetti(true);
-            setTimeout(() => setShowConfetti(false), 3500);
-          }, 350);
-        }
-      }
-
-      return updated;
-    });
+    }
   };
 
   // Save or Update Note
@@ -1052,11 +1080,11 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
   };
 
   if (fetching) {
-    return <View style={styles.loaderCenter}><ActivityIndicator size="small" color={theme.accentLight} /></View>;
+    return <View style={[styles.loaderCenter, { backgroundColor: theme.bg }]}><ActivityIndicator size="small" color={theme.accentLight} /></View>;
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <SafeAreaView style={[styles.container, { backgroundColor: theme.bg }]}>
       {/* ── Duolingo Animations Overlay ── */}
       <ConfettiBurst visible={showConfetti} count={50} onDone={() => setShowConfetti(false)} />
       <XpPopup
@@ -1633,7 +1661,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
               /* ── MOBILE SINGLE-COLUMN LAYOUT ── */
               <View style={styles.readerContainer}>
                 {/* Mobile Document Paper Canvas */}
-                <View style={[styles.documentPaper, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.documentPaper, !isWide && styles.documentPaperMobile, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   {/* Meta Top Info Bar */}
                   <View style={styles.documentMetaRow}>
                     <View style={[styles.readerSubjectBadge, { backgroundColor: theme.accentBg }]}>
@@ -2088,16 +2116,16 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
                     {/* Draft Status Banner */}
                     {!noteId && (draftSavedTime || hasRestoredDraft) ? (
-                      <View style={[styles.draftBannerRow, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F1E19', borderColor: isLightMode ? '#86EFAC' : '#1D4537' }]}>
-                        <View style={[styles.draftStatusPill, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
-                          <Ionicons name="cloud-done" size={13} color="#10B981" />
-                          <Text style={[styles.draftStatusText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                      <View style={[styles.draftBannerRow, { backgroundColor: semantic.successBg, borderColor: semantic.successBorder }]}>
+                        <View style={[styles.draftStatusPill, { backgroundColor: semantic.successBg, borderColor: semantic.successBorder }]}>
+                          <Ionicons name="cloud-done" size={13} color={semantic.success} />
+                          <Text style={[styles.draftStatusText, { color: semantic.success }]}>
                             {draftSavedTime ? `Draf tersimpan otomatis (${draftSavedTime})` : 'Draf dipulihkan'}
                           </Text>
                         </View>
-                        <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2B1215', borderColor: isLightMode ? '#FECACA' : '#571F26' }]}>
-                          <Ionicons name="trash-outline" size={12} color="#EF4444" />
-                          <Text style={[styles.discardDraftText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus Draf</Text>
+                        <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: semantic.dangerBg, borderColor: semantic.dangerBorder }]}>
+                          <Ionicons name="trash-outline" size={12} color={semantic.danger} />
+                          <Text style={[styles.discardDraftText, { color: semantic.danger }]}>Hapus Draf</Text>
                         </TouchableOpacity>
                       </View>
                     ) : null}
@@ -2277,25 +2305,26 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
                         <TextInput
                           ref={contentInputRef}
-                          style={[styles.contentInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: editorFontSize + 8, minHeight: contentHeight }]}
+                          style={[styles.contentInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: (editorFontSize || 15) + 8, minHeight: Platform.OS === 'web' ? (isWide ? 480 : 360) : contentHeight }]}
                           placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
                           placeholderTextColor={theme.muted}
                           value={content}
                           onChangeText={setContent}
                           multiline
                           textAlignVertical="top"
-                          selection={selection}
                           onSelectionChange={(e) => {
                             const sel = e.nativeEvent.selection;
                             if (sel) {
                               lastSelectionRef.current = sel;
-                              setSelection(sel);
                             }
                           }}
-                          onContentSizeChange={(e) => {
+                          onContentSizeChange={Platform.OS === 'web' ? undefined : (e) => {
                             const h = e.nativeEvent.contentSize.height;
-                            if (h > 260) setContentHeight(Math.min(h + 20, 600));
-                            else setContentHeight(260);
+                            const next = Math.max(isWide ? 480 : 360, Math.min(h + 30, 2000));
+                            if (Math.abs(contentHeightRef.current - next) > 5) {
+                              contentHeightRef.current = next;
+                              setContentHeight(next);
+                            }
                           }}
                         />
                       </>
@@ -2449,19 +2478,19 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
             ) : (
               /* ── MOBILE SINGLE-COLUMN EDIT LAYOUT ── */
               <View style={styles.editContainer}>
-                <View style={[styles.documentPaper, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={[styles.documentPaper, !isWide && styles.documentPaperMobile, { backgroundColor: theme.card, borderColor: theme.border }]}>
                   {/* Draft Status Banner */}
                   {!noteId && (draftSavedTime || hasRestoredDraft) ? (
-                    <View style={[styles.draftBannerRow, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F1E19', borderColor: isLightMode ? '#86EFAC' : '#1D4537' }]}>
-                      <View style={[styles.draftStatusPill, { backgroundColor: isLightMode ? '#DCFCE7' : '#0F2618', borderColor: isLightMode ? '#86EFAC' : '#1C4A2E' }]}>
-                        <Ionicons name="cloud-done" size={13} color="#10B981" />
-                        <Text style={[styles.draftStatusText, { color: isLightMode ? '#15803D' : '#34D399' }]}>
+                    <View style={[styles.draftBannerRow, { backgroundColor: semantic.successBg, borderColor: semantic.successBorder }]}>
+                      <View style={[styles.draftStatusPill, { backgroundColor: semantic.successBg, borderColor: semantic.successBorder }]}>
+                        <Ionicons name="cloud-done" size={13} color={semantic.success} />
+                        <Text style={[styles.draftStatusText, { color: semantic.success }]}>
                           {draftSavedTime ? `Draf tersimpan otomatis (${draftSavedTime})` : 'Draf dipulihkan'}
                         </Text>
                       </View>
-                      <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: isLightMode ? '#FEE2E2' : '#2B1215', borderColor: isLightMode ? '#FECACA' : '#571F26' }]}>
-                        <Ionicons name="trash-outline" size={12} color="#EF4444" />
-                        <Text style={[styles.discardDraftText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>Hapus Draf</Text>
+                      <TouchableOpacity onPress={handleDiscardDraft} style={[styles.discardDraftBtn, { backgroundColor: semantic.dangerBg, borderColor: semantic.dangerBorder }]}>
+                        <Ionicons name="trash-outline" size={12} color={semantic.danger} />
+                        <Text style={[styles.discardDraftText, { color: semantic.danger }]}>Hapus Draf</Text>
                       </TouchableOpacity>
                     </View>
                   ) : null}
@@ -2641,25 +2670,26 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 
                       <TextInput
                         ref={contentInputRef}
-                        style={[styles.contentInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: editorFontSize + 8, minHeight: contentHeight }]}
+                        style={[styles.contentInput, { backgroundColor: theme.cardInner, borderColor: theme.border, color: theme.text, fontSize: editorFontSize, lineHeight: (editorFontSize || 15) + 8, minHeight: Platform.OS === 'web' ? (isWide ? 480 : 360) : contentHeight }]}
                         placeholder="Tulis atau tempel materi kuliah, rumus, bab ujian, atau ringkasan dosen di sini..."
                         placeholderTextColor={theme.muted}
                         value={content}
                         onChangeText={setContent}
                         multiline
                         textAlignVertical="top"
-                        selection={selection}
                         onSelectionChange={(e) => {
                           const sel = e.nativeEvent.selection;
                           if (sel) {
                             lastSelectionRef.current = sel;
-                            setSelection(sel);
                           }
                         }}
-                        onContentSizeChange={(e) => {
+                        onContentSizeChange={Platform.OS === 'web' ? undefined : (e) => {
                           const h = e.nativeEvent.contentSize.height;
-                          if (h > 260) setContentHeight(Math.min(h + 20, 600));
-                          else setContentHeight(260);
+                          const next = Math.max(isWide ? 480 : 360, Math.min(h + 30, 2000));
+                          if (Math.abs(contentHeightRef.current - next) > 5) {
+                            contentHeightRef.current = next;
+                            setContentHeight(next);
+                          }
                         }}
                       />
                     </>
@@ -2868,7 +2898,7 @@ Output WAJIB berupa JSON array valid [...] tanpa pembuka, tanpa salam, dan tanpa
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: 'transparent',
+    backgroundColor: '#0E1117',
   },
   loaderCenter: {
     flex: 1,
@@ -2978,12 +3008,19 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 24,
     gap: 16,
-    minHeight: 460,
+    minHeight: 520,
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 8 },
     shadowOpacity: 0.2,
     shadowRadius: 20,
     elevation: 5,
+  },
+  documentPaperMobile: {
+    paddingHorizontal: 14,
+    paddingVertical: 18,
+    borderRadius: 16,
+    minHeight: 420,
+    gap: 12,
   },
   documentMetaRow: {
     flexDirection: 'row',
@@ -3168,10 +3205,11 @@ const styles = StyleSheet.create({
   },
   titleInput: {
     backgroundColor: '#0E1117',
-    borderRadius: 10,
-    padding: 14,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 13,
     color: '#F9FAFB',
-    fontSize: 15,
+    fontSize: 17,
     fontWeight: '700',
     borderWidth: 1,
     borderColor: '#202634',
@@ -3278,12 +3316,12 @@ const styles = StyleSheet.create({
   },
   livePreviewCard: {
     backgroundColor: '#0E1117',
-    borderRadius: 12,
+    borderRadius: 14,
     padding: 16,
     borderWidth: 1,
     borderColor: '#202634',
     marginBottom: 8,
-    minHeight: 200,
+    minHeight: 360,
   },
   livePreviewHeader: {
     flexDirection: 'row',
@@ -3311,10 +3349,10 @@ const styles = StyleSheet.create({
   },
   contentInput: {
     backgroundColor: '#0E1117',
-    borderRadius: 12,
-    padding: 14,
+    borderRadius: 14,
+    padding: 16,
     color: '#F3F4F6',
-    lineHeight: 22,
+    lineHeight: 24,
     borderWidth: 1,
     borderColor: '#202634',
     marginBottom: 6,
@@ -3778,6 +3816,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 18,
     gap: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   sideStudioHeader: {
     flexDirection: 'row',
@@ -3834,6 +3877,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     gap: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   sideMetaCardTitle: {
     fontSize: 13.5,

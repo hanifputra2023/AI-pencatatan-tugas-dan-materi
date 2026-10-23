@@ -213,6 +213,8 @@ export default function StudyNotesScreen() {
   const [newTaskAttachments, setNewTaskAttachments] = useState<NoteAttachment[]>([]);
   const [showTaskForm, setShowTaskForm] = useState(false);
   const [extractingTaskNotes, setExtractingTaskNotes] = useState(false);
+  const [showAiImport, setShowAiImport] = useState(false);
+  const [taskMoreActionsId, setTaskMoreActionsId] = useState<string | null>(null);
   const aiGeneratedNotesRef = useRef<boolean>(false);
 
   // Weekly Boss Event State
@@ -1335,8 +1337,8 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
           {/* Controls Area (Clean Search Bar + Filter Pills) */}
           <View style={styles.controlsArea}>
 
-            {/* Active Boss Raid Banner in Study Notes */}
-            {activeBossEvent && (
+            {/* Active Boss Raid Banner in Study Notes (Hanya tampil jika ada catatan/materi) */}
+            {notes && notes.length > 0 && activeBossEvent && (
               <TouchableOpacity
                 style={[
                   styles.notesBossRaidBanner,
@@ -1787,58 +1789,72 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                     ))}
                   </View>
 
-                  {/* AI Quick Soal Importer Action Bar */}
+                  {/* AI Quick Soal Importer - Collapsible */}
                   <View style={{ marginTop: 8, marginBottom: 4 }}>
-                    <Text style={[styles.formMiniLabel, { color: theme.subtext }]}>
-                      Ekstrak Soal Otomatis dengan AI:
-                    </Text>
-                    <View style={styles.aiImportActionRow}>
-                      <TouchableOpacity
-                        style={[
-                          styles.aiImportBtn,
-                          { backgroundColor: isLightMode ? '#EFF6FF' : '#172554', borderColor: isLightMode ? '#BFDBFE' : '#1E40AF' },
-                          extractingTaskNotes && { opacity: 0.6 }
-                        ]}
-                        onPress={handlePickDocumentAndExtract}
-                        disabled={extractingTaskNotes}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="document-text" size={13} color={isLightMode ? '#2563EB' : '#60A5FA'} />
-                        <Text style={[styles.aiImportBtnText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>
-                          Impor Dokumen (PDF/Word/TXT)
-                        </Text>
-                      </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[
+                        styles.aiImportToggleBtn,
+                        { backgroundColor: isLightMode ? '#EFF6FF' : '#172554', borderColor: isLightMode ? '#BFDBFE' : '#1E40AF' },
+                      ]}
+                      onPress={() => setShowAiImport(!showAiImport)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="sparkles" size={14} color={isLightMode ? '#2563EB' : '#60A5FA'} />
+                      <Text style={[styles.aiImportToggleText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>
+                        Ekstrak Soal Otomatis (AI)
+                      </Text>
+                      <Ionicons name={showAiImport ? 'chevron-up' : 'chevron-down'} size={14} color={isLightMode ? '#2563EB' : '#60A5FA'} />
+                    </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={[
-                          styles.aiImportBtn,
-                          { backgroundColor: isLightMode ? '#FEF3C7' : '#2D2006', borderColor: isLightMode ? '#FDE68A' : '#78350F' },
-                          extractingTaskNotes && { opacity: 0.6 }
-                        ]}
-                        onPress={handlePickPhotosAndExtract}
-                        disabled={extractingTaskNotes}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="images" size={13} color={isLightMode ? '#D97706' : '#FBBF24'} />
-                        <Text style={[styles.aiImportBtnText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>
-                          Impor Foto Soal
-                        </Text>
-                      </TouchableOpacity>
+                    {showAiImport && (
+                      <View style={styles.aiImportActionRow}>
+                        <TouchableOpacity
+                          style={[
+                            styles.aiImportBtn,
+                            { backgroundColor: isLightMode ? '#EFF6FF' : '#172554', borderColor: isLightMode ? '#BFDBFE' : '#1E40AF' },
+                            extractingTaskNotes && { opacity: 0.6 }
+                          ]}
+                          onPress={handlePickDocumentAndExtract}
+                          disabled={extractingTaskNotes}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="document-text" size={13} color={isLightMode ? '#2563EB' : '#60A5FA'} />
+                          <Text style={[styles.aiImportBtnText, { color: isLightMode ? '#1D4ED8' : '#93C5FD' }]}>
+                            Dokumen
+                          </Text>
+                        </TouchableOpacity>
 
-                      <TouchableOpacity
-                        style={[
-                          styles.aiImportBtnSmall,
-                          { backgroundColor: theme.cardInner, borderColor: theme.border },
-                          extractingTaskNotes && { opacity: 0.6 }
-                        ]}
-                        onPress={handleTakePhotoAndExtract}
-                        disabled={extractingTaskNotes}
-                        activeOpacity={0.7}
-                      >
-                        <Ionicons name="camera" size={13} color={theme.accentLight} />
-                        <Text style={[styles.aiImportBtnSmallText, { color: theme.text }]}>Kamera</Text>
-                      </TouchableOpacity>
-                    </View>
+                        <TouchableOpacity
+                          style={[
+                            styles.aiImportBtn,
+                            { backgroundColor: isLightMode ? '#FEF3C7' : '#2D2006', borderColor: isLightMode ? '#FDE68A' : '#78350F' },
+                            extractingTaskNotes && { opacity: 0.6 }
+                          ]}
+                          onPress={handlePickPhotosAndExtract}
+                          disabled={extractingTaskNotes}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="images" size={13} color={isLightMode ? '#D97706' : '#FBBF24'} />
+                          <Text style={[styles.aiImportBtnText, { color: isLightMode ? '#B45309' : '#FDE68A' }]}>
+                            Foto Soal
+                          </Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={[
+                            styles.aiImportBtnSmall,
+                            { backgroundColor: theme.cardInner, borderColor: theme.border },
+                            extractingTaskNotes && { opacity: 0.6 }
+                          ]}
+                          onPress={handleTakePhotoAndExtract}
+                          disabled={extractingTaskNotes}
+                          activeOpacity={0.7}
+                        >
+                          <Ionicons name="camera" size={13} color={theme.accentLight} />
+                          <Text style={[styles.aiImportBtnSmallText, { color: theme.text }]}>Kamera</Text>
+                        </TouchableOpacity>
+                      </View>
+                    )}
 
                     {extractingTaskNotes && (
                       <View style={[styles.aiExtractingBanner, { backgroundColor: isLightMode ? '#FEF3C7' : '#451A03', borderColor: isLightMode ? '#FDE68A' : '#78350F' }]}>
@@ -2129,13 +2145,9 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                           </View>
                         </View>
 
-                        {/* Task Action Buttons Toolbar */}
+                        {/* Task Action Buttons Toolbar - Primary Actions */}
                         <View style={[styles.taskActionToolbar, { borderTopColor: theme.cardInner }]}>
-                          <ScrollView
-                            horizontal
-                            showsHorizontalScrollIndicator={false}
-                            contentContainerStyle={styles.taskActionScrollContent}
-                          >
+                          <View style={styles.taskActionWrapRow}>
                             {/* Workpad / Task Notes Action Button */}
                             <TouchableOpacity
                               style={[
@@ -2146,7 +2158,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                             >
                               <Ionicons name="document-text-outline" size={12} color={t.notes ? theme.accentLight : theme.subtext} />
                               <Text style={[styles.taskActionBtnText, { color: t.notes ? theme.accentLight : theme.subtext }]}>
-                                {t.notes ? 'Lembar Kerja ✍️' : 'Tulis Tugas'}
+                                {t.notes ? 'Lembar Kerja' : 'Tulis Tugas'}
                               </Text>
                             </TouchableOpacity>
 
@@ -2162,7 +2174,7 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                                 <Ionicons name="sparkles" size={12} color={theme.accentLight} />
                               )}
                               <Text style={[styles.taskActionBtnText, { color: theme.accentLight }]}>
-                                {hasSubtasks ? 'Pecah Ulang AI' : 'Pecah Tugas (AI)'}
+                                {hasSubtasks ? 'Pecah Ulang' : 'Pecah AI'}
                               </Text>
                             </TouchableOpacity>
 
@@ -2182,33 +2194,51 @@ Kembalikan HANYA format JSON valid array murni berisi string langkah-langkah:
                               <Ionicons name={isExpanded ? 'chevron-up' : 'chevron-down'} size={11} color={isExpanded ? theme.accentLight : theme.subtext} />
                             </TouchableOpacity>
 
-                            {/* Focus with Pomodoro */}
+                            {/* More Actions Toggle */}
                             <TouchableOpacity
-                              style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                              onPress={() => handleFocusTaskWithPomodoro(t)}
+                              style={[
+                                styles.taskActionBtn,
+                                { backgroundColor: theme.cardInner, borderColor: theme.border },
+                                taskMoreActionsId === t.id && { backgroundColor: theme.accentBg, borderColor: theme.accent }
+                              ]}
+                              onPress={() => setTaskMoreActionsId(taskMoreActionsId === t.id ? null : t.id)}
                             >
-                              <Ionicons name="timer-outline" size={12} color="#F59E0B" />
-                              <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Fokus Nugas</Text>
+                              <Ionicons name="ellipsis-horizontal" size={12} color={taskMoreActionsId === t.id ? theme.accentLight : theme.subtext} />
+                              <Text style={[styles.taskActionBtnText, { color: taskMoreActionsId === t.id ? theme.accentLight : theme.subtext }]}>Lainnya</Text>
                             </TouchableOpacity>
+                          </View>
 
-                            {/* Print / Export Task to PDF */}
-                            <TouchableOpacity
-                              style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                              onPress={() => handleExportTaskPdf(t)}
-                            >
-                              <Ionicons name="print-outline" size={12} color={theme.accentLight} />
-                              <Text style={[styles.taskActionBtnText, { color: theme.accentLight }]}>Cetak PDF</Text>
-                            </TouchableOpacity>
+                          {/* Secondary Actions (collapsible) */}
+                          {taskMoreActionsId === t.id && (
+                            <View style={[styles.taskActionWrapRow, { marginTop: 6 }]}>
+                              {/* Focus with Pomodoro */}
+                              <TouchableOpacity
+                                style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                                onPress={() => handleFocusTaskWithPomodoro(t)}
+                              >
+                                <Ionicons name="timer-outline" size={12} color="#F59E0B" />
+                                <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Fokus Nugas</Text>
+                              </TouchableOpacity>
 
-                            {/* Discuss with AI Chat */}
-                            <TouchableOpacity
-                              style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                              onPress={() => handleDiscussTaskWithAi(t)}
-                            >
-                              <Ionicons name="chatbubble-ellipses-outline" size={12} color={theme.subtext} />
-                              <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Bahas AI</Text>
-                            </TouchableOpacity>
-                          </ScrollView>
+                              {/* Print / Export Task to PDF */}
+                              <TouchableOpacity
+                                style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                                onPress={() => handleExportTaskPdf(t)}
+                              >
+                                <Ionicons name="print-outline" size={12} color={theme.accentLight} />
+                                <Text style={[styles.taskActionBtnText, { color: theme.accentLight }]}>Cetak PDF</Text>
+                              </TouchableOpacity>
+
+                              {/* Discuss with AI Chat */}
+                              <TouchableOpacity
+                                style={[styles.taskActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                                onPress={() => handleDiscussTaskWithAi(t)}
+                              >
+                                <Ionicons name="chatbubble-ellipses-outline" size={12} color={theme.subtext} />
+                                <Text style={[styles.taskActionBtnText, { color: theme.subtext }]}>Bahas AI</Text>
+                              </TouchableOpacity>
+                            </View>
+                          )}
                         </View>
 
                         {/* Expanded Subtasks Checklist Section */}
@@ -2995,6 +3025,11 @@ const styles = StyleSheet.create({
     padding: 16,
     borderWidth: 1,
     borderColor: '#202634',
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   noteCardWide: {
     minHeight: 140,
@@ -3107,6 +3142,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#202634',
     marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   taskFormTitle: {
     color: '#F3F4F6',
@@ -3189,6 +3229,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: '#202634',
     gap: 10,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 1,
   },
   taskSearchBox: {
     flexDirection: 'row',
@@ -3492,6 +3537,12 @@ const styles = StyleSheet.create({
     paddingTop: 8,
     borderTopWidth: 1,
   },
+  taskActionWrapRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
   taskActionScrollContent: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -3510,6 +3561,21 @@ const styles = StyleSheet.create({
   taskActionBtnText: {
     fontSize: 11.5,
     fontWeight: '600',
+  },
+  aiImportToggleBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    marginBottom: 6,
+  },
+  aiImportToggleText: {
+    fontSize: 12,
+    fontWeight: '600',
+    flex: 1,
   },
   taskIconBtn: {
     width: 26,

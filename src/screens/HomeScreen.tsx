@@ -116,7 +116,7 @@ export default function HomeScreen() {
   const { moods, globalAnnouncement, aiBotName } = useMoods();
   const { theme, isLightMode } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { isDesktop, isTablet } = useResponsive();
+  const { isDesktop, isTablet, isMobile, isSmallPhone } = useResponsive();
   const isWide = isDesktop || isTablet;
   const sem = getSemanticColors(isLightMode);
 
@@ -190,6 +190,7 @@ export default function HomeScreen() {
 
   // Lucky Hour State
   const [luckyHour, setLuckyHour] = useState<LuckyHourStatus>({ active: false, expiresAt: 0, remainingMs: 0 });
+  const [gamificationCollapsed, setGamificationCollapsed] = useState(false);
 
   const hour = new Date().getHours();
   const greeting = hour < 11 ? 'Selamat Pagi' : hour < 15 ? 'Selamat Siang' : hour < 18 ? 'Selamat Sore' : 'Selamat Malam';
@@ -809,6 +810,42 @@ export default function HomeScreen() {
           </View>
         </View>
 
+        {/* Quick Action Buttons for Novice Ease-of-Use */}
+        <View style={styles.heroActionBtnsRow}>
+          <TouchableOpacity
+            style={[styles.heroActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+            onPress={() => navigation.navigate('StudyNoteDetail', {})}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="add-circle-outline" size={15} color={theme.accentLight} />
+            <Text style={[styles.heroActionBtnText, { color: theme.text }]} numberOfLines={1}>
+              Catatan
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.heroActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+            onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'tasks' })}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="checkbox-outline" size={14} color={theme.accentLight} />
+            <Text style={[styles.heroActionBtnText, { color: theme.text }]} numberOfLines={1}>
+              Tugas
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.heroActionBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+            onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'pomodoro' })}
+            activeOpacity={0.7}
+          >
+            <Ionicons name="timer-outline" size={14} color={theme.accentLight} />
+            <Text style={[styles.heroActionBtnText, { color: theme.text }]} numberOfLines={1}>
+              Pomodoro
+            </Text>
+          </TouchableOpacity>
+        </View>
+
         {/* Realtime Emoji Mood Selector from Admin Settings */}
         <View style={[styles.moodSectionWrap, { borderTopColor: theme.border }]}>
           <Text style={[styles.moodSectionPrompt, { color: theme.subtext }]}>
@@ -858,41 +895,53 @@ export default function HomeScreen() {
     <View style={styles.sectionColumn}>
 
       {/* 1. Quick Hub Shortcut Bar */}
-      <View style={styles.quickHubGrid}>
+      <View style={[styles.quickHubGrid, isSmallPhone && { gap: 6 }]}>
         <TouchableOpacity
-          style={[styles.quickHubBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+          style={[styles.quickHubBtn, isSmallPhone && { padding: 9 }, { backgroundColor: theme.card, borderColor: theme.border }]}
           onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'notes' })}
           activeOpacity={0.7}
         >
-          <View style={[styles.quickHubIconCircle, { backgroundColor: theme.accentBg }]}>
-            <Ionicons name="document-text-outline" size={17} color={theme.accentLight} />
+          <View style={[styles.quickHubIconCircle, isSmallPhone && { width: 28, height: 28, marginBottom: 2 }, { backgroundColor: theme.accentBg }]}>
+            <Ionicons name="document-text-outline" size={isSmallPhone ? 15 : 17} color={theme.accentLight} />
           </View>
-          <Text style={[styles.quickHubBtnText, { color: theme.text }]}>Catatan Kuliah</Text>
-          <Text style={[styles.quickHubBtnSub, { color: theme.subtext }]}>{totalNotesCount} Tersimpan</Text>
+          <Text style={[styles.quickHubBtnText, isSmallPhone && { fontSize: 11 }, { color: theme.text }]} numberOfLines={1}>
+            {isSmallPhone ? 'Catatan' : 'Catatan Kuliah'}
+          </Text>
+          <Text style={[styles.quickHubBtnSub, isSmallPhone && { fontSize: 9.5 }, { color: theme.subtext }]} numberOfLines={1}>
+            {isSmallPhone ? `${totalNotesCount}` : `${totalNotesCount} Tersimpan`}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.quickHubBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+          style={[styles.quickHubBtn, isSmallPhone && { padding: 9 }, { backgroundColor: theme.card, borderColor: theme.border }]}
           onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'tasks' })}
           activeOpacity={0.7}
         >
-          <View style={[styles.quickHubIconCircle, { backgroundColor: theme.accentBg }]}>
-            <Ionicons name="checkbox-outline" size={17} color={theme.accentLight} />
+          <View style={[styles.quickHubIconCircle, isSmallPhone && { width: 28, height: 28, marginBottom: 2 }, { backgroundColor: theme.accentBg }]}>
+            <Ionicons name="checkbox-outline" size={isSmallPhone ? 15 : 17} color={theme.accentLight} />
           </View>
-          <Text style={[styles.quickHubBtnText, { color: theme.text }]}>Daftar Tugas</Text>
-          <Text style={[styles.quickHubBtnSub, { color: theme.subtext }]}>{pendingTasksCount} Menunggu</Text>
+          <Text style={[styles.quickHubBtnText, isSmallPhone && { fontSize: 11 }, { color: theme.text }]} numberOfLines={1}>
+            {isSmallPhone ? 'Tugas' : 'Daftar Tugas'}
+          </Text>
+          <Text style={[styles.quickHubBtnSub, isSmallPhone && { fontSize: 9.5 }, { color: theme.subtext }]} numberOfLines={1}>
+            {isSmallPhone ? `${pendingTasksCount}` : `${pendingTasksCount} Menunggu`}
+          </Text>
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.quickHubBtn, { backgroundColor: theme.card, borderColor: theme.border }]}
+          style={[styles.quickHubBtn, isSmallPhone && { padding: 9 }, { backgroundColor: theme.card, borderColor: theme.border }]}
           onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'pomodoro' })}
           activeOpacity={0.7}
         >
-          <View style={[styles.quickHubIconCircle, { backgroundColor: theme.accentBg }]}>
-            <Ionicons name="timer-outline" size={17} color={theme.accentLight} />
+          <View style={[styles.quickHubIconCircle, isSmallPhone && { width: 28, height: 28, marginBottom: 2 }, { backgroundColor: theme.accentBg }]}>
+            <Ionicons name="timer-outline" size={isSmallPhone ? 15 : 17} color={theme.accentLight} />
           </View>
-          <Text style={[styles.quickHubBtnText, { color: theme.text }]}>Fokus Pomodoro</Text>
-          <Text style={[styles.quickHubBtnSub, { color: theme.subtext }]}>25 Menit Sesi</Text>
+          <Text style={[styles.quickHubBtnText, isSmallPhone && { fontSize: 11 }, { color: theme.text }]} numberOfLines={1}>
+            {isSmallPhone ? 'Pomodoro' : 'Fokus Pomodoro'}
+          </Text>
+          <Text style={[styles.quickHubBtnSub, isSmallPhone && { fontSize: 9.5 }, { color: theme.subtext }]} numberOfLines={1}>
+            {isSmallPhone ? '25 m' : '25 Menit Sesi'}
+          </Text>
         </TouchableOpacity>
       </View>
 
@@ -1276,6 +1325,180 @@ export default function HomeScreen() {
     </View>
   );
 
+  // =========================================================================
+  // SUB-COMPONENT: UNIFIED GAMIFICATION & REWARD HUB
+  // =========================================================================
+  const renderGamificationHub = () => (
+    <View style={[styles.gamificationHubCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+      {/* Top Header Row with Level, XP, and Collapse Toggle */}
+      <View style={styles.gamificationHubHeader}>
+        <TouchableOpacity
+          style={styles.levelBadge}
+          onPress={() => setShowLevelModal(true)}
+          activeOpacity={0.8}
+        >
+          <FloatingBadge distance={3} duration={1800}>
+            <Text style={styles.levelEmoji}>{userLevel.levelIcon}</Text>
+          </FloatingBadge>
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Text style={[styles.levelNameText, { color: theme.text }]}>
+                Level {userLevel.level}: {userLevel.levelTitle}
+              </Text>
+              {luckyHour.active && (
+                <View style={[styles.luckyHourMiniPill, { backgroundColor: '#F59E0B20', borderColor: '#F59E0B' }]}>
+                  <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#F59E0B' }}>⚡ 2X XP</Text>
+                </View>
+              )}
+              {totalNotesCount > 0 && activeBossEvent && !activeBossEvent.defeated && (
+                <View style={[styles.luckyHourMiniPill, { backgroundColor: '#EF444420', borderColor: '#EF4444' }]}>
+                  <Text style={{ fontSize: 9.5, fontWeight: '800', color: '#EF4444' }}>⚔️ Boss Event</Text>
+                </View>
+              )}
+            </View>
+            <Text style={[styles.levelXpSub, { color: theme.subtext }]}>
+              {userLevel.totalXp} XP • {userLevel.progressPercent}% menuju Lv.{userLevel.level + 1}
+            </Text>
+          </View>
+        </TouchableOpacity>
+
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+          <TouchableOpacity
+            style={[styles.levelTierBadge, { backgroundColor: theme.accentBg }]}
+            onPress={() => setShowLevelModal(true)}
+          >
+            <Text style={[styles.levelTierText, { color: theme.accentLight }]}>
+              +{userLevel.xpToNextLevel} XP
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            onPress={() => setGamificationCollapsed(!gamificationCollapsed)}
+            hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+            style={[styles.collapseToggleBtn, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+            accessibilityLabel={gamificationCollapsed ? 'Buka Zona Hadiah' : 'Tutup Zona Hadiah'}
+          >
+            <Ionicons
+              name={gamificationCollapsed ? 'chevron-down' : 'chevron-up'}
+              size={13}
+              color={theme.subtext}
+            />
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      <View style={{ marginVertical: 6 }}>
+        <AnimatedProgressBar
+          percent={userLevel.progressPercent}
+          height={5}
+          trackColor={theme.cardInner}
+          fillColor={theme.primary}
+          borderRadius={3}
+        />
+      </View>
+
+      {/* Mini-Games & Hadiah Grid (Collapsible) */}
+      {!gamificationCollapsed && (
+        <View style={{ gap: 8, marginTop: 4 }}>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            {/* Hadiah Belajar */}
+            <TouchableOpacity
+              style={[
+                styles.miniRewardBtn,
+                { backgroundColor: theme.cardInner, borderColor: chestCount > 0 ? '#F59E0B' : theme.border }
+              ]}
+              onPress={() => {
+                getChestCount().then(setChestCount);
+                setShowChestModal(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.miniRewardIconCircle, { backgroundColor: '#F59E0B20' }]}>
+                <Ionicons name="gift" size={15} color="#F59E0B" />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.miniRewardTitle, { color: theme.text }]} numberOfLines={1}>
+                  {isSmallPhone ? 'Hadiah' : 'Hadiah Belajar'}
+                </Text>
+                <Text style={[styles.miniRewardSub, { color: chestCount > 0 ? '#F59E0B' : theme.subtext }]} numberOfLines={1}>
+                  {chestCount > 0 ? `${chestCount} 🎁` : 'Habis'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Roda Hadiah */}
+            <TouchableOpacity
+              style={[
+                styles.miniRewardBtn,
+                { backgroundColor: theme.cardInner, borderColor: wheelTickets > 0 ? '#EC4899' : theme.border }
+              ]}
+              onPress={() => {
+                getWheelTickets().then(setWheelTickets);
+                setShowWheelModal(true);
+              }}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.miniRewardIconCircle, { backgroundColor: '#EC489920' }]}>
+                <Ionicons name="radio-button-on" size={15} color="#EC4899" />
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.miniRewardTitle, { color: theme.text }]} numberOfLines={1}>
+                  {isSmallPhone ? 'Roda' : 'Roda Hadiah'}
+                </Text>
+                <Text style={[styles.miniRewardSub, { color: wheelTickets > 0 ? '#EC4899' : theme.subtext }]} numberOfLines={1}>
+                  {wheelTickets > 0 ? `${wheelTickets} 🎰` : 'Habis'}
+                </Text>
+              </View>
+            </TouchableOpacity>
+
+            {/* Target Belajar (Battle Pass) */}
+            <TouchableOpacity
+              style={[
+                styles.miniRewardBtn,
+                { backgroundColor: theme.cardInner, borderColor: theme.border }
+              ]}
+              onPress={() => setShowBattlePassModal(true)}
+              activeOpacity={0.8}
+            >
+              <View style={[styles.miniRewardIconCircle, { backgroundColor: '#7C3AED20' }]}>
+                <Text style={{ fontSize: 13 }}>🎖️</Text>
+              </View>
+              <View style={{ flex: 1, minWidth: 0 }}>
+                <Text style={[styles.miniRewardTitle, { color: theme.text }]} numberOfLines={1}>
+                  {isSmallPhone ? 'Target' : 'Target Belajar'}
+                </Text>
+                <Text style={[styles.miniRewardSub, { color: '#A78BFA' }]} numberOfLines={1}>
+                  Tier {battlePassTier}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          </View>
+
+          {/* Boss Event 24h Limited Banner inside the Hub (Hanya tampil jika ada catatan) */}
+          {totalNotesCount > 0 && activeBossEvent && !activeBossEvent.defeated && !showBossEventDismissed && (
+            <View style={{ marginTop: 2 }}>
+              <BossEventBanner
+                event={activeBossEvent}
+                onChallenge={handleChallengeBoss}
+                onDismiss={() => setShowBossEventDismissed(true)}
+              />
+            </View>
+          )}
+
+          {/* Lucky Hour Banner inside the Hub */}
+          {luckyHour.active && (
+            <View style={{ marginTop: 2 }}>
+              <LuckyHourBanner
+                expiresAt={luckyHour.expiresAt}
+                remainingMs={luckyHour.remainingMs}
+                onClose={() => setLuckyHour({ active: false, expiresAt: 0, remainingMs: 0 })}
+              />
+            </View>
+          )}
+        </View>
+      )}
+    </View>
+  );
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Container utama dengan position relative agar overlay animasi bekerja */}
@@ -1421,32 +1644,32 @@ export default function HomeScreen() {
         <View style={[styles.innerContainer, isWide && styles.innerContainerWide]}>
 
           {/* Top Bar Greeting, Garden & Streak Indicator */}
-          <View style={styles.topBar}>
-            <View style={{ flex: 1, minWidth: 0, paddingRight: 8 }}>
-              <Text style={[styles.greetingText, { color: isLightMode ? theme.text : theme.accentLight }]}>{greeting}</Text>
-              <Text style={[styles.usernameText, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{username || 'Mahasiswa'}</Text>
+          <View style={[styles.topBar, isSmallPhone && { paddingVertical: 6 }]}>
+            <View style={{ flex: 1, minWidth: 0, paddingRight: 6 }}>
+              <Text style={[styles.greetingText, isSmallPhone && { fontSize: 10 }, { color: isLightMode ? theme.text : theme.accentLight }]}>{greeting}</Text>
+              <Text style={[styles.usernameText, isSmallPhone && { fontSize: 17 }, { color: theme.text }]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.7}>{username || 'Mahasiswa'}</Text>
               {activeTitle && (
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
-                  <Ionicons name={activeTitle.icon as any} size={11} color={activeTitle.color} />
-                  <Text style={{ color: activeTitle.color, fontSize: 10.5, fontWeight: '800' }} numberOfLines={1}>
+                  <Ionicons name={activeTitle.icon as any} size={10} color={activeTitle.color} />
+                  <Text style={{ color: activeTitle.color, fontSize: 10, fontWeight: '800' }} numberOfLines={1}>
                     [{activeTitle.label}]
                   </Text>
                 </View>
               )}
             </View>
 
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: isSmallPhone ? 4 : 6 }}>
               <TouchableOpacity
-                style={[styles.streakPill, { backgroundColor: theme.card, borderColor: theme.border }]}
+                style={[styles.streakPill, isSmallPhone && { paddingHorizontal: 6, paddingVertical: 5 }, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => setShowGardenModal(true)}
                 activeOpacity={0.7}
               >
-                <Ionicons name="leaf" size={14} color="#10B981" />
-                <Text style={[styles.streakNumber, { color: theme.text }]}>Taman</Text>
+                <Ionicons name="leaf" size={13} color="#10B981" />
+                {!isSmallPhone && <Text style={[styles.streakNumber, { color: theme.text }]}>Taman</Text>}
               </TouchableOpacity>
 
               <TouchableOpacity
-                style={[styles.streakPill, { backgroundColor: theme.card, borderColor: theme.border }]}
+                style={[styles.streakPill, isSmallPhone && { paddingHorizontal: 6, paddingVertical: 5 }, { backgroundColor: theme.card, borderColor: theme.border }]}
                 onPress={() => {
                   // Tampilkan milestone kalau streak cocok
                   if ([7, 14, 30, 60, 100].includes(streak)) {
@@ -1457,322 +1680,173 @@ export default function HomeScreen() {
                 }}
                 activeOpacity={0.7}
               >
-                <StreakFlamePulse streak={streak} color={sem.warning} size={15} isActive={streakJustIncreased} />
-                <Text style={[styles.streakNumber, { color: theme.text }]}>{streak} Hari</Text>
+                <StreakFlamePulse streak={streak} color={sem.warning} size={14} isActive={streakJustIncreased} />
+                <Text style={[styles.streakNumber, isSmallPhone && { fontSize: 11 }, { color: theme.text }]}>{streak}{isSmallPhone ? 'd' : ' Hari'}</Text>
               </TouchableOpacity>
             </View>
           </View>
 
-          {/* Lucky Hour Banner */}
-          {luckyHour.active && (
-            <LuckyHourBanner
-              expiresAt={luckyHour.expiresAt}
-              remainingMs={luckyHour.remainingMs}
-              onClose={() => setLuckyHour({ active: false, expiresAt: 0, remainingMs: 0 })}
-            />
-          )}
-
-          {/* Boss Event 24h Limited Banner */}
-          {activeBossEvent && !activeBossEvent.defeated && !showBossEventDismissed && (
-            <BossEventBanner
-              event={activeBossEvent}
-              onChallenge={handleChallengeBoss}
-              onDismiss={() => setShowBossEventDismissed(true)}
-            />
-          )}
-
-          {/* Level & XP Gamification Card */}
-          <FadeSlideIn delay={150}>
-            <TouchableOpacity
-              style={[styles.levelCard, { backgroundColor: theme.card, borderColor: theme.border }]}
-              onPress={() => setShowLevelModal(true)}
-              activeOpacity={0.8}
-            >
-              <View style={styles.levelTopRow}>
-                <View style={styles.levelBadge}>
-                  <FloatingBadge distance={3} duration={1800}>
-                    <Text style={styles.levelEmoji}>{userLevel.levelIcon}</Text>
-                  </FloatingBadge>
-                  <View>
-                    <Text style={[styles.levelNameText, { color: theme.text }]}>
-                      Level {userLevel.level}: {userLevel.levelTitle}
-                    </Text>
-                    <Text style={[styles.levelXpSub, { color: theme.subtext }]}>
-                      {userLevel.totalXp} XP • {userLevel.progressPercent}% menuju Lv.{userLevel.level + 1}
-                    </Text>
-                  </View>
-                </View>
-                <View style={[styles.levelTierBadge, { backgroundColor: theme.accentBg }]}>
-                  <Text style={[styles.levelTierText, { color: theme.accentLight }]}>
-                    +{userLevel.xpToNextLevel} XP
-                  </Text>
-                </View>
-              </View>
-
-              <AnimatedProgressBar
-                percent={userLevel.progressPercent}
-                height={6}
-                trackColor={theme.cardInner}
-                fillColor={theme.primary}
-                borderRadius={3}
-              />
-            </TouchableOpacity>
-          </FadeSlideIn>
-
-          {/* Mini-Games / Zona Hadiah 3-Card Row */}
-          <View style={{ flexDirection: 'row', gap: 8, marginTop: 2 }}>
-            {/* Kotak Hadiah Card */}
-            <TouchableOpacity
-              style={{
-                flex: 1,
-                backgroundColor: theme.card,
-                borderColor: chestCount > 0 ? '#F59E0B' : theme.border,
-                borderWidth: 1,
-                borderRadius: 14,
-                padding: 10,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-              }}
-              onPress={() => {
-                getChestCount().then(setChestCount);
-                setShowChestModal(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: '#F59E0B20', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="gift" size={16} color="#F59E0B" />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Hadiah</Text>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: chestCount > 0 ? '#F59E0B' : theme.subtext }} numberOfLines={1}>
-                  {chestCount > 0 ? `${chestCount} 🎁` : 'Habis'}
+            {/* Offline Warning Banner */}
+            {!isOnline && (
+              <View style={[styles.offlineBanner, { backgroundColor: sem.warningBg, borderColor: sem.warningBorder }]}>
+                <Ionicons name="cloud-offline" size={15} color={sem.warning} />
+                <Text style={[styles.offlineBannerText, { color: sem.warningStrong }]}>
+                  Mode Offline Aktif • Seluruh catatan tersimpan lokal di perangkat dan otomatis tersinkron saat terhubung internet.
                 </Text>
               </View>
-            </TouchableOpacity>
+            )}
 
-            {/* Roda Keberuntungan Card */}
-            <TouchableOpacity
-              style={{
-                flex: 1,
-                backgroundColor: theme.card,
-                borderColor: wheelTickets > 0 ? theme.card : theme.border,
-                borderWidth: 1,
-                borderRadius: 14,
-                padding: 10,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-              }}
-              onPress={() => {
-                getWheelTickets().then(setWheelTickets);
-                setShowWheelModal(true);
-              }}
-              activeOpacity={0.8}
-            >
-              <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: '#EC489920', alignItems: 'center', justifyContent: 'center' }}>
-                <Ionicons name="radio-button-on" size={16} color="#EC4899" />
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Roda</Text>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: wheelTickets > 0 ? '#EC4899' : theme.subtext }} numberOfLines={1}>
-                  {wheelTickets > 0 ? `${wheelTickets} 🎰` : 'Habis'}
-                </Text>
-              </View>
-            </TouchableOpacity>
-
-            {/* Battle Pass Card */}
-            <TouchableOpacity
-              style={{
-                flex: 1,
-                backgroundColor: theme.card,
-                borderColor: theme.card,
-                borderWidth: 1,
-                borderRadius: 14,
-                padding: 10,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: 6,
-              }}
-              onPress={() => setShowBattlePassModal(true)}
-              activeOpacity={0.8}
-            >
-              <View style={{ width: 32, height: 32, borderRadius: 9, backgroundColor: '#7C3AED20', alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ fontSize: 14 }}>🎖️</Text>
-              </View>
-              <View style={{ flex: 1, minWidth: 0 }}>
-                <Text style={{ fontSize: 11, fontWeight: '800', color: theme.text }} numberOfLines={1}>Pass</Text>
-                <Text style={{ fontSize: 10, fontWeight: '700', color: '#A78BFA' }} numberOfLines={1}>
-                  Tier {battlePassTier}
-                </Text>
-              </View>
-            </TouchableOpacity>
-          </View>
-
-          {/* Offline Warning Banner */}
-          {!isOnline && (
-            <View style={[styles.offlineBanner, { backgroundColor: sem.warningBg, borderColor: sem.warningBorder }]}>
-              <Ionicons name="cloud-offline" size={15} color={sem.warning} />
-              <Text style={[styles.offlineBannerText, { color: sem.warningStrong }]}>
-                Mode Offline Aktif • Seluruh catatan tersimpan lokal di perangkat dan otomatis tersinkron saat terhubung internet.
-              </Text>
-            </View>
-          )}
-
-          {/* Global Campus Announcement */}
-          {globalAnnouncement && globalAnnouncement.trim().length > 0 ? (
-            <View style={[styles.announcementBanner, { backgroundColor: sem.warningBg, borderColor: sem.warning }]}>
-              <View style={[styles.announcementIconWrap, { backgroundColor: sem.warningBorder }]}>
-                <Ionicons name="megaphone-outline" size={15} color={sem.warning} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.announcementLabel, { color: sem.warningStrong }]}>PENGUMUMAN</Text>
-                <Text style={[styles.announcementText, { color: sem.warningSoft }]}>{globalAnnouncement.trim()}</Text>
-              </View>
-            </View>
-          ) : null}
-
-          {/* Starter Onboarding Checklist for New Users */}
-          {isFirstTimeUser && (
-            <View style={[styles.starterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
-              <View style={styles.starterHeaderRow}>
-                <View style={[styles.starterIconWrap, { backgroundColor: theme.accentBg }]}>
-                  <Ionicons name="rocket-outline" size={16} color={theme.accentLight} />
+            {/* Global Campus Announcement */}
+            {globalAnnouncement && globalAnnouncement.trim().length > 0 ? (
+              <View style={[styles.announcementBanner, { backgroundColor: sem.warningBg, borderColor: sem.warning }]}>
+                <View style={[styles.announcementIconWrap, { backgroundColor: sem.warningBorder }]}>
+                  <Ionicons name="megaphone-outline" size={15} color={sem.warning} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={[styles.starterTitle, { color: theme.text }]}>Panduan Memulai Cepat Mahasiswa</Text>
-                  <Text style={[styles.starterSub, { color: theme.subtext }]}>Ikuti 3 langkah awal ini untuk mengatur ritme belajarmu:</Text>
+                  <Text style={[styles.announcementLabel, { color: sem.warningStrong }]}>PENGUMUMAN</Text>
+                  <Text style={[styles.announcementText, { color: sem.warningSoft }]}>{globalAnnouncement.trim()}</Text>
                 </View>
               </View>
+            ) : null}
 
-              <View style={styles.starterActionsList}>
-                <TouchableOpacity
-                  style={[styles.starterActionItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                  onPress={() => navigation.navigate('StudyNoteDetail', {})}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.starterStepNumber, { backgroundColor: theme.accentBg }]}>
-                    <Text style={[styles.starterStepText, { color: theme.accentLight }]}>1</Text>
+            {/* HERO FOCUS CARD (Utama & Selalu Tampak di Atas untuk Mahasiswa) */}
+            {renderHeroFocusCard()}
+
+            {/* Starter Onboarding Checklist for New Users */}
+            {isFirstTimeUser && (
+              <View style={[styles.starterCard, { backgroundColor: theme.card, borderColor: theme.border }]}>
+                <View style={styles.starterHeaderRow}>
+                  <View style={[styles.starterIconWrap, { backgroundColor: theme.accentBg }]}>
+                    <Ionicons name="rocket-outline" size={16} color={theme.accentLight} />
                   </View>
                   <View style={{ flex: 1 }}>
-                    <Text style={[styles.starterActionTitle, { color: theme.text }]}>Buat Catatan Materi Pertama atau Scan OCR</Text>
-                    <Text style={[styles.starterActionDesc, { color: theme.subtext }]}>Tulis ringkasan bab kuliah atau foto catatan buku</Text>
+                    <Text style={[styles.starterTitle, { color: theme.text }]}>Panduan Memulai Cepat Mahasiswa</Text>
+                    <Text style={[styles.starterSub, { color: theme.subtext }]}>Ikuti 3 langkah awal ini untuk mengatur ritme belajarmu:</Text>
                   </View>
-                  <Ionicons name="chevron-forward" size={15} color={theme.subtext} />
-                </TouchableOpacity>
+                </View>
 
-                <TouchableOpacity
-                  style={[styles.starterActionItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                  onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'tasks' })}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.starterStepNumber, { backgroundColor: theme.accentBg }]}>
-                    <Text style={[styles.starterStepText, { color: theme.accentLight }]}>2</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.starterActionTitle, { color: theme.text }]}>Daftarkan Tugas & Tentukan Deadline</Text>
-                    <Text style={[styles.starterActionDesc, { color: theme.subtext }]}>Bagi tugas berdasarkan tingkat urgensi (Tinggi, Sedang)</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={15} color={theme.subtext} />
-                </TouchableOpacity>
+                <View style={styles.starterActionsList}>
+                  <TouchableOpacity
+                    style={[styles.starterActionItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => navigation.navigate('StudyNoteDetail', {})}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.starterStepNumber, { backgroundColor: theme.accentBg }]}>
+                      <Text style={[styles.starterStepText, { color: theme.accentLight }]}>1</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.starterActionTitle, { color: theme.text }]}>Buat Catatan Materi Pertama atau Scan OCR</Text>
+                      <Text style={[styles.starterActionDesc, { color: theme.subtext }]}>Tulis ringkasan bab kuliah atau foto catatan buku</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={15} color={theme.subtext} />
+                  </TouchableOpacity>
 
-                <TouchableOpacity
-                  style={[styles.starterActionItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
-                  onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'pomodoro' })}
-                  activeOpacity={0.7}
-                >
-                  <View style={[styles.starterStepNumber, { backgroundColor: theme.accentBg }]}>
-                    <Text style={[styles.starterStepText, { color: theme.accentLight }]}>3</Text>
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.starterActionTitle, { color: theme.text }]}>Coba Sesi Fokus Pomodoro 25 Menit</Text>
-                    <Text style={[styles.starterActionDesc, { color: theme.subtext }]}>Belajar bebas distraksi dengan alarm pengingat istirahat</Text>
-                  </View>
-                  <Ionicons name="chevron-forward" size={15} color={theme.subtext} />
-                </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.starterActionItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'tasks' })}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.starterStepNumber, { backgroundColor: theme.accentBg }]}>
+                      <Text style={[styles.starterStepText, { color: theme.accentLight }]}>2</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.starterActionTitle, { color: theme.text }]}>Daftarkan Tugas & Tentukan Deadline</Text>
+                      <Text style={[styles.starterActionDesc, { color: theme.subtext }]}>Bagi tugas berdasarkan tingkat urgensi (Tinggi, Sedang)</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={15} color={theme.subtext} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[styles.starterActionItem, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                    onPress={() => (navigation.getParent() as any)?.navigate('Study', { initialTab: 'pomodoro' })}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.starterStepNumber, { backgroundColor: theme.accentBg }]}>
+                      <Text style={[styles.starterStepText, { color: theme.accentLight }]}>3</Text>
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.starterActionTitle, { color: theme.text }]}>Coba Sesi Fokus Pomodoro 25 Menit</Text>
+                      <Text style={[styles.starterActionDesc, { color: theme.subtext }]}>Belajar bebas distraksi dengan alarm pengingat istirahat</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={15} color={theme.subtext} />
+                  </TouchableOpacity>
+                </View>
               </View>
-            </View>
-          )}
+            )}
 
-          {/* ========================================================================= */}
-          {/* DESKTOP TOP HERO FOCUS & MOOD CHECK-IN BANNER */}
-          {/* ========================================================================= */}
-          {isWide && renderHeroFocusCard()}
+            {/* ========================================================================= */}
+            {/* CONTENT SECTION (DESKTOP 2-COL vs MOBILE TABS) */}
+            {/* ========================================================================= */}
+            {isWide ? (
+              <View style={styles.desktopTwoColRow}>
+                {/* Left Column: Akademik & Produktivitas Belajar */}
+                <View style={styles.desktopLeftCol}>
+                  {renderAcademicSection()}
+                </View>
 
-          {/* ========================================================================= */}
-          {/* DESKTOP 2-COLUMN EXPANSIVE GRID VIEW */}
-          {/* ========================================================================= */}
-          {isWide ? (
-            <View style={styles.desktopTwoColRow}>
-              {/* Left Column: Akademik & Produktivitas Belajar */}
-              <View style={styles.desktopLeftCol}>
-                {renderAcademicSection()}
+                {/* Right Column: Pusat Gamifikasi + Kesejahteraan */}
+                <View style={styles.desktopRightCol}>
+                  {renderGamificationHub()}
+                  {renderWellnessSection()}
+                </View>
               </View>
+            ) : (
+              /* Mobile Single-Column View with Tab Switcher */
+              <View style={{ gap: 14 }}>
+                {/* Mobile Gamification Hub (Tampil di atas Tab Tugas) */}
+                {renderGamificationHub()}
 
-              {/* Right Column: Kesejahteraan, Mind & AI Companion */}
-              <View style={styles.desktopRightCol}>
-                {renderWellnessSection()}
+                {/* Mobile Segmented Tab Switcher */}
+                <View style={[styles.tabSwitcherRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
+                  <TouchableOpacity
+                    style={[
+                      styles.tabSwitchBtn,
+                      activeTab === 'academic' && [styles.tabSwitchBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
+                    ]}
+                    onPress={() => setActiveTab('academic')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="school-outline"
+                      size={16}
+                      color={activeTab === 'academic' ? theme.accentLight : theme.subtext}
+                    />
+                    <Text style={[
+                      styles.tabSwitchBtnText,
+                      { color: activeTab === 'academic' ? theme.text : theme.subtext },
+                      activeTab === 'academic' && { fontWeight: '700' }
+                    ]} numberOfLines={1}>
+                      {isSmallPhone ? 'Akademik' : 'Akademik & Tugas'}
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.tabSwitchBtn,
+                      activeTab === 'wellness' && [styles.tabSwitchBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
+                    ]}
+                    onPress={() => setActiveTab('wellness')}
+                    activeOpacity={0.8}
+                  >
+                    <Ionicons
+                      name="heart-outline"
+                      size={16}
+                      color={activeTab === 'wellness' ? theme.accentLight : theme.subtext}
+                    />
+                    <Text style={[
+                      styles.tabSwitchBtnText,
+                      { color: activeTab === 'wellness' ? theme.text : theme.subtext },
+                      activeTab === 'wellness' && { fontWeight: '700' }
+                    ]} numberOfLines={1}>
+                      {isSmallPhone ? 'Refleksi' : 'Kesejahteraan & Refleksi'}
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+
+                {/* Mobile Tab Content */}
+                {activeTab === 'academic' ? renderAcademicSection() : renderWellnessSection()}
               </View>
-            </View>
-          ) : (
-            /* ========================================================================= */
-            /* MOBILE SINGLE-COLUMN VIEW WITH TAB SWITCHER */
-            /* ========================================================================= */
-            <View style={{ gap: 14 }}>
-              {/* Mobile Hero Focus Card */}
-              {renderHeroFocusCard()}
-
-              {/* Mobile Segmented Tab Switcher */}
-              <View style={[styles.tabSwitcherRow, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                <TouchableOpacity
-                  style={[
-                    styles.tabSwitchBtn,
-                    activeTab === 'academic' && [styles.tabSwitchBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
-                  ]}
-                  onPress={() => setActiveTab('academic')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="school-outline"
-                    size={16}
-                    color={activeTab === 'academic' ? theme.accentLight : theme.subtext}
-                  />
-                  <Text style={[
-                    styles.tabSwitchBtnText,
-                    { color: activeTab === 'academic' ? theme.text : theme.subtext },
-                    activeTab === 'academic' && { fontWeight: '700' }
-                  ]}>
-                    Akademik & Tugas
-                  </Text>
-                </TouchableOpacity>
-
-                <TouchableOpacity
-                  style={[
-                    styles.tabSwitchBtn,
-                    activeTab === 'wellness' && [styles.tabSwitchBtnActive, { backgroundColor: theme.card, borderColor: theme.border }]
-                  ]}
-                  onPress={() => setActiveTab('wellness')}
-                  activeOpacity={0.8}
-                >
-                  <Ionicons
-                    name="heart-outline"
-                    size={16}
-                    color={activeTab === 'wellness' ? theme.accentLight : theme.subtext}
-                  />
-                  <Text style={[
-                    styles.tabSwitchBtnText,
-                    { color: activeTab === 'wellness' ? theme.text : theme.subtext },
-                    activeTab === 'wellness' && { fontWeight: '700' }
-                  ]}>
-                    Kesejahteraan & Refleksi
-                  </Text>
-                </TouchableOpacity>
-              </View>
-
-              {/* Mobile Tab Content */}
-              {activeTab === 'academic' ? renderAcademicSection() : renderWellnessSection()}
-            </View>
-          )}
+            )}
 
         </View>
       </ScrollView>
@@ -1968,11 +2042,72 @@ const styles = StyleSheet.create({
     fontSize: 11.5,
     fontWeight: '700',
   },
+  gamificationHubCard: {
+    borderRadius: 16,
+    borderWidth: 1,
+    padding: 14,
+    gap: 4,
+    marginVertical: 4,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
+  },
+  gamificationHubHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  luckyHourMiniPill: {
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: 5,
+    borderWidth: 1,
+  },
+  collapseToggleBtn: {
+    width: 28,
+    height: 28,
+    borderRadius: 8,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniRewardBtn: {
+    flex: 1,
+    borderWidth: 1,
+    borderRadius: 12,
+    padding: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  miniRewardIconCircle: {
+    width: 32,
+    height: 32,
+    borderRadius: 9,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  miniRewardTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  miniRewardSub: {
+    fontSize: 10,
+    fontWeight: '600',
+    marginTop: 1,
+  },
   levelCard: {
     borderRadius: 14,
     borderWidth: 1,
     padding: 12,
     marginVertical: 4,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   levelTopRow: {
     flexDirection: 'row',
@@ -2200,6 +2335,30 @@ const styles = StyleSheet.create({
     fontSize: 12.5,
     lineHeight: 17,
   },
+  heroActionBtnsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginTop: 4,
+    width: '100%',
+  },
+  heroActionBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 5,
+    paddingHorizontal: 6,
+    paddingVertical: 9,
+    borderRadius: 9,
+    borderWidth: 1,
+    minHeight: 38,
+  },
+  heroActionBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
   moodSectionWrap: {
     borderTopWidth: 1,
     paddingTop: 10,
@@ -2244,6 +2403,11 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: 16,
     gap: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   starterHeaderRow: {
     flexDirection: 'row',
@@ -2351,6 +2515,11 @@ const styles = StyleSheet.create({
     padding: 15,
     borderWidth: 1,
     gap: 10,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.05,
+    shadowRadius: 10,
+    elevation: 2,
   },
   cardHeaderRow: {
     flexDirection: 'row',
@@ -2520,6 +2689,11 @@ const styles = StyleSheet.create({
     padding: 14,
     borderWidth: 1,
     gap: 8,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 8,
+    elevation: 2,
   },
   wisdomTopRow: {
     flexDirection: 'row',
