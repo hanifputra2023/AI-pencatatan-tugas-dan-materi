@@ -147,6 +147,11 @@ export default function GeminiLiveVoiceModal({
   const ringScale2 = useRef(new Animated.Value(1)).current;
   const ringOpacity2 = useRef(new Animated.Value(0)).current;
 
+  // Android performance flag: use native driver where possible, reduce animation load
+  const isAndroid = Platform.OS === 'android';
+  // Multiplier for animation durations — Android runs slower on JS thread, so slightly slower anim = less CPU
+  const animSpeedMult = isAndroid ? 1.3 : 1.0;
+
   // Lifecycle & Voice Recording Refs
   const recognitionRef = useRef<any>(null);
   const nativeRecordingRef = useRef<Audio.Recording | null>(null);
@@ -365,118 +370,149 @@ export default function GeminiLiveVoiceModal({
   useEffect(() => {
     let animLoop: Animated.CompositeAnimation | null = null;
 
+    // Equalizer bars animate height via interpolate — CANNOT use useNativeDriver: true
+    // On Android, we reduce speed multiplier to lower CPU load
+    const d = (base: number) => Math.round(base * animSpeedMult);
+
     if (liveState === 'speaking') {
-      const createBar = (val: Animated.Value, min: number, max: number, duration: number) => {
-        return Animated.loop(
-          Animated.sequence([
-            Animated.timing(val, { toValue: max, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
-            Animated.timing(val, { toValue: min, duration, easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
-          ])
-        );
-      };
-
-      animLoop = Animated.parallel([
-        createBar(bar1, 0.3, 1.0, 260),
-        createBar(bar2, 0.4, 1.25, 340),
-        createBar(bar3, 0.3, 1.15, 290),
-        createBar(bar4, 0.25, 0.95, 380),
-        createBar(bar5, 0.35, 1.1, 310),
+      // On Android: only animate 3 bars instead of 5 to cut CPU load in half
+      const createBar = (val: Animated.Value, min: number, max: number, duration: number) =>
         Animated.loop(
           Animated.sequence([
-            Animated.timing(auraScale, { toValue: 1.25, duration: 600, useNativeDriver: false }),
-            Animated.timing(auraScale, { toValue: 1.0, duration: 600, useNativeDriver: false }),
+            Animated.timing(val, { toValue: max, duration: d(duration), easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
+            Animated.timing(val, { toValue: min, duration: d(duration), easing: Easing.inOut(Easing.quad), useNativeDriver: false }),
           ])
-        ),
-      ]);
+        );
+
+      const barAnims = isAndroid
+        ? [
+            createBar(bar1, 0.3, 1.0, 260),
+            createBar(bar3, 0.3, 1.15, 290),
+            createBar(bar5, 0.35, 1.1, 310),
+          ]
+        : [
+            createBar(bar1, 0.3, 1.0, 260),
+            createBar(bar2, 0.4, 1.25, 340),
+            createBar(bar3, 0.3, 1.15, 290),
+            createBar(bar4, 0.25, 0.95, 380),
+            createBar(bar5, 0.35, 1.1, 310),
+          ];
+
+      // auraScale uses useNativeDriver: true for zero-JS-thread cost
+      const auraAnim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(auraScale, { toValue: 1.25, duration: d(600), useNativeDriver: true }),
+          Animated.timing(auraScale, { toValue: 1.0, duration: d(600), useNativeDriver: true }),
+        ])
+      );
+
+      animLoop = Animated.parallel([...barAnims]);
+      animLoop.start();
+      auraAnim.start();
     } else if (liveState === 'thinking') {
-      const createBar = (val: Animated.Value, duration: number) => {
-        return Animated.loop(
-          Animated.sequence([
-            Animated.timing(val, { toValue: 0.8, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-            Animated.timing(val, { toValue: 0.2, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          ])
-        );
-      };
-
-      animLoop = Animated.parallel([
-        createBar(bar1, 500),
-        createBar(bar2, 400),
-        createBar(bar3, 450),
-        createBar(bar4, 550),
-        createBar(bar5, 420),
-      ]);
-    } else if (liveState === 'listening') {
-      const createBar = (val: Animated.Value, min: number, max: number, duration: number) => {
-        return Animated.loop(
-          Animated.sequence([
-            Animated.timing(val, { toValue: max, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-            Animated.timing(val, { toValue: min, duration, easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
-          ])
-        );
-      };
-
-      animLoop = Animated.parallel([
-        createBar(bar1, 0.25, 0.55, 900),
-        createBar(bar2, 0.35, 0.75, 800),
-        createBar(bar3, 0.3, 0.65, 850),
-        createBar(bar4, 0.2, 0.5, 950),
-        createBar(bar5, 0.3, 0.6, 880),
+      const createBar = (val: Animated.Value, duration: number) =>
         Animated.loop(
           Animated.sequence([
-            Animated.timing(auraScale, { toValue: 1.12, duration: 1200, useNativeDriver: false }),
-            Animated.timing(auraScale, { toValue: 0.96, duration: 1200, useNativeDriver: false }),
+            Animated.timing(val, { toValue: 0.8, duration: d(duration), easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+            Animated.timing(val, { toValue: 0.2, duration: d(duration), easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
           ])
-        ),
-      ]);
+        );
+
+      // Android: only 3 bars for thinking too
+      animLoop = Animated.parallel(
+        isAndroid
+          ? [createBar(bar1, 500), createBar(bar3, 450), createBar(bar5, 420)]
+          : [createBar(bar1, 500), createBar(bar2, 400), createBar(bar3, 450), createBar(bar4, 550), createBar(bar5, 420)]
+      );
+      animLoop.start();
+    } else if (liveState === 'listening') {
+      const createBar = (val: Animated.Value, min: number, max: number, duration: number) =>
+        Animated.loop(
+          Animated.sequence([
+            Animated.timing(val, { toValue: max, duration: d(duration), easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+            Animated.timing(val, { toValue: min, duration: d(duration), easing: Easing.inOut(Easing.sin), useNativeDriver: false }),
+          ])
+        );
+
+      // auraScale uses useNativeDriver: true for listening state too
+      const auraAnim = Animated.loop(
+        Animated.sequence([
+          Animated.timing(auraScale, { toValue: 1.12, duration: d(1200), useNativeDriver: true }),
+          Animated.timing(auraScale, { toValue: 0.96, duration: d(1200), useNativeDriver: true }),
+        ])
+      );
+
+      animLoop = Animated.parallel(
+        isAndroid
+          ? [createBar(bar1, 0.25, 0.55, 900), createBar(bar3, 0.3, 0.65, 850), createBar(bar5, 0.3, 0.6, 880)]
+          : [
+              createBar(bar1, 0.25, 0.55, 900),
+              createBar(bar2, 0.35, 0.75, 800),
+              createBar(bar3, 0.3, 0.65, 850),
+              createBar(bar4, 0.2, 0.5, 950),
+              createBar(bar5, 0.3, 0.6, 880),
+            ]
+      );
+      animLoop.start();
+      auraAnim.start();
     } else {
       bar1.setValue(0.15);
       bar2.setValue(0.15);
       bar3.setValue(0.15);
       bar4.setValue(0.15);
       bar5.setValue(0.15);
+      auraScale.setValue(1.0);
     }
-
-    if (animLoop) animLoop.start();
 
     return () => {
       if (animLoop) animLoop.stop();
     };
-  }, [liveState, bar1, bar2, bar3, bar4, bar5, auraScale]);
+  }, [liveState, bar1, bar2, bar3, bar4, bar5, auraScale, isAndroid, animSpeedMult]);
 
   // Sonar Ripple Rings Animation Effect for the Central Avatar
+  // PERF FIX: Use useNativeDriver: true for scale + opacity (runs on UI thread, zero JS cost)
   useEffect(() => {
     let rippleLoop: Animated.CompositeAnimation | null = null;
+
+    // On Android, skip second ring to halve the animation cost
     if (liveState === 'speaking' || liveState === 'listening') {
       ringOpacity1.setValue(0.7);
-      ringOpacity2.setValue(0.5);
+      ringOpacity2.setValue(isAndroid ? 0 : 0.5); // hide ring2 on Android
       ringScale1.setValue(1);
       ringScale2.setValue(1);
 
-      rippleLoop = Animated.loop(
+      const ring1Seq = Animated.sequence([
         Animated.parallel([
-          Animated.sequence([
-            Animated.parallel([
-              Animated.timing(ringScale1, { toValue: 1.45, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: false }),
-              Animated.timing(ringOpacity1, { toValue: 0, duration: 1800, useNativeDriver: false }),
+          Animated.timing(ringScale1, { toValue: 1.45, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+          Animated.timing(ringOpacity1, { toValue: 0, duration: 1800, useNativeDriver: true }),
+        ]),
+        Animated.parallel([
+          Animated.timing(ringScale1, { toValue: 1, duration: 0, useNativeDriver: true }),
+          Animated.timing(ringOpacity1, { toValue: 0.7, duration: 0, useNativeDriver: true }),
+        ]),
+      ]);
+
+      if (isAndroid) {
+        // Android: only one ring, much lighter
+        rippleLoop = Animated.loop(ring1Seq);
+      } else {
+        rippleLoop = Animated.loop(
+          Animated.parallel([
+            ring1Seq,
+            Animated.sequence([
+              Animated.delay(700),
+              Animated.parallel([
+                Animated.timing(ringScale2, { toValue: 1.55, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: true }),
+                Animated.timing(ringOpacity2, { toValue: 0, duration: 1800, useNativeDriver: true }),
+              ]),
+              Animated.parallel([
+                Animated.timing(ringScale2, { toValue: 1, duration: 0, useNativeDriver: true }),
+                Animated.timing(ringOpacity2, { toValue: 0.5, duration: 0, useNativeDriver: true }),
+              ]),
             ]),
-            Animated.parallel([
-              Animated.timing(ringScale1, { toValue: 1, duration: 0, useNativeDriver: false }),
-              Animated.timing(ringOpacity1, { toValue: 0.7, duration: 0, useNativeDriver: false }),
-            ]),
-          ]),
-          Animated.sequence([
-            Animated.delay(700),
-            Animated.parallel([
-              Animated.timing(ringScale2, { toValue: 1.55, duration: 1800, easing: Easing.out(Easing.ease), useNativeDriver: false }),
-              Animated.timing(ringOpacity2, { toValue: 0, duration: 1800, useNativeDriver: false }),
-            ]),
-            Animated.parallel([
-              Animated.timing(ringScale2, { toValue: 1, duration: 0, useNativeDriver: false }),
-              Animated.timing(ringOpacity2, { toValue: 0.5, duration: 0, useNativeDriver: false }),
-            ]),
-          ]),
-        ])
-      );
+          ])
+        );
+      }
       rippleLoop.start();
     } else {
       ringOpacity1.setValue(0);
@@ -487,7 +523,7 @@ export default function GeminiLiveVoiceModal({
     return () => {
       if (rippleLoop) rippleLoop.stop();
     };
-  }, [liveState, ringScale1, ringOpacity1, ringScale2, ringOpacity2]);
+  }, [liveState, ringScale1, ringOpacity1, ringScale2, ringOpacity2, isAndroid]);
 
   // -------------------------------------------------------------
   // SPEECH RECOGNITION (Multi-Turn Voice Listener)
@@ -626,10 +662,32 @@ export default function GeminiLiveVoiceModal({
       });
 
       const recording = new Audio.Recording();
-      await recording.prepareToRecordAsync({
-        ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
-        isMeteringEnabled: true,
-      });
+      // PERF FIX: Android uses LOW_QUALITY preset (8kHz 16kbps) which is sufficient for VAD
+      // and speech-to-text. HIGH_QUALITY (44.1kHz 128kbps) wastes CPU/memory on Android.
+      const recordingOptions = isAndroid
+        ? {
+            ...Audio.RecordingOptionsPresets.LOW_QUALITY,
+            isMeteringEnabled: true,
+            android: {
+              ...Audio.RecordingOptionsPresets.LOW_QUALITY.android,
+              extension: '.m4a',
+              outputFormat: Audio.AndroidOutputFormat.MPEG_4,
+              audioEncoder: Audio.AndroidAudioEncoder.AAC,
+              sampleRate: 16000, // 16kHz is fine for speech recognition
+              numberOfChannels: 1, // Mono channel reduces data by half
+              bitRate: 32000, // 32 kbps sufficient for clear speech
+            },
+          }
+        : {
+            ...Audio.RecordingOptionsPresets.HIGH_QUALITY,
+            isMeteringEnabled: true,
+          };
+      await recording.prepareToRecordAsync(recordingOptions);
+
+      // PERF FIX: Throttle metering updates more aggressively on Android
+      const meteringThrottleMs = isAndroid ? 200 : 100; // 5fps on Android, 10fps on iOS/web
+      // PERF FIX: Silence detection window: 1.8s on Android (a bit more forgiving)
+      const silenceWindowMs = isAndroid ? 1800 : 1500;
 
       recording.setOnRecordingStatusUpdate((status) => {
         if (!isComponentMounted.current) return;
@@ -637,14 +695,17 @@ export default function GeminiLiveVoiceModal({
           // Metering ranges from -160 dB to 0 dB, normalized to 0-1
           const norm = Math.max(0, Math.min(1, (status.metering + 50) / 50));
 
-          // Throttle animation updates to ~10fps to reduce UI lag
+          // Throttle animation updates (5fps on Android, 10fps on Web/iOS)
           const now = Date.now();
-          if (now - lastMeteringUpdateRef.current > 100) {
+          if (now - lastMeteringUpdateRef.current > meteringThrottleMs) {
             lastMeteringUpdateRef.current = now;
+            // Android: only update 2 bars instead of 4 to reduce JS bridge calls
             bar1.setValue(0.2 + norm * 0.7);
-            bar2.setValue(0.3 + norm * 0.9);
             bar3.setValue(0.25 + norm * 0.85);
-            bar4.setValue(0.2 + norm * 0.65);
+            if (!isAndroid) {
+              bar2.setValue(0.3 + norm * 0.9);
+              bar4.setValue(0.2 + norm * 0.65);
+            }
           }
 
           // ── VAD: Auto-detect speech vs silence ──────────────────────────
@@ -660,14 +721,14 @@ export default function GeminiLiveVoiceModal({
               vadSilenceTimerRef.current = null;
             }
           } else if (!isTalking && vadIsUserTalkingRef.current && !vadSilenceTimerRef.current) {
-            // User went silent after speaking — start 1.5s countdown
+            // User went silent after speaking — start countdown
             vadSilenceTimerRef.current = setTimeout(() => {
               vadSilenceTimerRef.current = null;
               if (isComponentMounted.current && !isAiSpeakingRef.current && nativeRecordingRef.current) {
                 vadIsUserTalkingRef.current = false;
                 stopNativeRecordingAndProcess();
               }
-            }, 1500);
+            }, silenceWindowMs);
           }
         }
       });
@@ -899,12 +960,17 @@ export default function GeminiLiveVoiceModal({
     let currentWordIdx = 0;
     if (streamTimerRef.current) clearInterval(streamTimerRef.current);
 
-    const wordIntervalMs = Math.max(150, Math.min(300, Math.round(240 / 0.96)));
+    // PERF FIX: On Android, use a slower word stream (every 400ms) to reduce setState calls
+    // Web: 250ms for smooth word-by-word display, Android: 400ms to avoid JS thread overload
+    const wordIntervalMs = isAndroid ? 400 : Math.max(150, Math.min(300, Math.round(240 / 0.96)));
+    // On Android, stream every 2 words at once (further reduces setState frequency)
+    const wordsPerTick = isAndroid ? 2 : 1;
     streamTimerRef.current = setInterval(() => {
-      currentWordIdx += 1;
+      currentWordIdx += wordsPerTick;
       if (currentWordIdx <= words.length) {
         setDisplayedAiSpeech(words.slice(0, currentWordIdx).join(' '));
       } else {
+        setDisplayedAiSpeech(words.join(' '));
         if (streamTimerRef.current) clearInterval(streamTimerRef.current);
       }
     }, wordIntervalMs);
@@ -1767,9 +1833,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.85,
-    shadowRadius: 20,
-    elevation: 12,
+    shadowOpacity: Platform.OS === 'android' ? 0 : 0.85, // PERF: shadow is expensive on Android GPU
+    shadowRadius: Platform.OS === 'android' ? 0 : 20,
+    elevation: Platform.OS === 'android' ? 4 : 12, // PERF: lower elevation on Android reduces overdraw
   },
   avatarImageClipper: {
     width: 128,
@@ -1822,10 +1888,11 @@ const styles = StyleSheet.create({
   equalizerBar: {
     width: 8,
     borderRadius: 4,
+    // PERF: Remove shadow entirely on Android — shadow on animated views causes severe frame drops
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.7,
-    shadowRadius: 10,
-    elevation: 6,
+    shadowOpacity: Platform.OS === 'android' ? 0 : 0.7,
+    shadowRadius: Platform.OS === 'android' ? 0 : 10,
+    elevation: 0, // elevation on animated views triggers extra GPU layers on Android
   },
 
   // Status Capsule Indicator
