@@ -18,6 +18,7 @@ import {
   Image,
   ScrollView,
   Platform,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { useTheme } from '../contexts/ThemeContext';
@@ -50,6 +51,8 @@ export default function OfflineAISetupModal({
     aiAvatar,
     totalSizeMb,
     hasNeuralModel,
+    selectedModel,
+    selectModel,
     hardwareStatus,
     accelMode,
     changeAccelMode,
@@ -60,13 +63,14 @@ export default function OfflineAISetupModal({
 
   const [modalState, setModalState] = useState<ModalState>('PROMPT');
   const [errorMessage, setErrorMessage] = useState<string>('');
+  const [isDeleting, setIsDeleting] = useState<boolean>(false);
 
-  const handleStartDownload = async () => {
+  const handleStartDownload = async (force = false) => {
     // 1. Verifikasi koneksi internet sebelum download
     const online = await isDeviceOnline(true);
     if (!online) {
       setErrorMessage(
-        'Perangkat Anda sedang dalam Mode Offline (tidak ada internet).\n\nUntuk mengunduh model neural Qwen (~350 MB), silakan hubungkan perangkat ke WiFi atau aktifkan data internet terlebih dahulu.\n\nSetelah terunduh satu kali, model akan tersimpan permanen dan 100% aktif tanpa internet selamanya! Saat ini Anda tetap dapat berdiskusi menggunakan Smart Synthesizer (0 MB) yang sudah aktif.'
+        'Perangkat Anda sedang dalam Mode Offline (tidak ada internet).\n\nUntuk mengunduh model neural Qwen (~488 MB), silakan hubungkan perangkat ke WiFi atau aktifkan data internet terlebih dahulu.\n\nSetelah terunduh satu kali, model akan tersimpan permanen dan 100% aktif tanpa internet selamanya! Saat ini Anda tetap dapat berdiskusi menggunakan Smart Synthesizer (0 MB) yang sudah aktif.'
       );
       setModalState('ERROR');
       return;
@@ -75,7 +79,7 @@ export default function OfflineAISetupModal({
     setModalState('DOWNLOADING');
     setErrorMessage('');
     try {
-      const res = await downloadModels();
+      const res = await downloadModels(force);
       if (res.success) {
         setModalState('DONE');
         onSetupSuccess?.();
@@ -110,9 +114,48 @@ export default function OfflineAISetupModal({
     onClose();
   };
 
-  const handleDeleteModel = async () => {
-    await removeModels();
-    setModalState('PROMPT');
+  const handleDeleteModel = () => {
+    if (Platform.OS === 'web') {
+      const ok = typeof window !== 'undefined' && window.confirm(
+        `Hapus Model Qwen (~${fileTotalMb || totalSizeMb} MB)?\n\nModel akan dihapus dari penyimpanan perangkat. Anda dapat mengunduhnya kembali kapan saja. Smart Synthesizer (0 MB) akan tetap aktif melayani diskusi offline.`
+      );
+      if (ok) executeDelete();
+    } else {
+      Alert.alert(
+        'Hapus Model AI Offline?',
+        `Model Qwen (~${fileTotalMb || totalSizeMb} MB) akan dihapus dari penyimpanan HP Anda.\n\nSmart Synthesizer (0 MB) akan tetap aktif melayani diskusi offline tanpa kuota. Anda dapat mengunduh ulang model neural kapan saja.`,
+        [
+          { text: 'Batal', style: 'cancel' },
+          {
+            text: 'Hapus Model',
+            style: 'destructive',
+            onPress: executeDelete,
+          },
+        ]
+      );
+    }
+  };
+
+  const executeDelete = async () => {
+    setIsDeleting(true);
+    try {
+      const success = await removeModels();
+      if (Platform.OS !== 'web') {
+        Alert.alert(
+          success ? 'Berhasil Dihapus' : 'Info',
+          success
+            ? 'Model AI offline berhasil dihapus dari HP Anda.'
+            : 'Penyimpanan model telah dibersihkan.'
+        );
+      }
+    } catch (err: any) {
+      if (Platform.OS !== 'web') {
+        Alert.alert('Gagal', err?.message || 'Gagal menghapus file model.');
+      }
+    } finally {
+      setIsDeleting(false);
+      setModalState('PROMPT');
+    }
   };
 
   return (
@@ -166,34 +209,147 @@ export default function OfflineAISetupModal({
                   Belajar dan berdiskusi dari catatan materi Anda 100% tanpa internet.
                 </Text>
 
-                {/* Status Mesin AI */}
+                {/* Selector Mesin AI Offline Manual */}
                 <View style={[styles.featureBox, { backgroundColor: theme.cardInner, borderColor: theme.border }]}>
-                  <Text style={[styles.featureTitle, { color: theme.text }]}>⚙️ Mesin AI di Perangkat Ini</Text>
-
-                  <View style={styles.engineRow}>
-                    <Ionicons name="flash" size={16} color="#10B981" />
-                    <View style={{ flex: 1, marginLeft: 8 }}>
-                      <Text style={[styles.engineName, { color: theme.text }]}>Smart Synthesizer (0 MB)</Text>
-                      <Text style={[styles.engineDesc, { color: theme.subtext }]}>Ekstraksi definisi, contoh & rumus instan</Text>
-                    </View>
-                    <View style={[styles.pillSmall, { backgroundColor: '#10B98120' }]}>
-                      <Text style={{ color: '#10B981', fontSize: 11, fontWeight: '700' }}>Aktif</Text>
-                    </View>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 }}>
+                    <Text style={[styles.featureTitle, { color: theme.text, marginBottom: 0 }]}>
+                      🎯 Pilih Mesin AI Aktif
+                    </Text>
+                    <Text style={{ color: theme.subtext, fontSize: 11 }}>Ketuk untuk memilih</Text>
                   </View>
 
-                  <View style={[styles.engineRow, { marginTop: 10 }]}>
-                    <Ionicons name="hardware-chip" size={16} color={hasNeuralModel ? '#10B981' : theme.accent} />
-                    <View style={{ flex: 1, marginLeft: 8 }}>
-                      <Text style={[styles.engineName, { color: theme.text }]}>Qwen2.5-0.5B Neural LLM (~{fileTotalMb || totalSizeMb} MB)</Text>
+                  {/* Pilihan 1: Smart Synthesizer (0 MB) */}
+                  <TouchableOpacity
+                    style={[
+                      styles.engineSelectCard,
+                      selectedModel === 'smart_synthesizer'
+                        ? [styles.engineSelectCardActive, { borderColor: '#10B981', backgroundColor: '#10B98115' }]
+                        : { borderColor: theme.border, backgroundColor: theme.card },
+                    ]}
+                    onPress={() => selectModel('smart_synthesizer')}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={selectedModel === 'smart_synthesizer' ? 'radio-button-on' : 'radio-button-off'}
+                      size={18}
+                      color={selectedModel === 'smart_synthesizer' ? '#10B981' : theme.subtext}
+                    />
+                    <View style={{ flex: 1, marginHorizontal: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="flash" size={13} color="#10B981" style={{ marginRight: 4 }} />
+                        <Text style={[styles.engineName, { color: theme.text }]}>Smart Synthesizer (0 MB)</Text>
+                      </View>
                       <Text style={[styles.engineDesc, { color: theme.subtext }]}>
-                        {hasNeuralModel ? 'Tersimpan permanen di HP' : 'Generasi bahasa mandiri bernalar tingkat tinggi'}
+                        Respons instan • 0% CPU • 100% kutip fakta catatan
                       </Text>
                     </View>
-                    <View style={[styles.pillSmall, { backgroundColor: hasNeuralModel ? '#10B98120' : '#F59E0B20' }]}>
-                      <Text style={{ color: hasNeuralModel ? '#10B981' : '#F59E0B', fontSize: 11, fontWeight: '700' }}>
-                        {hasNeuralModel ? 'Aktif' : 'Tersedia'}
+                    <View
+                      style={[
+                        styles.pillSmall,
+                        { backgroundColor: selectedModel === 'smart_synthesizer' ? '#10B98125' : theme.cardInner },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color: selectedModel === 'smart_synthesizer' ? '#10B981' : theme.subtext,
+                          fontSize: 10,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {selectedModel === 'smart_synthesizer' ? '✓ Dipakai' : 'Pilih'}
                       </Text>
                     </View>
+                  </TouchableOpacity>
+
+                  {/* Pilihan 2: Qwen2.5-0.5B Neural LLM (~488 MB) */}
+                  <TouchableOpacity
+                    style={[
+                      styles.engineSelectCard,
+                      selectedModel === 'qwen_neural'
+                        ? [styles.engineSelectCardActive, { borderColor: theme.accent, backgroundColor: theme.accent + '15' }]
+                        : { borderColor: theme.border, backgroundColor: theme.card },
+                      { marginTop: 8 },
+                    ]}
+                    onPress={() => {
+                      if (hasNeuralModel) {
+                        selectModel('qwen_neural');
+                      } else {
+                        Alert.alert(
+                          'Unduh Model Qwen?',
+                          `Model Qwen2.5-0.5B (~${fileTotalMb || totalSizeMb} MB) belum terpasang di HP.\n\nApakah Anda ingin mengunduhnya sekarang agar dapat memilih model penalaran mandiri ini?`,
+                          [
+                            { text: 'Batal', style: 'cancel' },
+                            { text: 'Unduh Sekarang', onPress: () => handleStartDownload(false) },
+                          ]
+                        );
+                      }
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons
+                      name={selectedModel === 'qwen_neural' ? 'radio-button-on' : 'radio-button-off'}
+                      size={18}
+                      color={selectedModel === 'qwen_neural' ? theme.accent : theme.subtext}
+                    />
+                    <View style={{ flex: 1, marginHorizontal: 8 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="hardware-chip" size={13} color={theme.accent} style={{ marginRight: 4 }} />
+                        <Text style={[styles.engineName, { color: theme.text }]}>
+                          Qwen2.5-0.5B Neural LLM (~{fileTotalMb || totalSizeMb} MB)
+                        </Text>
+                      </View>
+                      <Text style={[styles.engineDesc, { color: theme.subtext }]}>
+                        {hasNeuralModel
+                          ? 'Generasi bahasa mandiri bernalar tingkat tinggi'
+                          : 'Belum diunduh (ketuk untuk unduh)'}
+                      </Text>
+                    </View>
+                    <View
+                      style={[
+                        styles.pillSmall,
+                        {
+                          backgroundColor:
+                            selectedModel === 'qwen_neural'
+                              ? theme.accent + '25'
+                              : hasNeuralModel
+                              ? theme.cardInner
+                              : '#F59E0B20',
+                        },
+                      ]}
+                    >
+                      <Text
+                        style={{
+                          color:
+                            selectedModel === 'qwen_neural'
+                              ? theme.accent
+                              : hasNeuralModel
+                              ? theme.subtext
+                              : '#F59E0B',
+                          fontSize: 10,
+                          fontWeight: '700',
+                        }}
+                      >
+                        {selectedModel === 'qwen_neural'
+                          ? '✓ Dipakai'
+                          : hasNeuralModel
+                          ? 'Pilih'
+                          : 'Unduh Dulu'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+
+                  {/* Keterangan Model yang Sedang Aktif */}
+                  <View style={[styles.modelNoticeBox, { backgroundColor: selectedModel === 'smart_synthesizer' ? '#10B98110' : theme.accent + '10' }]}>
+                    <Ionicons
+                      name={selectedModel === 'smart_synthesizer' ? 'flash' : 'hardware-chip'}
+                      size={12}
+                      color={selectedModel === 'smart_synthesizer' ? '#10B981' : theme.accent}
+                    />
+                    <Text style={{ fontSize: 11, color: theme.subtext, marginLeft: 6, flex: 1 }}>
+                      {selectedModel === 'smart_synthesizer'
+                        ? 'Mode Aktif: Smart Synthesizer (0 MB) — Respons kilat langsung dari catatan.'
+                        : 'Mode Aktif: Qwen Neural LLM — Jawaban luwes dengan penalaran tingkat tinggi.'}
+                    </Text>
                   </View>
                 </View>
 
@@ -275,11 +431,11 @@ export default function OfflineAISetupModal({
                   </View>
                 </View>
 
-                {/* Upgrade Button or Delete Option */}
+                {/* Upgrade Button or Delete / Redownload Options */}
                 {!hasNeuralModel ? (
                   <TouchableOpacity
                     style={[styles.btnUpgrade, { backgroundColor: theme.cardInner, borderColor: theme.accent }]}
-                    onPress={handleStartDownload}
+                    onPress={() => handleStartDownload(false)}
                     activeOpacity={0.8}
                   >
                     <Ionicons name="cloud-download-outline" size={20} color={theme.accent} style={{ marginRight: 8 }} />
@@ -291,14 +447,34 @@ export default function OfflineAISetupModal({
                     </View>
                   </TouchableOpacity>
                 ) : (
-                  <TouchableOpacity
-                    style={[styles.btnDelete, { borderColor: '#EF444440' }]}
-                    onPress={handleDeleteModel}
-                    activeOpacity={0.7}
-                  >
-                    <Ionicons name="trash-outline" size={15} color="#EF4444" style={{ marginRight: 6 }} />
-                    <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>Hapus Model Qwen (Kosongkan ~{fileTotalMb || totalSizeMb} MB)</Text>
-                  </TouchableOpacity>
+                  <View style={styles.manageModelContainer}>
+                    <TouchableOpacity
+                      style={[styles.btnRedownload, { backgroundColor: theme.cardInner, borderColor: theme.border }]}
+                      onPress={() => handleStartDownload(true)}
+                      activeOpacity={0.7}
+                    >
+                      <Ionicons name="refresh-outline" size={15} color={theme.text} style={{ marginRight: 6 }} />
+                      <Text style={[styles.btnRedownloadText, { color: theme.text }]}>
+                        Unduh Ulang Model (Segarkan File)
+                      </Text>
+                    </TouchableOpacity>
+
+                    <TouchableOpacity
+                      style={[styles.btnDelete, { borderColor: '#EF444440', backgroundColor: '#EF444410' }]}
+                      onPress={handleDeleteModel}
+                      activeOpacity={0.7}
+                      disabled={isDeleting}
+                    >
+                      {isDeleting ? (
+                        <ActivityIndicator size="small" color="#EF4444" style={{ marginRight: 6 }} />
+                      ) : (
+                        <Ionicons name="trash-outline" size={15} color="#EF4444" style={{ marginRight: 6 }} />
+                      )}
+                      <Text style={{ color: '#EF4444', fontSize: 12, fontWeight: '600' }}>
+                        {isDeleting ? 'Menghapus model dari perangkat...' : `Hapus Model Qwen (Kosongkan ~${fileTotalMb || totalSizeMb} MB)`}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
                 )}
 
                 {/* Mulai Chat Button */}
@@ -361,11 +537,20 @@ export default function OfflineAISetupModal({
                   </Text>
                 </View>
 
+                {/* Notice tips layar tetap menyala */}
+                <View style={[styles.screenTimeoutNotice, { backgroundColor: '#F59E0B12', borderColor: '#F59E0B40' }]}>
+                  <Ionicons name="sunny-outline" size={16} color="#F59E0B" style={{ marginRight: 8, marginTop: 1 }} />
+                  <Text style={[styles.screenTimeoutText, { color: theme.text }]}>
+                    <Text style={{ fontWeight: '700', color: '#F59E0B' }}>Tips Layar HP: </Text>
+                    Jaga layar HP tetap menyala selama proses unduh agar sistem Android tidak memutus koneksi. Jika terputus, unduhan dapat dilanjutkan kembali tanpa mengulang dari nol.
+                  </Text>
+                </View>
+
                 {/* Info: AI sudah aktif, ini opsional */}
                 <View style={[styles.skipInfoBox, { backgroundColor: '#10B98115', borderColor: '#10B981' }]}>
                   <Ionicons name="checkmark-circle-outline" size={16} color="#10B981" />
                   <Text style={[styles.skipInfoText, { color: '#10B981' }]}>
-                    AI lokal sudah aktif! Ini adalah download peningkatan neural (~{(fileTotalMb || totalSizeMb).toFixed(0)} MB).
+                    AI lokal sudah aktif! Ini adalah peningkatan model bernalar (~{(fileTotalMb || totalSizeMb).toFixed(0)} MB).
                   </Text>
                 </View>
 
@@ -376,7 +561,7 @@ export default function OfflineAISetupModal({
                   activeOpacity={0.7}
                 >
                   <Ionicons name="close-circle-outline" size={16} color={theme.subtext} style={{ marginRight: 6 }} />
-                  <Text style={[styles.skipBtnText, { color: theme.subtext }]}>Lewati — Pakai AI Tanpa Upgrade</Text>
+                  <Text style={[styles.skipBtnText, { color: theme.subtext }]}>Lewati — Tetap Pakai Smart Synthesizer</Text>
                 </TouchableOpacity>
 
                 <ActivityIndicator size="small" color={theme.primary} style={{ marginTop: 8 }} />
@@ -417,17 +602,17 @@ export default function OfflineAISetupModal({
                 </View>
 
                 <Text style={[styles.title, { color: theme.text }]}>
-                  Perlu Koneksi Internet
+                  Unduhan Terputus / Perlu Internet
                 </Text>
 
                 <Text style={[styles.subtitle, { color: theme.subtext, textAlign: 'center', lineHeight: 20 }]}>
-                  {errorMessage || 'Hubungkan ke WiFi atau internet untuk mengunduh model neural (~350 MB). Model akan tersimpan permanen di HP Anda.'}
+                  {errorMessage || 'Unduhan terhenti karena koneksi atau layar HP mati. Data unduhan sebelumnya tersimpan dan bisa dilanjutkan.'}
                 </Text>
 
-                <View style={[styles.skipInfoBox, { backgroundColor: '#10B98115', borderColor: '#10B981', marginTop: 12, marginBottom: 16 }]}>
+                <View style={[styles.skipInfoBox, { backgroundColor: '#10B98115', borderColor: '#10B981', marginTop: 8, marginBottom: 16 }]}>
                   <Ionicons name="flash" size={16} color="#10B981" />
                   <Text style={[styles.skipInfoText, { color: '#10B981' }]}>
-                    Smart Synthesizer (0 MB) sudah aktif! Anda tetap bisa bertanya secara offline sekarang juga tanpa perlu menunggu unduhan.
+                    Smart Synthesizer (0 MB) tetap aktif 100%! Anda tetap bisa bertanya secara offline sekarang tanpa harus menunggu unduhan selesai.
                   </Text>
                 </View>
 
@@ -437,17 +622,27 @@ export default function OfflineAISetupModal({
                     onPress={handleClose}
                     activeOpacity={0.8}
                   >
-                    <Text style={[styles.btnSecondaryText, { color: theme.text }]}>Chat Offline Saja</Text>
+                    <Text style={[styles.btnSecondaryText, { color: theme.text }]}>Chat Offline</Text>
                   </TouchableOpacity>
                   <TouchableOpacity
-                    style={[styles.btnPrimary, { backgroundColor: theme.primary, flex: 1 }]}
-                    onPress={handleStartDownload}
+                    style={[styles.btnPrimary, { backgroundColor: theme.primary, flex: 1.3 }]}
+                    onPress={() => handleStartDownload(false)}
                     activeOpacity={0.8}
                   >
                     <Ionicons name="refresh-outline" size={18} color="#FFF" style={{ marginRight: 6 }} />
-                    <Text style={styles.btnPrimaryText}>Coba Lagi</Text>
+                    <Text style={styles.btnPrimaryText}>Lanjutkan Unduh</Text>
                   </TouchableOpacity>
                 </View>
+
+                <TouchableOpacity
+                  style={{ marginTop: 12, paddingVertical: 6 }}
+                  onPress={() => handleStartDownload(true)}
+                  activeOpacity={0.7}
+                >
+                  <Text style={{ color: theme.subtext, fontSize: 12, textAlign: 'center', textDecorationLine: 'underline' }}>
+                    Unduh ulang dari awal (0%)
+                  </Text>
+                </TouchableOpacity>
               </>
             )}
           </ScrollView>
@@ -758,6 +953,26 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     width: '100%',
   },
+  engineSelectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 10,
+    borderRadius: 12,
+    borderWidth: 1.2,
+    width: '100%',
+  },
+  engineSelectCardActive: {
+    borderWidth: 1.5,
+  },
+  modelNoticeBox: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 7,
+    paddingHorizontal: 10,
+    borderRadius: 8,
+    marginTop: 8,
+    width: '100%',
+  },
   engineName: {
     fontSize: 12,
     fontWeight: '700',
@@ -789,15 +1004,46 @@ const styles = StyleSheet.create({
     fontSize: 11,
     lineHeight: 15,
   },
+  manageModelContainer: {
+    width: '100%',
+    gap: 8,
+    marginBottom: 6,
+  },
+  btnRedownload: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    width: '100%',
+    paddingVertical: 9,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  btnRedownloadText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
   btnDelete: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     width: '100%',
-    paddingVertical: 8,
+    paddingVertical: 9,
     borderRadius: 10,
     borderWidth: 1,
-    marginBottom: 4,
+  },
+  screenTimeoutNotice: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    padding: 10,
+    borderRadius: 10,
+    borderWidth: 1,
+    width: '100%',
+    marginBottom: 12,
+  },
+  screenTimeoutText: {
+    fontSize: 11.5,
+    lineHeight: 16,
+    flex: 1,
   },
   hardwareBox: {
     width: '100%',

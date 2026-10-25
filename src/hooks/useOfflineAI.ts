@@ -12,7 +12,7 @@ import { Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getLocalAIName, getLocalAIAvatar, detectDeviceTier } from '../lib/localAI';
 import { initEmbeddingPipeline, initGenerationPipeline, verifyWebModelCache, clearWebModelCache } from '../lib/localEmbedding';
-import { downloadNativeModel, getNativeModelsStatus, deleteNativeModels } from '../lib/nativeEmbedding';
+import { downloadNativeModel, getNativeModelsStatus, deleteNativeModels, cancelNativeDownload } from '../lib/nativeEmbedding';
 import {
   getHardwareAccelStatus,
   getHardwareAccelMode,
@@ -21,14 +21,49 @@ import {
   HardwareAccelMode,
 } from '../lib/hardwareAccel';
 
+export type OfflineAIModelType = 'smart_synthesizer' | 'qwen_neural';
+
 export const OFFLINE_AI_STORAGE_KEYS = {
   READY: '@offline_ai_ready',
   DOWNLOAD_DATE: '@offline_ai_download_date',
   VERSION: '@offline_ai_version',
   TIER: '@offline_ai_tier',
+  SELECTED_MODEL: '@offline_ai_selected_model',
 };
 
 const CURRENT_MODEL_VERSION = '1.0.0';
+
+/**
+ * Cek model offline mana yang dipilih aktif oleh user
+ */
+export async function getSelectedOfflineModel(): Promise<OfflineAIModelType> {
+  try {
+    const val = await AsyncStorage.getItem(OFFLINE_AI_STORAGE_KEYS.SELECTED_MODEL);
+    if (val === 'smart_synthesizer') {
+      return 'smart_synthesizer';
+    }
+    if (val === 'qwen_neural') {
+      const ready = await isNeuralEnhancementReady();
+      if (ready) return 'qwen_neural';
+      return 'smart_synthesizer';
+    }
+    const ready = await isNeuralEnhancementReady();
+    return ready ? 'qwen_neural' : 'smart_synthesizer';
+  } catch {
+    return 'smart_synthesizer';
+  }
+}
+
+/**
+ * Simpan model offline pilihan user secara manual
+ */
+export async function setSelectedOfflineModel(model: OfflineAIModelType): Promise<void> {
+  try {
+    await AsyncStorage.setItem(OFFLINE_AI_STORAGE_KEYS.SELECTED_MODEL, model);
+  } catch (e) {
+    console.warn('[useOfflineAI] Gagal simpan pilihan model offline:', e);
+  }
+}
 
 /**
  * Offline AI SELALU siap tanpa download — menggunakan Smart Synthesizer + BM25.
@@ -39,29 +74,29 @@ export async function isOfflineAIReady(): Promise<boolean> {
 }
 
 /**
- * Cek apakah Neural Enhancement (model ~23MB) sudah diunduh — opsional
+ * Cek apakah Neural Enhancement (model Qwen ~488MB) benar-benar terpasang di disk perangkat
  */
 export async function isNeuralEnhancementReady(): Promise<boolean> {
   try {
-    const ready = await AsyncStorage.getItem(OFFLINE_AI_STORAGE_KEYS.READY);
-    if (ready === 'true') {
-      return true;
-    }
-
     if (Platform.OS === 'web') {
       const hasCache = await verifyWebModelCache();
       if (hasCache) {
         await AsyncStorage.setItem(OFFLINE_AI_STORAGE_KEYS.READY, 'true');
         return true;
+      } else {
+        await AsyncStorage.removeItem(OFFLINE_AI_STORAGE_KEYS.READY);
+        return false;
       }
     } else {
       const status = await getNativeModelsStatus();
-      if (status.generation || status.embedding) {
+      if (status.generation) {
         await AsyncStorage.setItem(OFFLINE_AI_STORAGE_KEYS.READY, 'true');
         return true;
+      } else {
+        await AsyncStorage.removeItem(OFFLINE_AI_STORAGE_KEYS.READY);
+        return false;
       }
     }
-    return false;
   } catch {
     return false;
   }
@@ -88,10 +123,23 @@ export function useOfflineAI() {
   const [downloadedMb, setDownloadedMb] = useState<number>(0);
   const [fileTotalMb, setFileTotalMb] = useState<number>(488);
   const [hasNeuralModel, setHasNeuralModel] = useState<boolean>(false);
+  const [selectedModel, setSelectedModel] = useState<OfflineAIModelType>('smart_synthesizer');
   const [hardwareStatus, setHardwareStatus] = useState<HardwareAccelStatus | null>(null);
   const [accelMode, setAccelMode] = useState<HardwareAccelMode>('auto');
 
   const abortRef = useRef<boolean>(false); // Flag untuk cancel download
+
+  /**
+   * Pilih model AI offline secara manual (Smart Synthesizer vs Qwen Neural)
+   */
+  const selectModel = useCallback(async (model: OfflineAIModelType): Promise<boolean> => {
+    if (model === 'qwen_neural' && !hasNeuralModel) {
+      return false; // Perlu download terlebih dahulu
+    }
+    await setSelectedOfflineModel(model);
+    setSelectedModel(model);
+    return true;
+  }, [hasNeuralModel]);
 
   /**
    * Ubah mode akselerasi hardware (GPU / Auto / CPU Eco)
@@ -108,24 +156,28 @@ export function useOfflineAI() {
    */
   const cancelDownload = useCallback(() => {
     abortRef.current = true;
+    if (Platform.OS !== 'web') {
+      cancelNativeDownload().catch(() => {});
+    }
     setIsDownloading(false);
     setDownloadProgress(0);
     setDownloadedMb(0);
     setCurrentFile('');
-    setStatusText('Upgrade dibatalkan. AI lokal tetap aktif! ✅');
+    setStatusText('Upgrade dijeda / dibatalkan. AI lokal tetap aktif! ✅');
   }, []);
 
   // Muat status awal
   const checkStatus = useCallback(async () => {
     setIsChecking(true);
     try {
-      const [name, avatar, tier, neuralReady, hwStatus, curMode] = await Promise.all([
+      const [name, avatar, tier, neuralReady, hwStatus, curMode, curModel] = await Promise.all([
         getLocalAIName(),
         getLocalAIAvatar(),
         detectDeviceTier(),
         isNeuralEnhancementReady(),
         getHardwareAccelStatus(),
         getHardwareAccelMode(),
+        getSelectedOfflineModel(),
       ]);
 
       setAiName(name);
@@ -133,6 +185,7 @@ export function useOfflineAI() {
       setDeviceTier(tier);
       setIsReady(true); // Selalu ready
       setHasNeuralModel(neuralReady);
+      setSelectedModel(neuralReady && curModel === 'qwen_neural' ? 'qwen_neural' : (curModel === 'smart_synthesizer' ? 'smart_synthesizer' : (neuralReady ? 'qwen_neural' : 'smart_synthesizer')));
       setHardwareStatus(hwStatus);
       setAccelMode(curMode);
 
@@ -157,8 +210,9 @@ export function useOfflineAI() {
   /**
    * Unduh Qwen2.5-0.5B Neural LLM (~488 MB)
    * Mengukur byte nyata yang terunduh (tidak ada timer persentase palsu)
+   * Mendukung parameter force untuk download ulang dari awal jika rusak / terputus
    */
-  const downloadModels = useCallback(async (): Promise<DownloadResult> => {
+  const downloadModels = useCallback(async (force = false): Promise<DownloadResult> => {
     abortRef.current = false;
     setIsDownloading(true);
     setDownloadProgress(0);
@@ -209,15 +263,19 @@ export function useOfflineAI() {
       } else {
         setStatusText(`Mengunduh model neural Qwen untuk ${aiName}...`);
 
-        await downloadNativeModel('generation', (pct: number, loaded: number, total: number) => {
-          if (abortRef.current) throw new Error('CANCELLED');
-          setDownloadProgress(Math.min(pct, 99));
-          if (total > 0) {
-            setFileTotalMb(Math.round((total / (1024 * 1024)) * 10) / 10);
-            setDownloadedMb(Math.round((loaded / (1024 * 1024)) * 10) / 10);
-          }
-          if (pct > 0) setCurrentFile('qwen_0.5b_quantized.onnx');
-        });
+        await downloadNativeModel(
+          'generation',
+          (pct: number, loaded: number, total: number) => {
+            if (abortRef.current) throw new Error('CANCELLED');
+            setDownloadProgress(Math.min(pct, 99));
+            if (total > 0) {
+              setFileTotalMb(Math.round((total / (1024 * 1024)) * 10) / 10);
+              setDownloadedMb(Math.round((loaded / (1024 * 1024)) * 10) / 10);
+            }
+            if (pct > 0) setCurrentFile('qwen_0.5b_quantized.onnx');
+          },
+          { force }
+        );
 
         setCurrentFile('');
       }
@@ -233,6 +291,9 @@ export function useOfflineAI() {
         [OFFLINE_AI_STORAGE_KEYS.VERSION, CURRENT_MODEL_VERSION],
       ]);
 
+      await setSelectedOfflineModel('qwen_neural');
+      setSelectedModel('qwen_neural');
+
       setDownloadProgress(100);
       setDownloadedMb(fileTotalMb || totalSizeMb);
       setStatusText(`Peningkatan neural ${aiName} (Qwen 0.5B) berhasil dipasang! 🎉`);
@@ -241,12 +302,12 @@ export function useOfflineAI() {
       return { success: true };
     } catch (err: any) {
       if (err?.message === 'CANCELLED' || abortRef.current) {
-        setStatusText('Upgrade dibatalkan. AI lokal tetap aktif! ✅');
+        setStatusText('Upgrade dijeda / dibatalkan. AI lokal tetap aktif! ✅');
         setIsDownloading(false);
         return { success: false, cancelled: true };
       }
       console.error('[useOfflineAI] Download neural model gagal:', err);
-      const errMsg = err?.message || 'Koneksi internet terputus';
+      const errMsg = err?.message || 'Koneksi internet terputus atau layar HP mati.';
       setStatusText(`Gagal mengunduh: ${errMsg}`);
       setIsDownloading(false);
       return { success: false, error: errMsg };
@@ -254,9 +315,9 @@ export function useOfflineAI() {
   }, [aiName, fileTotalMb, totalSizeMb]);
 
   /**
-   * Hapus model dari penyimpanan perangkat
+   * Hapus model dari penyimpanan perangkat secara tuntas
    */
-  const removeModels = useCallback(async (): Promise<void> => {
+  const removeModels = useCallback(async (): Promise<boolean> => {
     try {
       if (Platform.OS === 'web') {
         await clearWebModelCache();
@@ -267,13 +328,27 @@ export function useOfflineAI() {
         OFFLINE_AI_STORAGE_KEYS.READY,
         OFFLINE_AI_STORAGE_KEYS.DOWNLOAD_DATE,
         OFFLINE_AI_STORAGE_KEYS.VERSION,
+        '@offline_ai_resume_generation',
+        '@offline_ai_resume_embedding',
       ]);
-      setIsReady(false);
+      await setSelectedOfflineModel('smart_synthesizer');
+      setSelectedModel('smart_synthesizer');
+      setHasNeuralModel(false);
       setDownloadProgress(0);
       setDownloadedMb(0);
-      setStatusText('Model telah dihapus dari perangkat.');
+      setStatusText('Model telah berhasil dihapus dari perangkat.');
+
+      if (Platform.OS !== 'web') {
+        const nativeStatus = await getNativeModelsStatus();
+        setHasNeuralModel(nativeStatus.generation);
+      } else {
+        const hasCache = await verifyWebModelCache();
+        setHasNeuralModel(hasCache);
+      }
+      return true;
     } catch (err) {
       console.error('[useOfflineAI] Gagal menghapus model:', err);
+      return false;
     }
   }, []);
 
@@ -291,6 +366,8 @@ export function useOfflineAI() {
     deviceTier,
     totalSizeMb,
     hasNeuralModel,
+    selectedModel,
+    selectModel,
     hardwareStatus,
     accelMode,
     changeAccelMode,

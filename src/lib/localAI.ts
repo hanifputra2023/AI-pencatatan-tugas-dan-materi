@@ -22,7 +22,7 @@ import {
 import { embedTextWeb, generateTextWeb, isCurrentWebGPUActive } from './localEmbedding';
 import { embedTextNative, generateDeterministicVector, isNativeModelCached } from './nativeEmbedding';
 import { synthesizeResponse, extractPassageByRelevance, extractTargetTokens } from './smartSynthesizer';
-import { isNeuralEnhancementReady } from '../hooks/useOfflineAI';
+import { isNeuralEnhancementReady, getSelectedOfflineModel } from '../hooks/useOfflineAI';
 import { checkWebGPUSupport } from './hardwareAccel';
 
 // Hubungkan listener otomatis saat catatan baru disimpan di storage lokal
@@ -340,14 +340,19 @@ export async function sendLocalAIMessage(
     }
   }
 
-  // 4. Jika model neural LLM sudah terpasang, gunakan untuk menghasilkan jawaban bernalar
+  // 4. Periksa preferensi model offline yang dipilih pengguna (Smart Synthesizer vs Qwen Neural)
+  const selectedModel = await getSelectedOfflineModel();
+  console.log('[localAI] Preferensi model offline terpilih:', selectedModel);
+
   let neuralAnswer: string | null = null;
   let neuralError: any = null;
-  try {
-    const hasNeural = await isNeuralEnhancementReady();
-    console.log('[localAI] Checking neural status:', { hasNeural, searchResultsCount: searchResults.length, platform: Platform.OS });
 
-    if (hasNeural && Platform.OS === 'web') {
+  if (selectedModel === 'qwen_neural') {
+    try {
+      const hasNeural = await isNeuralEnhancementReady();
+      console.log('[localAI] Checking neural status:', { hasNeural, searchResultsCount: searchResults.length, platform: Platform.OS });
+
+      if (hasNeural && Platform.OS === 'web') {
       let prompt = '';
       if (searchResults.length > 0) {
         const topNote = searchResults[0];
@@ -430,9 +435,12 @@ export async function sendLocalAIMessage(
         }
       }
     }
-  } catch (err: any) {
-    neuralError = err;
-    console.warn('[localAI] Neural LLM error, fallback ke Smart Synthesizer:', err);
+    } catch (err: any) {
+      neuralError = err;
+      console.warn('[localAI] Neural LLM error, fallback ke Smart Synthesizer:', err);
+    }
+  } else {
+    console.log('[localAI] Menggunakan Smart Synthesizer (0 MB) sesuai preferensi manual pengguna');
   }
 
   // 5. Kemas jawaban (Qwen Neural jika aktif, atau Smart Synthesizer)

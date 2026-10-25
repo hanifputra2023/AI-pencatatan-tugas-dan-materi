@@ -13,6 +13,8 @@
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 // URL Sumber Model HuggingFace (Quantized ONNX format)
 export const MODEL_URLS = {
   embedding: 'https://huggingface.co/Xenova/all-MiniLM-L6-v2/resolve/main/onnx/model_quantized.onnx',
@@ -30,7 +32,26 @@ export const MODEL_ESTIMATED_SIZES = {
   generation: 488 * 1024 * 1024,  // ~488 MB (Qwen2.5 0.5B Quantized)
 };
 
+// Batas minimum ukuran file valid (mencegah file potongan/korup dianggap selesai)
+export const MODEL_MIN_VALID_SIZES = {
+  embedding: 18 * 1024 * 1024,    // Minimal 18 MB untuk MiniLM
+  generation: 380 * 1024 * 1024,  // Minimal 380 MB untuk Qwen 0.5B
+};
+
 let cachedNativeSession: any = null;
+let activeDownloadResumable: FileSystem.DownloadResumable | null = null;
+
+/**
+ * Batalkan / pause download native yang sedang berlangsung
+ */
+export async function cancelNativeDownload(): Promise<void> {
+  if (activeDownloadResumable) {
+    try {
+      await activeDownloadResumable.pauseAsync();
+    } catch {}
+    activeDownloadResumable = null;
+  }
+}
 
 /**
  * Mendapatkan direktori permanen model di penyimpanan internal aplikasi
@@ -43,14 +64,16 @@ export function getNativeModelDir(): string {
 }
 
 /**
- * Cek apakah model tertentu sudah ada di penyimpanan lokal
+ * Cek apakah model tertentu sudah ada dan valid (bukan potongan file) di penyimpanan lokal
  */
 export async function isNativeModelCached(fileName: string): Promise<boolean> {
   if (Platform.OS === 'web') return false;
   try {
     const filePath = `${getNativeModelDir()}${fileName}`;
     const info = await FileSystem.getInfoAsync(filePath);
-    return info.exists && (info.size || 0) > 1024 * 100; // Minimal 100KB agar bukan file korup
+    const type = fileName.includes('minilm') ? 'embedding' : 'generation';
+    const minSize = MODEL_MIN_VALID_SIZES[type] || (10 * 1024 * 1024);
+    return info.exists && ((info as any).size || 0) >= minSize;
   } catch {
     return false;
   }
@@ -78,9 +101,9 @@ export async function getNativeModelsStatus(): Promise<{
       FileSystem.getInfoAsync(genPath).catch(() => ({ exists: false, size: 0 })),
     ]);
 
-    const embOk = embInfo.exists && ((embInfo as any).size || 0) > 1024 * 100;
-    const genOk = genInfo.exists && ((genInfo as any).size || 0) > 1024 * 100;
-    const totalBytes = ((embInfo as any).size || 0) + ((genInfo as any).size || 0);
+    const embOk = embInfo.exists && ((embInfo as any).size || 0) >= MODEL_MIN_VALID_SIZES.embedding;
+    const genOk = genInfo.exists && ((genInfo as any).size || 0) >= MODEL_MIN_VALID_SIZES.generation;
+    const totalBytes = (embOk ? ((embInfo as any).size || 0) : 0) + (genOk ? ((genInfo as any).size || 0) : 0);
 
     return {
       embedding: embOk,
@@ -94,10 +117,14 @@ export async function getNativeModelsStatus(): Promise<{
 
 /**
  * Download model dan simpan secara permanen ke FileSystem.documentDirectory
+ * - Menulis ke file .tmp terlebih dahulu agar jika layar mati / terputus tidak dianggap selesai
+ * - Mendukung resume download otomatis dari posisi terakhir
+ * - Memverifikasi integritas ukuran file sebelum memindahkan ke file utama
  */
 export async function downloadNativeModel(
   type: 'embedding' | 'generation',
-  onProgress: (pct: number, loadedBytes: number, totalBytes: number) => void
+  onProgress: (pct: number, loadedBytes: number, totalBytes: number) => void,
+  options?: { force?: boolean }
 ): Promise<string> {
   if (Platform.OS === 'web') {
     throw new Error('downloadNativeModel hanya untuk platform Android/iOS');
@@ -106,59 +133,219 @@ export async function downloadNativeModel(
   const dir = getNativeModelDir();
   const fileName = MODEL_FILES[type];
   const targetPath = `${dir}${fileName}`;
+  const tempPath = `${dir}${fileName}.tmp`;
   const url = MODEL_URLS[type];
   const estimatedTotal = MODEL_ESTIMATED_SIZES[type];
+  const minValidSize = MODEL_MIN_VALID_SIZES[type];
+  const resumeStorageKey = `@offline_ai_resume_${type}`;
 
-  // 1. Cek apakah sudah ada
-  const info = await FileSystem.getInfoAsync(targetPath).catch(() => ({ exists: false }));
-  if (info.exists && (info as any).size > 1024 * 100) {
-    onProgress(100, (info as any).size, (info as any).size);
-    return targetPath;
+  // 1. Jika force redownload, bersihkan file lama dan resume data
+  if (options?.force) {
+    await FileSystem.deleteAsync(targetPath, { idempotent: true }).catch(() => {});
+    await FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(() => {});
+    await AsyncStorage.removeItem(resumeStorageKey).catch(() => {});
+  } else {
+    // 2. Cek apakah file target sudah ada dan ukurannya valid (> minValidSize)
+    const info = await FileSystem.getInfoAsync(targetPath).catch(() => ({ exists: false }));
+    if (info.exists && ((info as any).size || 0) >= minValidSize) {
+      onProgress(100, (info as any).size, (info as any).size);
+      return targetPath;
+    } else if (info.exists) {
+      // File ada tapi tidak lengkap / korup (< minValidSize), hapus agar tidak membingungkan
+      console.warn(`[nativeEmbedding] File ${fileName} korup/kurang (${(info as any).size} bytes), menghapus...`);
+      await FileSystem.deleteAsync(targetPath, { idempotent: true }).catch(() => {});
+    }
   }
 
-  // 2. Pastikan folder model ada
+  // 3. Pastikan folder model ada
   await FileSystem.makeDirectoryAsync(dir, { intermediates: true }).catch(() => {});
 
-  // 3. Download dengan callback progress
-  let currentLoaded = 0;
-  const downloadResumable = FileSystem.createDownloadResumable(
-    url,
-    targetPath,
-    {},
-    (progress) => {
-      const total = progress.totalBytesExpectedToWrite > 0
-        ? progress.totalBytesExpectedToWrite
-        : estimatedTotal;
-      const loaded = progress.totalBytesWritten;
-      currentLoaded = loaded;
-      const pct = Math.min(Math.round((loaded / total) * 100), 100);
-      onProgress(pct, loaded, total);
-    }
-  );
-
-  const result = await downloadResumable.downloadAsync();
-  if (!result || !result.uri) {
-    throw new Error(`Gagal mengunduh model ${type}`);
+  // 4. Periksa apakah ada resume data yang tersimpan dari unduhan sebelumnya
+  let resumeData: string | null = null;
+  if (!options?.force) {
+    try {
+      resumeData = await AsyncStorage.getItem(resumeStorageKey);
+    } catch {}
   }
 
-  onProgress(100, currentLoaded || estimatedTotal, estimatedTotal);
+  let currentLoaded = 0;
+  let lastSavedTime = 0;
+
+  const progressCallback = (progress: FileSystem.DownloadProgressData) => {
+    const total = progress.totalBytesExpectedToWrite > 0
+      ? progress.totalBytesExpectedToWrite
+      : estimatedTotal;
+    const loaded = progress.totalBytesWritten;
+    currentLoaded = loaded;
+    const pct = Math.min(Math.round((loaded / total) * 100), 99);
+    onProgress(pct, loaded, total);
+
+    // Simpan resume state setiap 2.5 detik
+    const now = Date.now();
+    if (now - lastSavedTime > 2500 && activeDownloadResumable) {
+      lastSavedTime = now;
+      try {
+        const savable = activeDownloadResumable.savable();
+        AsyncStorage.setItem(resumeStorageKey, JSON.stringify(savable)).catch(() => {});
+      } catch {}
+    }
+  };
+
+  let downloadResumable: FileSystem.DownloadResumable;
+  let isResuming = false;
+
+  if (resumeData) {
+    try {
+      const parsedSavable = JSON.parse(resumeData);
+      downloadResumable = new FileSystem.DownloadResumable(
+        parsedSavable.url || url,
+        parsedSavable.fileUri || tempPath,
+        parsedSavable.options || {},
+        progressCallback,
+        parsedSavable.resumeData
+      );
+      isResuming = true;
+      console.log(`[nativeEmbedding] Melanjutkan unduhan ${type} dari checkpoint...`);
+    } catch (e) {
+      console.warn('[nativeEmbedding] Gagal parse resume data, mulai baru:', e);
+      downloadResumable = FileSystem.createDownloadResumable(url, tempPath, {}, progressCallback);
+    }
+  } else {
+    downloadResumable = FileSystem.createDownloadResumable(url, tempPath, {}, progressCallback);
+  }
+
+  activeDownloadResumable = downloadResumable;
+
+  let result: FileSystem.FileSystemDownloadResult | undefined = undefined;
+  try {
+    if (isResuming) {
+      try {
+        result = await downloadResumable.resumeAsync();
+      } catch (resumeErr) {
+        console.warn('[nativeEmbedding] resumeAsync gagal, restart fresh download:', resumeErr);
+        await FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(() => {});
+        await AsyncStorage.removeItem(resumeStorageKey).catch(() => {});
+        downloadResumable = FileSystem.createDownloadResumable(url, tempPath, {}, progressCallback);
+        activeDownloadResumable = downloadResumable;
+        result = await downloadResumable.downloadAsync();
+      }
+    } else {
+      result = await downloadResumable.downloadAsync();
+    }
+  } catch (err: any) {
+    // Simpan checkpoint resume jika gagal atau layar HP mati
+    if (activeDownloadResumable) {
+      try {
+        const savable = activeDownloadResumable.savable();
+        await AsyncStorage.setItem(resumeStorageKey, JSON.stringify(savable));
+      } catch {}
+    }
+    activeDownloadResumable = null;
+    throw err;
+  } finally {
+    activeDownloadResumable = null;
+  }
+
+  if (!result || !result.uri) {
+    throw new Error(`Unduhan ${type} terputus sebelum selesai.`);
+  }
+
+  // 5. Validasi integritas ukuran file sementara (.tmp)
+  const tempInfo = await FileSystem.getInfoAsync(tempPath).catch(() => ({ exists: false }));
+  const finalSize = tempInfo.exists ? ((tempInfo as any).size || 0) : 0;
+
+  if (finalSize < minValidSize) {
+    const sizeMb = Math.round((finalSize / (1024 * 1024)) * 10) / 10;
+    const targetMb = Math.round((estimatedTotal / (1024 * 1024)) * 10) / 10;
+    console.warn(`[nativeEmbedding] Ukuran file tidak lengkap: ${sizeMb} MB / ${targetMb} MB`);
+    // Hapus file potongan agar tidak mengotori disk
+    await FileSystem.deleteAsync(tempPath, { idempotent: true }).catch(() => {});
+    await AsyncStorage.removeItem(resumeStorageKey).catch(() => {});
+    throw new Error(`Unduhan terputus (baru terunduh ${sizeMb} MB dari ~${targetMb} MB). Silakan ketuk 'Coba Lagi' untuk mengunduh ulang.`);
+  }
+
+  // 6. File terbukti 100% lengkap dan valid! Pindahkan dari .tmp ke targetPath
+  await FileSystem.deleteAsync(targetPath, { idempotent: true }).catch(() => {});
+  await FileSystem.moveAsync({
+    from: tempPath,
+    to: targetPath,
+  });
+
+  // Bersihkan data resume karena unduhan sudah sempurna
+  await AsyncStorage.removeItem(resumeStorageKey).catch(() => {});
+
+  onProgress(100, finalSize, finalSize);
   return targetPath;
 }
 
 /**
  * Hapus seluruh file model lokal dari device
+ * - Membersihkan file target (.onnx) dan file sementara (.tmp)
+ * - Menghapus resume data di AsyncStorage
+ * - Menghapus direktori offline_ai_models
  */
 export async function deleteNativeModels(): Promise<void> {
-  if (Platform.OS === 'web') return;
+  if (Platform.OS === 'web' || !FileSystem.documentDirectory) return;
   try {
-    const dir = getNativeModelDir();
-    const info = await FileSystem.getInfoAsync(dir);
-    if (info.exists) {
-      await FileSystem.deleteAsync(dir, { idempotent: true });
+    const rawDir = `${FileSystem.documentDirectory}offline_ai_models`;
+    const slashDir = `${FileSystem.documentDirectory}offline_ai_models/`;
+
+    // 1. Bersihkan kunci-kunci checkpoint resume
+    await AsyncStorage.multiRemove([
+      '@offline_ai_resume_generation',
+      '@offline_ai_resume_embedding',
+    ]).catch(() => {});
+
+    // 2. Kumpulkan semua target file potensial
+    const filesToDelete = new Set<string>([
+      `${slashDir}${MODEL_FILES.generation}`,
+      `${slashDir}${MODEL_FILES.generation}.tmp`,
+      `${slashDir}${MODEL_FILES.embedding}`,
+      `${slashDir}${MODEL_FILES.embedding}.tmp`,
+      `${rawDir}/${MODEL_FILES.generation}`,
+      `${rawDir}/${MODEL_FILES.generation}.tmp`,
+      `${rawDir}/${MODEL_FILES.embedding}`,
+      `${rawDir}/${MODEL_FILES.embedding}.tmp`,
+    ]);
+
+    // Baca direktori untuk menemukan sisa file lain jika ada
+    for (const d of [slashDir, rawDir]) {
+      try {
+        const files = await FileSystem.readDirectoryAsync(d);
+        for (const f of files) {
+          filesToDelete.add(`${slashDir}${f}`);
+          filesToDelete.add(`${rawDir}/${f}`);
+        }
+      } catch {}
     }
+
+    // Hapus setiap file
+    for (const f of Array.from(filesToDelete)) {
+      try {
+        const info = await FileSystem.getInfoAsync(f).catch(() => ({ exists: false }));
+        if (info.exists) {
+          await FileSystem.deleteAsync(f, { idempotent: true });
+        }
+      } catch (e) {
+        console.warn(`[nativeEmbedding] Gagal hapus file ${f}:`, e);
+      }
+    }
+
+    // 3. Hapus direktori itu sendiri (baik dengan trailing slash maupun tanpa)
+    for (const d of [rawDir, slashDir]) {
+      try {
+        const info = await FileSystem.getInfoAsync(d).catch(() => ({ exists: false }));
+        if (info.exists) {
+          await FileSystem.deleteAsync(d, { idempotent: true });
+        }
+      } catch {}
+    }
+
     cachedNativeSession = null;
+    console.log('[nativeEmbedding] Seluruh file model lokal & direktori berhasil dihapus');
   } catch (err) {
     console.error('[nativeEmbedding] Gagal menghapus direktori model:', err);
+    throw err;
   }
 }
 
