@@ -173,10 +173,22 @@ export async function getCachedTasks(userId: string): Promise<StudentTask[]> {
 /**
  * Cache Notes locally
  */
+export type NoteEmbeddingCallback = (notes: StudyNote[]) => void;
+let onNotesCachedListener: NoteEmbeddingCallback | null = null;
+export function setNotesCachedListener(cb: NoteEmbeddingCallback | null) {
+  onNotesCachedListener = cb;
+}
+
 export async function cacheNotesLocally(userId: string, notes: StudyNote[]): Promise<void> {
   try {
     const key = `@offline_cached_notes_${userId}`;
     await AsyncStorage.setItem(key, JSON.stringify(notes));
+
+    if (onNotesCachedListener) {
+      try {
+        onNotesCachedListener(notes);
+      } catch {}
+    }
   } catch (e) {
     console.log('Error caching notes locally:', e);
   }

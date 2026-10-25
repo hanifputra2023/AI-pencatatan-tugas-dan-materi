@@ -14,6 +14,9 @@ import { useMoods } from '../contexts/MoodContext';
 import { useTheme, getSemanticColors } from '../contexts/ThemeContext';
 import { supabase } from '../lib/supabase';
 import { sendMessageToGemini, GeminiMessage } from '../lib/gemini';
+import { sendAIMessage } from '../lib/aiRouter';
+import OfflineAISetupModal from '../components/OfflineAISetupModal';
+import { isOfflineAIReady } from '../hooks/useOfflineAI';
 import { extractAgentAction, stripAgentActionBlock, executeAgentAction } from '../lib/agentActions';
 import { ChatMessage, ChatAttachment, ChatSession } from '../types';
 import * as FileSystem from 'expo-file-system';
@@ -32,7 +35,7 @@ import { RootStackParamList } from '../navigation/AppNavigator';
 import { useResponsive } from '../hooks/useResponsive';
 import MarkdownRenderer from '../components/MarkdownRenderer';
 import { compressImage } from '../lib/imageCompressor';
-import { isDeviceOnline } from '../lib/offlineSync';
+import { isDeviceOnline, subscribeNetworkStatus } from '../lib/offlineSync';
 import {
   FloatingBadge,
   FadeSlideIn,
@@ -137,6 +140,19 @@ export default function ChatScreen() {
   const [proactiveBanner, setProactiveBanner] = useState<string | null>(null);
   const [showStopModal, setShowStopModal] = useState(false);
   const cancelRef = useRef<AbortController | null>(null);
+
+  // Offline AI States
+  const [showOfflineAIModal, setShowOfflineAIModal] = useState(false);
+  const [isOfflineReady, setIsOfflineReady] = useState(false);
+  const [isOnline, setIsOnline] = useState(true);
+
+  useEffect(() => {
+    isOfflineAIReady().then(setIsOfflineReady).catch(() => {});
+    const unsub = subscribeNetworkStatus((online) => {
+      setIsOnline(online);
+    });
+    return () => unsub();
+  }, []);
 
   // Sampling parameters from Admin settings (ai_temp / ai_top_p)
   const chatTemperature = parseFloat(appSettings['ai_temp']) > 0
@@ -508,8 +524,10 @@ export default function ChatScreen() {
     setShowAttachMenu(false);
 
     const online = await isDeviceOnline();
-    if (!online) {
-      setErrorToast('Mode Offline ☁️: Bot AI memerlukan koneksi internet untuk menjawab pesan.');
+    const offlineReady = await isOfflineAIReady();
+    if (!online && !offlineReady) {
+      setErrorToast(`Mode Offline ☁️: ${effectiveBotName} memerlukan koneksi internet, atau unduh model AI Lokal untuk akses tanpa kuota.`);
+      setShowOfflineAIModal(true);
       return;
     }
 
@@ -598,7 +616,7 @@ export default function ChatScreen() {
           parts: [{ text: m.content }],
         }));
 
-        const newAiReply = await sendMessageToGemini(history, text, currentAttachment, aiPersona, {
+        const newAiReply = await sendAIMessage(history, text, currentAttachment, aiPersona, {
           model: appSettings['ai_model'] || undefined,
           maxTokens: chatMaxTokens,
           deepThink: deepThinkEnabled,
@@ -606,6 +624,7 @@ export default function ChatScreen() {
           signal: cancel.signal,
           temperature: factualEnabled ? factualTemperature : chatTemperature,
           topP: factualEnabled ? factualTopP : chatTopP,
+          userId: effectiveUserId,
           onToken: (partial) => {
             setIsStreaming(true);
             if (replyId) {
@@ -771,7 +790,7 @@ export default function ChatScreen() {
         },
       };
       try {
-        return await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, geminiOpts);
+        return await sendAIMessage(history, text, currentAttachment, customAiPrompt, { ...geminiOpts, userId: effectiveUserId });
       } catch (firstErr: any) {
         // Jika user sengaja klik stop/batal, jangan coba lagi
         if (firstErr?.cancelled) {
@@ -779,7 +798,7 @@ export default function ChatScreen() {
         }
         console.warn('[Auto-Retry] Mengulangi pengiriman secara mulus di latar belakang...', firstErr?.message);
         await new Promise(res => setTimeout(res, 1000));
-        return await sendMessageToGemini(history, text, currentAttachment, customAiPrompt, geminiOpts);
+        return await sendAIMessage(history, text, currentAttachment, customAiPrompt, { ...geminiOpts, userId: effectiveUserId });
       }
     };
 
@@ -1318,12 +1337,19 @@ export default function ChatScreen() {
 
               <View style={styles.headerInfoBlock}>
                 <View style={styles.headerTitleRow}>
-                  <Text style={[styles.headerTitle, { color: theme.text }]}>
+                  <Text style={[styles.headerTitle, { color: theme.text }]} numberOfLines={1}>
                     {effectiveBotName}
                   </Text>
-                  <PulseDot color="#10B981" size={7} />
-                  {activePersona?.name && !isSmallPhone && (
-                    <View style={[styles.personaBadge, { backgroundColor: theme.accentBg, borderColor: theme.border, ...(isMobile ? { maxWidth: 80 } : {})}]}>
+                  <PulseDot color={isOnline ? "#10B981" : "#F59E0B"} size={7} />
+                  {!isOnline && (
+                    <View style={[styles.personaBadge, { backgroundColor: isLightMode ? '#FEF2F2' : '#7F1D1D', borderColor: isLightMode ? '#FECACA' : '#991B1B' }]}>
+                      <Text style={[styles.personaBadgeText, { color: isLightMode ? '#DC2626' : '#F87171' }]}>
+                        Offline
+                      </Text>
+                    </View>
+                  )}
+                  {activePersona?.name && !isMobile && (
+                    <View style={[styles.personaBadge, { backgroundColor: theme.accentBg, borderColor: theme.border }]}>
                       <Text style={[styles.personaBadgeText, { color: theme.accentLight }]} numberOfLines={1} ellipsizeMode="tail">
                         {activePersona.name.split(' (')[0]}
                       </Text>
@@ -1331,35 +1357,101 @@ export default function ChatScreen() {
                   )}
                 </View>
                 <Text style={[styles.headerSubtitle, { color: theme.subtext }]} numberOfLines={1}>
-                  {currentSessionTitle || 'Teman Belajar & Curhat AI'}
+                  {isMobile && activePersona?.name
+                    ? `${activePersona.name.split(' (')[0]} • ${currentSessionTitle || 'Teman Belajar'}`
+                    : (currentSessionTitle || 'Teman Belajar & Curhat AI')}
                 </Text>
               </View>
             </View>
 
             {/* Header Right Actions: Quick New Chat & Options Dropdown Menu */}
-            <View style={styles.headerRightActions}>
+            <View style={[styles.headerRightActions, isMobile && { gap: 5 }]}>
+              {/* Offline AI Engine Setup Button */}
+              <TouchableOpacity
+                style={[
+                  styles.headerActionBtn,
+                  isMobile
+                    ? {
+                        width: 32,
+                        height: 32,
+                        backgroundColor: isOfflineReady
+                          ? (isLightMode ? '#ECFDF5' : 'rgba(16, 185, 129, 0.15)')
+                          : (isLightMode ? '#FFFBEB' : 'rgba(245, 158, 11, 0.15)'),
+                        borderColor: isOfflineReady
+                          ? (isLightMode ? '#A7F3D0' : '#10B981')
+                          : (isLightMode ? '#FDE68A' : '#F59E0B'),
+                        borderWidth: 1.2,
+                      }
+                    : {
+                        width: 'auto',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: isOfflineReady
+                          ? (isLightMode ? '#ECFDF5' : 'rgba(16, 185, 129, 0.15)')
+                          : (isLightMode ? '#FFFBEB' : 'rgba(245, 158, 11, 0.15)'),
+                        borderColor: isOfflineReady
+                          ? (isLightMode ? '#A7F3D0' : '#10B981')
+                          : (isLightMode ? '#FDE68A' : '#F59E0B'),
+                        borderWidth: 1.2,
+                        paddingHorizontal: 8,
+                        gap: 4,
+                      },
+                ]}
+                onPress={() => setShowOfflineAIModal(true)}
+                activeOpacity={0.7}
+                accessibilityLabel="Offline AI"
+              >
+                <Ionicons
+                  name={isOfflineReady ? 'hardware-chip' : 'cloud-offline-outline'}
+                  size={14}
+                  color={isOfflineReady ? '#10B981' : '#F59E0B'}
+                />
+                {!isMobile && (
+                  <Text
+                    style={{
+                      color: isOfflineReady ? '#10B981' : '#F59E0B',
+                      fontSize: 11,
+                      fontWeight: '800',
+                    }}
+                  >
+                    {isOfflineReady ? 'Offline' : 'Unduh'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+
               {/* Gemini Live Voice Call Button */}
               <TouchableOpacity
                 style={[
                   styles.headerActionBtn,
-                  {
-                    width: 'auto',
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    backgroundColor: isLightMode ? '#EFF6FF' : 'rgba(56, 189, 248, 0.15)',
-                    borderColor: isLightMode ? '#93C5FD' : '#38BDF8',
-                    borderWidth: 1.2,
-                    paddingHorizontal: 9,
-                    gap: 4,
-                  },
+                  isMobile
+                    ? {
+                        width: 32,
+                        height: 32,
+                        backgroundColor: isLightMode ? '#EFF6FF' : 'rgba(56, 189, 248, 0.15)',
+                        borderColor: isLightMode ? '#93C5FD' : '#38BDF8',
+                        borderWidth: 1.2,
+                      }
+                    : {
+                        width: 'auto',
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        backgroundColor: isLightMode ? '#EFF6FF' : 'rgba(56, 189, 248, 0.15)',
+                        borderColor: isLightMode ? '#93C5FD' : '#38BDF8',
+                        borderWidth: 1.2,
+                        paddingHorizontal: 9,
+                        gap: 4,
+                      },
                 ]}
                 onPress={() => setShowLiveVoiceModal(true)}
                 activeOpacity={0.7}
                 accessibilityLabel="Panggilan Gemini Live"
               >
                 <Ionicons name="sparkles" size={14} color={isLightMode ? '#2563EB' : '#38BDF8'} />
-                <Text style={{ color: isLightMode ? '#2563EB' : '#38BDF8', fontSize: 11, fontWeight: '800' }}>Live</Text>
+                {!isMobile && (
+                  <Text style={{ color: isLightMode ? '#2563EB' : '#38BDF8', fontSize: 11, fontWeight: '800' }}>Live</Text>
+                )}
               </TouchableOpacity>
 
               {!isWide && (
@@ -1825,7 +1917,7 @@ export default function ChatScreen() {
 
                 {/* Option: Gemini Live Voice */}
                 <TouchableOpacity
-                  style={styles.optionRow}
+                  style={[styles.optionRow, { borderBottomColor: theme.cardInner }]}
                   onPress={() => {
                     setShowOptionsMenu(false);
                     setShowLiveVoiceModal(true);
@@ -1837,6 +1929,27 @@ export default function ChatScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.optionLabel, { color: theme.text }]}>Panggilan Suara Gemini Live</Text>
                     <Text style={[styles.optionSub, { color: theme.subtext }]}>Ngobrol langsung lewat audio suara AI</Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Option: Offline AI Setup */}
+                <TouchableOpacity
+                  style={[styles.optionRow, { borderBottomColor: theme.cardInner }]}
+                  onPress={() => {
+                    setShowOptionsMenu(false);
+                    setShowOfflineAIModal(true);
+                  }}
+                >
+                  <View style={[styles.optionIconBox, { backgroundColor: isOfflineReady ? (isLightMode ? '#ECFDF5' : '#064E3B') : (isLightMode ? '#FFFBEB' : '#451A03') }]}>
+                    <Ionicons name={isOfflineReady ? 'hardware-chip' : 'cloud-offline-outline'} size={16} color={isOfflineReady ? '#10B981' : '#F59E0B'} />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.optionLabel, { color: theme.text }]}>
+                      {isOfflineReady ? `Offline AI ${effectiveBotName} (Aktif)` : `Unduh Offline AI ${effectiveBotName}`}
+                    </Text>
+                    <Text style={[styles.optionSub, { color: theme.subtext }]}>
+                      {isOfflineReady ? 'Kelola atau hapus model lokal di perangkat' : 'Akses materi & tugas tanpa kuota internet'}
+                    </Text>
                   </View>
                 </TouchableOpacity>
 
@@ -1954,6 +2067,15 @@ export default function ChatScreen() {
         personaPrompt={activePersona?.prompt}
         existingMessages={messages}
         onNewMessagePair={handleLiveVoiceMessagePair}
+      />
+
+      {/* ========================================================================= */}
+      {/* OFFLINE AI SETUP MODAL */}
+      {/* ========================================================================= */}
+      <OfflineAISetupModal
+        visible={showOfflineAIModal}
+        onClose={() => setShowOfflineAIModal(false)}
+        onSetupSuccess={() => setIsOfflineReady(true)}
       />
 
     </SafeAreaView>

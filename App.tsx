@@ -65,6 +65,11 @@ function MainAppContainer() {
           background: ${isLightMode ? '#94A3B8' : '#2D3748'};
         }
       `;
+
+      // Preload Transformers.js in background so neural engine is immediately ready
+      import('./src/lib/localEmbedding')
+        .then(m => m.getTransformers())
+        .catch(() => {});
     }
   }, [isLightMode]);
 
