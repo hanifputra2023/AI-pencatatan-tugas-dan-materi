@@ -348,7 +348,9 @@ export default function OfflineAISetupModal({
                     <Text style={{ fontSize: 11, color: theme.subtext, marginLeft: 6, flex: 1 }}>
                       {selectedModel === 'smart_synthesizer'
                         ? 'Mode Aktif: Smart Synthesizer (0 MB) — Respons kilat langsung dari catatan.'
-                        : 'Mode Aktif: Qwen Neural LLM — Jawaban luwes dengan penalaran tingkat tinggi.'}
+                        : Platform.OS !== 'web'
+                          ? 'Mode Aktif: Smart Synthesizer — Di APK Android, Qwen Neural otomatis menggunakan Smart Synthesizer yang 100% akurat. Qwen Neural hanya aktif di versi Web/PWA.'
+                          : 'Mode Aktif: Qwen Neural LLM — Jawaban luwes dengan penalaran tingkat tinggi.'}
                     </Text>
                   </View>
                 </View>

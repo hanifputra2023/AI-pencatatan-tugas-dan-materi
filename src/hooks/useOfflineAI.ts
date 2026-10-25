@@ -34,7 +34,9 @@ export const OFFLINE_AI_STORAGE_KEYS = {
 const CURRENT_MODEL_VERSION = '1.0.0';
 
 /**
- * Cek model offline mana yang dipilih aktif oleh user
+ * Cek model offline mana yang dipilih aktif oleh user.
+ * FIX: Kembalikan pilihan user apa adanya. localAI.ts yang akan menangani fallback
+ * ke Smart Synthesizer jika model belum ready / platform tidak mendukung.
  */
 export async function getSelectedOfflineModel(): Promise<OfflineAIModelType> {
   try {
@@ -43,10 +45,11 @@ export async function getSelectedOfflineModel(): Promise<OfflineAIModelType> {
       return 'smart_synthesizer';
     }
     if (val === 'qwen_neural') {
-      const ready = await isNeuralEnhancementReady();
-      if (ready) return 'qwen_neural';
-      return 'smart_synthesizer';
+      // FIX: Selalu kembalikan pilihan user 'qwen_neural' apa adanya.
+      // localAI.ts akan menangani kondisi platform & ketersediaan model secara internal.
+      return 'qwen_neural';
     }
+    // Tidak ada preferensi tersimpan: cek apakah neural sudah ada
     const ready = await isNeuralEnhancementReady();
     return ready ? 'qwen_neural' : 'smart_synthesizer';
   } catch {

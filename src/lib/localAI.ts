@@ -352,89 +352,97 @@ export async function sendLocalAIMessage(
       const hasNeural = await isNeuralEnhancementReady();
       console.log('[localAI] Checking neural status:', { hasNeural, searchResultsCount: searchResults.length, platform: Platform.OS });
 
+      // Qwen Neural hanya berjalan di Web (Transformers.js + WebGPU/WASM)
+      // Di Android, model .onnx 488 MB tidak dapat dijalankan secara langsung di JS runtime Hermès
+      // tanpa native C++ ONNX binding => fallback ke Smart Synthesizer yang 100% akurat
       if (hasNeural && Platform.OS === 'web') {
-      let prompt = '';
-      if (searchResults.length > 0) {
-        const topNote = searchResults[0];
+        let prompt = '';
+        if (searchResults.length > 0) {
+          const topNote = searchResults[0];
 
-        // Pilih bagian catatan yang PALING RELEVAN dengan pertanyaan (bukan selalu 700 char pertama)
-        const relevantPassages = extractPassageByRelevance(topNote.content, cleanQuery, 5);
-        const contextText = relevantPassages.length > 0
-          ? relevantPassages.join(' ')
-          : topNote.content.slice(0, 600);
+          // Pilih bagian catatan yang PALING RELEVAN dengan pertanyaan (bukan selalu 700 char pertama)
+          const relevantPassages = extractPassageByRelevance(topNote.content, cleanQuery, 5);
+          const contextText = relevantPassages.length > 0
+            ? relevantPassages.join(' ')
+            : topNote.content.slice(0, 600);
 
-        const cappedContext = contextText.length > 550 ? contextText.slice(0, 550) + '...' : contextText;
+          const cappedContext = contextText.length > 550 ? contextText.slice(0, 550) + '...' : contextText;
 
-        const targetTokens = extractTargetTokens(cleanQuery);
-        const focusConcept = targetTokens.length > 0
-          ? targetTokens.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(' ')
-          : topNote.title;
+          const targetTokens = extractTargetTokens(cleanQuery);
+          const focusConcept = targetTokens.length > 0
+            ? targetTokens.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(' ')
+            : topNote.title;
 
-        prompt = [
-          `<|im_start|>system`,
-          `Kamu adalah ${aiName}, asisten belajar offline. Jawab pertanyaan pengguna HANYA dengan mengutip fakta dari catatan di bawah ini dalam Bahasa Indonesia. DILARANG menerjemahkan kata atau mengarang definisi sendiri di luar materi.`,
-          ``,
-          `Catatan ("${topNote.title}"):`,
-          cappedContext,
-          `<|im_end|>`,
-          `<|im_start|>user`,
-          cleanQuery,
-          `<|im_end|>`,
-          `<|im_start|>assistant`,
-          `Berdasarkan catatan, `,
-        ].join('\n');
-      } else {
-        prompt = [
-          `<|im_start|>system`,
-          `Kamu adalah ${aiName}, asisten belajar offline. Jawab pertanyaan pengguna secara padat, edukatif, dan ramah dalam Bahasa Indonesia.`,
-          `<|im_end|>`,
-          `<|im_start|>user`,
-          cleanQuery,
-          `<|im_end|>`,
-          `<|im_start|>assistant`,
-          ``,
-        ].join('\n');
-      }
-
-      console.log('[localAI] Mengirim prompt ke Qwen Neural LLM...');
-      const rawAnswer = await generateTextWeb(prompt, {
-        maxTokens: options?.maxTokens || 60,
-        temperature: options?.temperature || 0.2,
-        timeoutMs: 6000,
-      });
-
-      console.log('[localAI] Qwen raw answer length:', rawAnswer ? rawAnswer.length : 0);
-
-      // Bersihkan jawaban
-      if (rawAnswer) {
-        let trimmed = rawAnswer
-          .replace(/^system[\s\S]*?(?:user[\s\S]*?assistant\s*)/i, '')
-          .replace(/^user[\s\S]*?assistant\s*/i, '')
-          .replace(/<\|im_start\|>[\s\S]*?<\|im_end\|>/g, '')
-          .replace(/<\|im_end\|>[\s\S]*/g, '')
-          .replace(/<\|endoftext\|>[\s\S]*/g, '')
-          .replace(/^(?:Catatan|Materi|Judul|Jawaban|Penjelasan)\s*[:：]\s*/im, '')
-          .trim();
-
-        // Tambahkan awalan "Berdasarkan catatan, " jika model meneruskan dari benih seed (hanya jika ada catatan terkait)
-        if (searchResults.length > 0 && trimmed && !trimmed.toLowerCase().startsWith('berdasarkan') && !trimmed.toLowerCase().startsWith('menurut')) {
-          trimmed = `Berdasarkan catatan, ${trimmed}`;
+          prompt = [
+            `<|im_start|>system`,
+            `Kamu adalah ${aiName}, asisten belajar offline. Jawab pertanyaan pengguna HANYA dengan mengutip fakta dari catatan di bawah ini dalam Bahasa Indonesia. DILARANG menerjemahkan kata atau mengarang definisi sendiri di luar materi.`,
+            ``,
+            `Catatan ("${topNote.title}"):`,
+            cappedContext,
+            `<|im_end|>`,
+            `<|im_start|>user`,
+            cleanQuery,
+            `<|im_end|>`,
+            `<|im_start|>assistant`,
+            `Berdasarkan catatan, `,
+          ].join('\n');
+        } else {
+          prompt = [
+            `<|im_start|>system`,
+            `Kamu adalah ${aiName}, asisten belajar offline. Jawab pertanyaan pengguna secara padat, edukatif, dan ramah dalam Bahasa Indonesia.`,
+            `<|im_end|>`,
+            `<|im_start|>user`,
+            cleanQuery,
+            `<|im_end|>`,
+            `<|im_start|>assistant`,
+            ``,
+          ].join('\n');
         }
 
-        // Deteksi halusinasi: jika model kecil mengira ini terjemahan bahasa inggris padahal materinya fisika/IPA
-        const topNoteContent = searchResults.length > 0 ? (searchResults[0].content || '').toLowerCase() : '';
-        const isHallucinating = /\b(bahasa inggris|english|kata benda|merujuk pada jumlah)\b/i.test(trimmed) &&
-          !topNoteContent.includes('inggris') &&
-          !topNoteContent.includes('english');
+        console.log('[localAI] Mengirim prompt ke Qwen Neural LLM...');
+        const rawAnswer = await generateTextWeb(prompt, {
+          maxTokens: options?.maxTokens || 60,
+          temperature: options?.temperature || 0.2,
+          timeoutMs: 35000, // FIX: Dinaikkan dari 6 detik ke 35 detik agar tidak prematur timeout
+        });
 
-        if (isHallucinating) {
-          console.warn('[localAI] Terdeteksi halusinasi kamus bahasa inggris dari model kecil, menggunakan ekstraksi terverifikasi');
-          neuralAnswer = null; // otomatis beralih ke Smart Synthesizer yang 100% akurat dari catatan
-        } else if (trimmed.length > 5) {
-          neuralAnswer = trimmed;
+        console.log('[localAI] Qwen raw answer length:', rawAnswer ? rawAnswer.length : 0);
+
+        // Bersihkan jawaban
+        if (rawAnswer) {
+          let trimmed = rawAnswer
+            .replace(/^system[\s\S]*?(?:user[\s\S]*?assistant\s*)/i, '')
+            .replace(/^user[\s\S]*?assistant\s*/i, '')
+            .replace(/<\|im_start\|>[\s\S]*?<\|im_end\|>/g, '')
+            .replace(/<\|im_end\|>[\s\S]*/g, '')
+            .replace(/<\|endoftext\|>[\s\S]*/g, '')
+            .replace(/^(?:Catatan|Materi|Judul|Jawaban|Penjelasan)\s*[:：]\s*/im, '')
+            .trim();
+
+          // Tambahkan awalan "Berdasarkan catatan, " jika model meneruskan dari benih seed (hanya jika ada catatan terkait)
+          if (searchResults.length > 0 && trimmed && !trimmed.toLowerCase().startsWith('berdasarkan') && !trimmed.toLowerCase().startsWith('menurut')) {
+            trimmed = `Berdasarkan catatan, ${trimmed}`;
+          }
+
+          // Deteksi halusinasi: jika model kecil mengira ini terjemahan bahasa inggris padahal materinya fisika/IPA
+          const topNoteContent = searchResults.length > 0 ? (searchResults[0].content || '').toLowerCase() : '';
+          const isHallucinating = /\b(bahasa inggris|english|kata benda|merujuk pada jumlah)\b/i.test(trimmed) &&
+            !topNoteContent.includes('inggris') &&
+            !topNoteContent.includes('english');
+
+          if (isHallucinating) {
+            console.warn('[localAI] Terdeteksi halusinasi kamus bahasa inggris dari model kecil, menggunakan ekstraksi terverifikasi');
+            neuralAnswer = null; // otomatis beralih ke Smart Synthesizer yang 100% akurat dari catatan
+          } else if (trimmed.length > 5) {
+            neuralAnswer = trimmed;
+          }
         }
+      } else if (hasNeural && Platform.OS !== 'web') {
+        // Android: model ONNX 488 MB tidak bisa dijalankan di JS Hermès runtime tanpa native binding.
+        // Gunakan Smart Synthesizer yang sudah 100% akurat berbasis catatan.
+        console.log('[localAI] Android: Qwen Neural dipilih tapi tidak bisa dieksekusi di Hermès runtime. Menggunakan Smart Synthesizer yang akurat.');
+        neuralAnswer = null; // Akan lanjut ke Smart Synthesizer di bawah
       }
-    }
     } catch (err: any) {
       neuralError = err;
       console.warn('[localAI] Neural LLM error, fallback ke Smart Synthesizer:', err);

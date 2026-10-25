@@ -329,7 +329,7 @@ export async function generateTextWeb(
     throw new Error('localEmbedding hanya dapat berjalan di Web');
   }
 
-  const timeoutMs = options?.timeoutMs || 7000; // Maksimal 7 detik agar tidak stuck!
+  const timeoutMs = options?.timeoutMs || 35000; // Maksimal 35 detik (dinaikkan dari 7 detik: model 500M perlu lebih dari 7 detik untuk infer di browser/WASM)
 
   const runGeneration = async () => {
     const pipe = await initGenerationPipeline();
