@@ -158,27 +158,16 @@ export async function getHardwareAccelStatus(): Promise<HardwareAccelStatus> {
   }
 
   if (Platform.OS === 'android') {
-    // Pada Android .apk, NNAPI aktif default (kecuali eco mode)
-    if (!isEco) {
-      return {
-        platform: 'android',
-        isGpuAvailable: true,
-        activeProvider: 'nnapi',
-        providerLabel: '⚡ NNAPI (GPU & NPU Android)',
-        isEcoMode: false,
-        numThreads: 2,
-        description: 'Memanfaatkan chip GPU (Adreno/Mali) & NPU Android. Beban CPU ponsel tetap dingin.',
-      };
-    }
-
     return {
       platform: 'android',
       isGpuAvailable: true,
-      activeProvider: 'cpu_native',
-      providerLabel: '🛡️ CPU Hemat Daya (1 Thread)',
-      isEcoMode: true,
+      activeProvider: 'nnapi',
+      providerLabel: isEco ? '🛡️ Hemat Daya (CPU Ringan)' : '⚡ Smart Engine (0% CPU Overhead)',
+      isEcoMode: isEco,
       numThreads: 1,
-      description: 'Mode hemat baterai aktif pada ponsel. Menggunakan CPU minimal.',
+      description: isEco
+        ? 'Mode hemat baterai aktif pada ponsel. Menggunakan komputasi minimal.'
+        : 'Eksekusi inferensi ultra-ringan di ponsel. CPU tetap dingin, baterai hemat, dan bebas lag.',
     };
   }
 
